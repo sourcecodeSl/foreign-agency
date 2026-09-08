@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/c/xampp/php/php.exe -v)",
+      "Bash(composer config *)",
+      "Bash(composer install *)",
+      "Bash(php -r \"echo bin2hex\\(random_bytes\\(32\\)\\);\")",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -uroot -e \"SELECT VERSION\\(\\);\")",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -uroot -e \"DROP DATABASE IF EXISTS foreign_agency_test; CREATE DATABASE foreign_agency_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\")",
+      "Bash(DB_DATABASE=foreign_agency_test DB_USERNAME=root DB_PASSWORD= APP_ENV=local APP_DEBUG=true php artisan migrate --seed --force)",
+      "Bash(DB_DATABASE=foreign_agency_test DB_USERNAME=root DB_PASSWORD= DB_HOST=127.0.0.1 php artisan tinker --execute=\"echo \\\\App\\\\Models\\\\User::count\\(\\);\")",
+      "Bash(DB_DATABASE=foreign_agency_test DB_USERNAME=root DB_PASSWORD= php artisan tinker --execute=\"echo \\\\App\\\\Models\\\\User::count\\(\\);\")",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -uroot -e \"SHOW VARIABLES LIKE 'port';\")",
+      "Bash(/c/xampp/mysql/bin/mysql.exe -uroot -h127.0.0.1 -P3306 -e \"SELECT 1;\")",
+      "Bash(DB_DATABASE=foreign_agency_test DB_USERNAME=root DB_PASSWORD= php artisan tinker --execute=\"echo 'users='.\\\\App\\\\Models\\\\User::count\\(\\).' roles='.\\\\App\\\\Models\\\\Role::count\\(\\).' agencies='.\\\\App\\\\Models\\\\Agency::count\\(\\);\")",
+      "Bash(DB_DATABASE=foreign_agency_test DB_USERNAME=root DB_PASSWORD= APP_ENV=local php artisan migrate:fresh --seed --force)",
+      "Read(//c/Users/ASUS/AppData/Local/Temp/**)",
+      "Bash(pkill -f \"artisan serve\")",
+      "Bash(php artisan *)",
+      "Bash(:)",
+      "Bash(rm -f bootstrap/cache/config.php bootstrap/cache/routes-*.php)",
+      "Bash(php -r ' *)",
+      "Bash(awk ' *)",
+      "Bash(grep -vE \"^\\(LOCK TABLES \\\\`users\\\\`|/\\\\*!40000 ALTER TABLE \\\\`users\\\\`|INSERT INTO \\\\`users\\\\`|UNLOCK TABLES;\\)\")",
+      "Bash(grep -nE \"TABLE \\\\`users\\\\`|INTO \\\\`users\\\\`\" install/tables-only.sql)"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+# Foreign Agency Admin — shared-hosting front door.
+#
+# The real Laravel entry point lives in public/. This rule sends every request
+# into public/ so you can upload the whole app folder as the subdomain document
+# root and it "just works". (Cleaner alternative: point the subdomain document
+# root straight at the public/ folder and delete this file.)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    RewriteRule ^(\.well-known/.*)$ $1 [L]
+
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
