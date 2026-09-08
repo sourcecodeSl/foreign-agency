@@ -7,5 +7,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.js'],
+    // Tests drive the mock adapter so they never depend on a running API or
+    // database, regardless of what .env says.
+    env: {
+      VITE_USE_MOCK: 'true',
+    },
   },
 });

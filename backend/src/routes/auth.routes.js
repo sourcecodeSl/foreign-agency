@@ -11,6 +11,39 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
 const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 12 });
 
 /**
+ * POST /api/v1/auth/register
+ * Creates a new account. Password rules are enforced here and mirrored in the
+ * React form so the user sees the same messages before submitting.
+ */
+router.post(
+  '/register',
+  rateLimit({ windowMs: 60 * 60 * 1000, max: 10 }),
+  [
+    body('name').trim().isLength({ min: 3, max: 120 }).withMessage('Name must be at least 3 characters.'),
+    // Deliberately not normalizeEmail(): its Gmail rules strip dots, so
+    // "a.b@gmail.com" would be stored as "ab@gmail.com" and then fail to match
+    // at login. The model lowercases, which is all the normalising we want.
+    body('email').trim().isEmail().withMessage('Enter a valid email address.'),
+    body('phone')
+      .trim()
+      .matches(/^[0-9+\s-]{9,20}$/)
+      .withMessage('Enter a valid phone number.'),
+    body('password')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters.')
+      .matches(/[A-Z]/)
+      .withMessage('Password must include an uppercase letter.')
+      .matches(/[0-9]/)
+      .withMessage('Password must include a number.'),
+    body('confirmPassword')
+      .custom((value, { req }) => value === req.body.password)
+      .withMessage('Passwords do not match.'),
+  ],
+  validate,
+  authController.register
+);
+
+/**
  * POST /api/v1/auth/login
  * Step 1 of sign-in: validates credentials and issues an OTP challenge.
  */

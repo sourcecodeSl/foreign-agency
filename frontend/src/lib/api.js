@@ -59,11 +59,34 @@ let seq = 1048;
 const newCode = () => String(Math.floor(100000 + Math.random() * 900000));
 let mockOtp = newCode(); // regenerated on every mock login / step / resend
 let mockStage = null; // 'phone' -> 'email' -> null, mirrors the real flow
+const mockAccounts = []; // accounts registered during a mock session
 
 const ok = (data, message) => ({ success: true, data, message });
 
 // --- Auth -------------------------------------------------------------------
 export const authApi = {
+  /** Creates an account. Real backend only - registration needs the database. */
+  async register({ name, email, phone, password, confirmPassword }) {
+    if (!USE_MOCK) {
+      return request('/auth/register', {
+        method: 'POST',
+        body: { name, email, phone, password, confirmPassword },
+      });
+    }
+    await delay(600);
+    if (mockAccounts.some((a) => a.email === email.trim().toLowerCase())) {
+      const e = new Error('This account already exists.');
+      e.status = 409;
+      e.errors = { email: 'That email is already registered.' };
+      throw e;
+    }
+    mockAccounts.push({ email: email.trim().toLowerCase(), password });
+    return ok(
+      { id: mockAccounts.length, name, email, status: 'active' },
+      'Account created. You can sign in now.'
+    );
+  },
+
   async login({ username, password, remember }) {
     if (!USE_MOCK) return request('/auth/login', { method: 'POST', body: { username, password, remember } });
     await delay();

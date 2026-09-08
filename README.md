@@ -15,8 +15,12 @@ Admin console for managing agencies, users, roles and verification flows.
 cd backend
 npm install
 cp .env.example .env
+npm run db:migrate     # creates the `users` table and seeds the admin
 npm run dev            # http://localhost:5000
 ```
+
+Start **MySQL** in the XAMPP control panel first, and make sure a database named
+`agency` exists (phpMyAdmin > New > `agency`).
 
 **Frontend**
 
@@ -26,9 +30,27 @@ npm install
 npm run dev            # http://localhost:5173
 ```
 
-The frontend ships with a **mock adapter enabled** (`VITE_USE_MOCK=true` in `frontend/.env`), so
-every screen works without the backend running. Set it to `false` to hit the live Express API —
-Vite proxies `/api` to `http://localhost:5000`.
+`frontend/.env` ships with `VITE_USE_MOCK=false`, so the app talks to the live Express API
+(Vite proxies `/api` to `http://localhost:5000`). Set it to `true` to browse the UI offline on
+the built-in mock adapter — registration and login need the real API, since they use the database.
+
+### Database
+
+`npm run db:migrate` applies [`backend/sql/schema.sql`](backend/sql/schema.sql) and seeds a
+Main Admin. It is safe to re-run.
+
+| Table | Holds |
+| --- | --- |
+| `users` | accounts: name, email, phone, bcrypt hash, role, status, verification timestamps |
+
+Seeded admin — **change the password after signing in**:
+
+| Email | Password |
+| --- | --- |
+| `visaltheekshana555@gmail.com` | `Admin@1234` |
+
+Agencies, roles and permissions still use in-memory stores
+(`backend/src/models/*.store.js`); only users are persisted so far.
 
 ### Sign-in flow
 
@@ -43,16 +65,12 @@ credentials   SMS code         email code         JWT issued here
 The challenge id is rotated between steps, so a phone code can never be replayed
 against the email step, and calling `/auth/verify-email` first is rejected.
 
-### Demo sign-in
-
-| Mode | Username | Password | Codes |
-| --- | --- | --- | --- |
-| Mock (`VITE_USE_MOCK=true`) | anything | any 6+ characters | shown on screen |
-| Live backend | `visaltheekshana555@gmail.com` | any 6+ characters | shown on screen, and logged as `[sms] OTP for ...` / `[mail] OTP for ...` |
+### Verification codes
 
 While delivery is not configured, each verification screen displays its own code
-in an amber "Demo mode" panel with an **Autofill** button. The backend omits
-`devCode` when `NODE_ENV=production`, so that panel disappears on its own.
+in an amber "Demo mode" panel with an **Autofill** button. Codes are also logged
+as `[sms] OTP for ...` / `[mail] OTP for ...`. The panel is shown only for
+channels that could not actually send, and never in production.
 
 ---
 
@@ -60,7 +78,8 @@ in an amber "Demo mode" panel with an **Autofill** button. The backend omits
 
 | Route | Screen |
 | --- | --- |
-| `/login` | Main Admin login |
+| `/register` | Create an account (name, email, phone, password) |
+| `/login` | Sign in with email **or** phone number |
 | `/verify-phone` | Step 1 of 2 — phone OTP, 59-second resend countdown |
 | `/verify-email` | Step 2 of 2 — email OTP; only this step signs you in |
 | `/dashboard` | Stat cards, pending-approval queue, quick actions |
@@ -82,7 +101,8 @@ All routes are prefixed with `/api/v1`. Every response uses the envelope
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| POST | `/auth/login` | Step 1 — validates credentials, sends the SMS code |
+| POST | `/auth/register` | Creates an account (bcrypt-hashed password) |
+| POST | `/auth/login` | Step 1 — checks the password, sends the SMS code |
 | POST | `/auth/verify-otp` | Step 2 — confirms the phone, sends the email code (**no token**) |
 | POST | `/auth/verify-email` | Step 3 — confirms the email and issues the JWT |
 | POST | `/auth/resend-otp` | Re-sends the current step's code; **429** inside the 59s cooldown |
@@ -179,7 +199,7 @@ Knex only touches those files — controllers stay unchanged.
 
 Also required:
 
-- Replace the dummy password check in `auth.controller.js` with `bcrypt.compare`.
+- Move agencies, roles and permissions into MySQL as well (users are already there).
 - Configure a real SMS provider in `services/sms.service.js` (it still logs to the console).
 - Move OTP challenges out of memory into Redis so the 59s cooldown survives restarts and works
   across instances (`utils/otp.js`).

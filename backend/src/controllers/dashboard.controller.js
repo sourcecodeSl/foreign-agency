@@ -1,7 +1,7 @@
 const { asyncHandler } = require('../middleware/errorHandler');
 const { ok } = require('../utils/response');
 const agencyStore = require('../models/agency.store');
-const userStore = require('../models/user.store');
+const userModel = require('../models/user.model');
 const verificationStore = require('../models/verification.store');
 
 /** GET /dashboard/stats - counters behind the four overview cards. */
@@ -11,7 +11,7 @@ exports.stats = asyncHandler(async (req, res) => {
   return ok(res, {
     agencies: { total: counts.all, delta: '+12%' },
     pending: { total: counts.pending, delta: '+2' },
-    users: { total: userStore.total(), delta: '+8%' },
+    users: { total: await userModel.total(), delta: '+8%' },
     unverified: { total: verificationStore.pendingCount(), delta: '-3' },
   });
 });

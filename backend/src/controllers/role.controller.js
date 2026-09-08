@@ -2,14 +2,16 @@ const { asyncHandler, ApiError } = require('../middleware/errorHandler');
 const { ok, created } = require('../utils/response');
 const { slugify } = require('../utils/credentials');
 const roleStore = require('../models/role.store');
-const userStore = require('../models/user.store');
+const userModel = require('../models/user.model');
 
 /** GET /roles - user types, each with a live user count. */
 exports.list = asyncHandler(async (req, res) => {
-  const roles = roleStore.findAll().map((role) => ({
-    ...role,
-    users: userStore.countByRole(role.slug),
-  }));
+  const roles = await Promise.all(
+    roleStore.findAll().map(async (role) => ({
+      ...role,
+      users: await userModel.countByRole(role.slug),
+    }))
+  );
   return ok(res, roles);
 });
 
@@ -46,7 +48,7 @@ exports.remove = asyncHandler(async (req, res) => {
   if (!role) throw new ApiError(404, 'Role not found.');
   if (role.system) throw new ApiError(400, 'System roles cannot be deleted.');
 
-  const inUse = userStore.countByRole(role.slug);
+  const inUse = await userModel.countByRole(role.slug);
   if (inUse > 0) {
     throw new ApiError(409, 'Reassign the ' + inUse + ' user(s) on this role before deleting it.');
   }

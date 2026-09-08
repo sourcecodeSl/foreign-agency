@@ -1,9 +1,9 @@
 const jwt = require('jsonwebtoken');
 
 const { asyncHandler, ApiError } = require('../middleware/errorHandler');
-const { ok } = require('../utils/response');
+const { ok, created } = require('../utils/response');
 const otp = require('../utils/otp');
-const userStore = require('../models/user.store');
+const userModel = require('../models/user.model');
 const smsService = require('../services/sms.service');
 const emailService = require('../services/email.service');
 
@@ -37,20 +37,76 @@ const devCode = (code, sent) => {
   return sent && sent.delivered ? undefined : code;
 };
 
+const nowSql = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+/**
+ * POST /auth/register
+ * Creates an account. Self-registered users land on `agent` with the status
+ * configured by REGISTRATION_DEFAULT_STATUS ('active' lets them sign in right
+ * away; set it to 'pending' to require admin approval first).
+ */
+exports.register = asyncHandler(async (req, res) => {
+  const { name, email, phone, password } = req.body;
+
+  // Check both uniques up front so the user gets a field-level message rather
+  // than a raw duplicate-key error.
+  const errors = {};
+  if (await userModel.emailExists(email)) errors.email = 'That email is already registered.';
+  if (await userModel.phoneExists(phone)) errors.phone = 'That phone number is already registered.';
+  if (Object.keys(errors).length > 0) {
+    throw new ApiError(409, 'This account already exists.', errors);
+  }
+
+  let user;
+  try {
+    user = await userModel.create({
+      name,
+      email,
+      phone,
+      password,
+      roleSlug: 'agent',
+      status: process.env.REGISTRATION_DEFAULT_STATUS || 'active',
+    });
+  } catch (err) {
+    // Safety net for two submits racing past the checks above.
+    if (err.code === 'ER_DUP_ENTRY') {
+      throw new ApiError(409, 'That email or phone number is already registered.');
+    }
+    throw err;
+  }
+
+  return created(
+    res,
+    { id: user.id, name: user.name, email: user.email, status: user.status },
+    user.status === 'active'
+      ? 'Account created. You can sign in now.'
+      : 'Account created and is awaiting approval.'
+  );
+});
+
 /**
  * POST /auth/login - step 1.
- * Dummy: any known admin + a >=6 char password passes. Replace the password
- * check with bcrypt.compare(password, user.passwordHash).
+ * Verifies the password against the bcrypt hash, then sends the phone code.
  */
 exports.login = asyncHandler(async (req, res) => {
   const { username, password } = req.body;
 
-  const user = userStore.findByUsernameOrEmail(username) || userStore.findById('US-2001');
-  if (!user || password.length < 6) {
+  const row = await userModel.findByLoginWithHash(username);
+
+  // Same message either way, so the response cannot be used to discover which
+  // emails are registered.
+  if (!row || !(await userModel.verifyPassword(password, row.password_hash))) {
     throw new ApiError(401, 'Invalid username or password.');
   }
+
+  const user = userModel.toPublic(row);
   if (user.status !== 'active') {
-    throw new ApiError(403, 'This account is not active. Contact system support.');
+    throw new ApiError(
+      403,
+      user.status === 'pending'
+        ? 'This account is awaiting approval.'
+        : 'This account has been deactivated. Contact system support.'
+    );
   }
 
   const challenge = otp.createChallenge(user.id, user.phone, 'sms');
@@ -77,8 +133,10 @@ exports.verifyOtp = asyncHandler(async (req, res) => {
   const result = otp.verifyChallenge(challengeId, code, 'sms');
   if (!result.ok) throw new ApiError(400, result.reason);
 
-  const user = userStore.findById(result.challenge.adminId);
+  const user = await userModel.findById(result.challenge.adminId);
   if (!user) throw new ApiError(404, 'Account not found.');
+
+  await userModel.update(user.id, { phoneVerifiedAt: nowSql() });
 
   // Phone confirmed - carry that fact into the email challenge.
   const emailChallenge = otp.createChallenge(user.id, user.email, 'email', { phoneVerified: true });
@@ -115,13 +173,10 @@ exports.verifyEmail = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Verify your phone number before confirming your email.');
   }
 
-  const user = userStore.findById(result.challenge.adminId);
+  const user = await userModel.findById(result.challenge.adminId);
   if (!user) throw new ApiError(404, 'Account not found.');
 
-  userStore.update(user.id, {
-    lastLogin: new Date().toISOString().slice(0, 16).replace('T', ' '),
-    emailVerifiedAt: new Date().toISOString(),
-  });
+  await userModel.update(user.id, { lastLogin: nowSql(), emailVerifiedAt: nowSql() });
 
   return ok(
     res,
@@ -168,7 +223,7 @@ exports.resendOtp = asyncHandler(async (req, res) => {
 
 /** GET /auth/me */
 exports.me = asyncHandler(async (req, res) => {
-  const user = userStore.findById(req.user.sub);
+  const user = await userModel.findById(req.user.sub);
   if (!user) throw new ApiError(404, 'Account not found.');
   return ok(res, { id: user.id, name: user.name, email: user.email, role: user.role, roleSlug: user.roleSlug });
 });
