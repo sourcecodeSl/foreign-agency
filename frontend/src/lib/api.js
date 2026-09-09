@@ -402,6 +402,14 @@ export const verificationApi = {
     emails = emails.map((e) => (e.id === id ? { ...e, status: 'verified' } : e));
     return ok(emails.find((e) => e.id === id), 'Email marked as verified.');
   },
+
+  /** Drops the request. The account the link was sent for is untouched. */
+  async removeEmail(id) {
+    if (!USE_MOCK) return request('/verification/emails/' + id, { method: 'DELETE' });
+    await delay(350);
+    emails = emails.filter((e) => e.id !== id);
+    return ok({ id }, 'Verification request removed.');
+  },
 };
 
 // --- Dashboard --------------------------------------------------------------

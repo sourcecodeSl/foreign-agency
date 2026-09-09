@@ -105,6 +105,34 @@ class VerificationController extends Controller
         return ApiResponse::ok($record->toPublic(), $record->email.' marked as verified.');
     }
 
+    /**
+     * DELETE /verification/emails/:id
+     *
+     * Drops the request outright. It is only a record of a confirmation link
+     * that was sent, so nothing else hangs off it - the account itself lives
+     * in the users table and is untouched.
+     *
+     * Administrator only: every other authenticated role either owns no part
+     * of this list (an agency) or is read-only (an auditor).
+     */
+    public function destroy(Request $request, string $id)
+    {
+        $auth = $request->attributes->get('auth_user');
+        if (($auth['roleSlug'] ?? null) !== 'main_admin') {
+            throw new ApiException(403, 'Only the administrator can remove a verification request.');
+        }
+
+        $record = EmailVerification::find($id);
+        if (! $record) {
+            throw new ApiException(404, 'Verification request not found.');
+        }
+
+        $email = $record->email;
+        $record->delete();
+
+        return ApiResponse::ok(['id' => $id], $email.' has been removed from the list.');
+    }
+
     /** GET /verification/emails/confirm/:token - public link from the email. */
     public function confirmByToken(string $token)
     {

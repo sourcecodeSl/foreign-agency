@@ -92,6 +92,9 @@ Route::prefix('verification')->middleware('auth.jwt')->group(function () {
     Route::post('/emails', [VerificationController::class, 'requestEmail']);
     Route::post('/emails/{id}/resend', [VerificationController::class, 'resendEmail']);
     Route::patch('/emails/{id}/verify', [VerificationController::class, 'markVerified']);
+    // Administrator only; the check lives in the controller because this group
+    // is not behind the permission matrix.
+    Route::delete('/emails/{id}', [VerificationController::class, 'destroy']);
 });
 
 // --- Dashboard --------------------------------------------------------------

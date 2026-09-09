@@ -131,6 +131,7 @@ INSERT IGNORE INTO `migrations` (`migration`, `batch`) VALUES ('0001_01_01_00110
 -- The permission grid above already carries candidates.delete, so the matching
 -- migration is recorded as applied rather than left pending for upgrade.php.
 INSERT IGNORE INTO `migrations` (`migration`, `batch`) VALUES ('0001_01_01_001200_allow_agency_roles_to_delete_candidates', 9);
+INSERT IGNORE INTO `migrations` (`migration`, `batch`) VALUES ('0001_01_01_001300_ensure_agency_roles_can_work_with_candidates', 9);
 
 
 -- =============================================================================

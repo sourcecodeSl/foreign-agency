@@ -244,6 +244,7 @@ INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (10,'0001_01
 INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (11,'0001_01_01_001000_allow_document_history_on_candidate_documents',3);
 INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (12,'0001_01_01_001100_make_nic_optional_on_candidates',3);
 INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (13,'0001_01_01_001200_allow_agency_roles_to_delete_candidates',3);
+INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (14,'0001_01_01_001300_ensure_agency_roles_can_work_with_candidates',3);
 
 -- -----------------------------------------------------------------------------
 -- SECTION 5 - Main Admin account
