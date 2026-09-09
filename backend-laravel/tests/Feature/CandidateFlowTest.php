@@ -188,7 +188,7 @@ class CandidateFlowTest extends TestCase
             ->assertJsonCount(0, 'data');
     }
 
-    public function test_main_admin_sees_candidates_across_agencies(): void
+    public function test_main_admin_reaches_every_agency_one_at_a_time(): void
     {
         $this->agency('AG-9001', 'Alpha Agency', 'tst.alpha');
         $this->agency('AG-9002', 'Beta Agency', 'tst.beta');
@@ -202,9 +202,19 @@ class CandidateFlowTest extends TestCase
         ]))->assertCreated();
 
         $admin = $this->tokenFor('main_admin', null, 'admin@example.com');
+
+        // Candidate files are agency records, so there is no single listing
+        // that pours every agency together - the admin names one.
         $this->withToken($admin)->getJson('/api/v1/candidates')
             ->assertOk()
-            ->assertJsonCount(2, 'data');
+            ->assertJsonCount(0, 'data');
+
+        foreach (['AG-9001', 'AG-9002'] as $agencyId) {
+            $this->withToken($admin)->getJson('/api/v1/candidates?agencyId='.$agencyId)
+                ->assertOk()
+                ->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.agencyId', $agencyId);
+        }
     }
 
     public function test_duplicate_passport_inside_one_agency_is_rejected(): void

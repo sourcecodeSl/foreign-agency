@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\ApiException;
 use App\Models\Agency;
 use App\Models\AppCounter;
+use App\Models\Candidate;
 use App\Models\User;
 use App\Support\ApiResponse;
 use App\Support\Credentials;
@@ -103,7 +104,18 @@ class AgencyController extends Controller
             throw new ApiException(403, 'You can only view your own agency.');
         }
 
-        return ApiResponse::ok($agency->toPublic());
+        // The phone lives on the owner login rather than on the agency row, and
+        // the candidate count is what says whether this agency can be deleted.
+        // Both are looked up here and not in index(), which would be a query
+        // per row for a listing that never shows them.
+        $owner = User::where('agency_id', $agency->id)
+            ->where('role_slug', 'agency_owner')
+            ->first();
+
+        return ApiResponse::ok($agency->toPublic() + [
+            'phone' => $owner->phone ?? null,
+            'candidates' => Candidate::withTrashed()->where('agency_id', $agency->id)->count(),
+        ]);
     }
 
     /** POST /agencies */
@@ -112,6 +124,9 @@ class AgencyController extends Controller
         $data = $request->all();
         Validator::make($data, [
             'name' => 'required|string|min:3',
+            // The person the admin actually calls, and the name the owner
+            // login is created under.
+            'contact' => 'required|string|min:3|max:120',
             'address' => 'required|string|min:8',
             'username' => ['required', 'regex:/^[a-zA-Z0-9._-]{4,20}$/'],
             'password' => ['required', 'string', 'min:8', 'regex:/[A-Z]/', 'regex:/[0-9]/'],
@@ -124,6 +139,8 @@ class AgencyController extends Controller
             'phone.required' => 'A phone number is required for sign-in codes.',
             'phone.regex' => 'Enter a valid phone number.',
             'name.min' => 'Name must be at least 3 characters.',
+            'contact.required' => 'A contact person is required.',
+            'contact.min' => 'Contact name must be at least 3 characters.',
             'address.min' => 'Please provide the full address.',
             'username.regex' => 'Username must be 4-20 characters (letters, numbers, . _ -).',
             'password.min' => 'Password must be at least 8 characters.',
@@ -157,7 +174,7 @@ class AgencyController extends Controller
                 'address' => $data['address'],
                 'username' => $data['username'],
                 'password_hash' => password_hash($plainPassword, PASSWORD_BCRYPT),
-                'contact' => $data['contact'] ?? '-',
+                'contact' => $data['contact'],
                 'email' => $data['email'],
                 'users' => 1,
                 'status' => 'pending',
@@ -167,7 +184,7 @@ class AgencyController extends Controller
 
             // The login the agency owner actually signs in with.
             User::create([
-                'name' => $data['contact'] ?? $data['name'],
+                'name' => $data['contact'],
                 'username' => $data['username'],
                 'email' => strtolower(trim($data['email'])),
                 'phone' => trim($data['phone']),
@@ -275,7 +292,15 @@ class AgencyController extends Controller
         ], 'New credentials generated.');
     }
 
-    /** DELETE /agencies/:id */
+    /**
+     * DELETE /agencies/:id
+     *
+     * Only for an agency that never started working. candidates.agency_id
+     * cascades on delete, so removing one that already has candidates would
+     * take their whole document history with it without anybody being asked.
+     * Deactivating is what stops an agency from signing in; deleting is for
+     * the one that was created by mistake.
+     */
     public function destroy(Request $request, string $id)
     {
         $this->requireGlobalRole($request);
@@ -284,8 +309,23 @@ class AgencyController extends Controller
         if (! $agency) {
             throw new ApiException(404, 'Agency not found.');
         }
-        $agency->delete();
 
-        return ApiResponse::ok(['id' => $id], 'Agency deleted.');
+        // withTrashed: a soft-deleted candidate is still a row the cascade
+        // would take, and its documents are still on disk.
+        $candidates = Candidate::withTrashed()->where('agency_id', $agency->id)->count();
+        if ($candidates > 0) {
+            throw new ApiException(409, $agency->name.' has '.$candidates.' candidate'.($candidates === 1 ? '' : 's').' on file, so it cannot be deleted. Deactivate it instead.');
+        }
+
+        $name = $agency->name;
+
+        DB::transaction(function () use ($agency) {
+            // Hard delete, which is what frees the username, email and phone
+            // for whoever is registered next.
+            User::where('agency_id', $agency->id)->delete();
+            $agency->delete();
+        });
+
+        return ApiResponse::ok(['id' => $id], $name.' has been deleted.');
     }
 }

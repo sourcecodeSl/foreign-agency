@@ -252,6 +252,21 @@ export const agencyApi = {
     return ok(agencies.find((a) => a.id === id));
   },
 
+  /** One agency, with the owner phone and candidate count the list omits. */
+  async get(id) {
+    if (!USE_MOCK) return request('/agencies/' + id);
+    await delay(250);
+    const agency = agencies.find((a) => a.id === id);
+    return ok({ ...agency, phone: '—', candidates: 0 });
+  },
+
+  async remove(id) {
+    if (!USE_MOCK) return request('/agencies/' + id, { method: 'DELETE' });
+    await delay(400);
+    agencies = agencies.filter((a) => a.id !== id);
+    return ok({ id });
+  },
+
   async resetCredentials(id) {
     if (!USE_MOCK) return request('/agencies/' + id + '/credentials/reset', { method: 'POST' });
     await delay(500);
@@ -476,9 +491,23 @@ export const candidateApi = {
     return request('/candidates/document-types');
   },
 
-  async list({ search = '', status = 'all' } = {}) {
+  /**
+   * An agency login is scoped to itself and ignores agencyId. A cross-agency
+   * role has to name one, and gets an empty list until it does.
+   */
+  async list({ search = '', status = 'all', agencyId = '' } = {}) {
     requireLiveApi();
-    return request('/candidates?search=' + encodeURIComponent(search) + '&status=' + status);
+    return request(
+      '/candidates?search=' + encodeURIComponent(search) +
+        '&status=' + status +
+        '&agencyId=' + encodeURIComponent(agencyId)
+    );
+  },
+
+  /** Soft delete: the record goes, the uploaded files are kept. */
+  async remove(id) {
+    requireLiveApi();
+    return request('/candidates/' + id, { method: 'DELETE' });
   },
 
   async get(id) {

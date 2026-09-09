@@ -21,11 +21,28 @@ class CandidateController extends Controller
     /** Roles that are not tied to a single agency. */
     private const GLOBAL_ROLES = ['main_admin', 'auditor'];
 
-    /** GET /candidates */
+    /**
+     * GET /candidates?agencyId=
+     *
+     * An agency login sees its own candidates. A cross-agency role browses one
+     * agency at a time and has to name it: candidate files are agency records,
+     * so there is no listing that pours every agency into one pile.
+     */
     public function index(Request $request)
     {
+        $scope = $this->scopeAgencyId($request);
+
+        if ($scope === null) {
+            $scope = trim((string) $request->query('agencyId'));
+
+            // Nothing picked yet - an empty listing, not everybody's records.
+            if ($scope === '') {
+                return ApiResponse::ok([]);
+            }
+        }
+
         $candidates = Candidate::query()
-            ->forAgency($this->scopeAgencyId($request))
+            ->forAgency($scope)
             ->search($request->query('search'))
             ->when($request->query('status', 'all') !== 'all',
                 fn ($q) => $q->where('status', $request->query('status')))

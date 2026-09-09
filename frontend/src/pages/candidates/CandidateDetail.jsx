@@ -10,8 +10,11 @@ import {
   IconPlus,
   IconRefresh,
   IconChevronDown,
+  IconTrash,
 } from '../../components/ui/Icons';
+import Modal from '../../components/ui/Modal';
 import { candidateApi } from '../../lib/api';
+import { useAuth, isGlobalRole } from '../../context/AuthContext';
 
 const STATUS_TONE = { draft: 'gray', submitted: 'blue', approved: 'green', rejected: 'red' };
 
@@ -27,7 +30,7 @@ const formatSize = (bytes) => {
  * Uploads are append-only: adding a file never replaces what is there, so the
  * row shows the current file and can expand to the full history.
  */
-function DocumentRow({ type, versions, onUpload, onDownload, uploading }) {
+function DocumentRow({ type, versions, onUpload, onDownload, uploading, readOnly }) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef(null);
 
@@ -89,26 +92,31 @@ function DocumentRow({ type, versions, onUpload, onDownload, uploading }) {
           </Button>
         )}
 
-        <input
-          ref={inputRef}
-          type="file"
-          className="hidden"
-          accept=".pdf,.jpg,.jpeg,.png,.webp"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onUpload(type.value, file);
-            e.target.value = ''; // allow re-picking the same file
-          }}
-        />
-        <Button
-          size="sm"
-          variant={current ? 'secondary' : 'primary'}
-          icon={current ? IconRefresh : IconPlus}
-          loading={uploading === type.value}
-          onClick={() => inputRef.current?.click()}
-        >
-          {current ? 'Add new' : 'Attach'}
-        </Button>
+        {/* Attaching is the owning agency's job; a reviewer only reads. */}
+        {!readOnly && (
+          <>
+            <input
+              ref={inputRef}
+              type="file"
+              className="hidden"
+              accept=".pdf,.jpg,.jpeg,.png,.webp"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onUpload(type.value, file);
+                e.target.value = ''; // allow re-picking the same file
+              }}
+            />
+            <Button
+              size="sm"
+              variant={current ? 'secondary' : 'primary'}
+              icon={current ? IconRefresh : IconPlus}
+              loading={uploading === type.value}
+              onClick={() => inputRef.current?.click()}
+            >
+              {current ? 'Add new' : 'Attach'}
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Version history - nothing is ever deleted, so older files stay readable. */}
@@ -142,6 +150,10 @@ export default function CandidateDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { admin } = useAuth();
+
+  // A cross-agency role reviews the file; it does not attach or submit.
+  const readOnly = isGlobalRole(admin?.roleSlug);
 
   const [candidate, setCandidate] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -150,6 +162,8 @@ export default function CandidateDetail() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(null);
   const [zipping, setZipping] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -206,6 +220,18 @@ export default function CandidateDetail() {
     }
   };
 
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await candidateApi.remove(id);
+      toast(candidate.name + ' has been removed.');
+      navigate('/candidates');
+    } catch (err) {
+      toast(err.message || 'Could not remove the candidate.', 'error');
+      setDeleting(false);
+    }
+  };
+
   const handleSubmit = async () => {
     try {
       await candidateApi.updateStatus(id, 'submitted');
@@ -242,6 +268,14 @@ export default function CandidateDetail() {
               <Badge tone={STATUS_TONE[candidate.status] || 'gray'} dot>
                 {candidate.status}
               </Badge>
+              <Button
+                variant="ghost"
+                icon={IconTrash}
+                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete
+              </Button>
               <Button variant="secondary" onClick={() => navigate('/candidates')}>
                 Back
               </Button>
@@ -271,7 +305,11 @@ export default function CandidateDetail() {
       <Card>
         <CardHeader
           title="Documents"
-          subtitle="Attaching a file never replaces an older one — every version is kept."
+          subtitle={
+            readOnly
+              ? 'Filed by the agency. Every version is kept, so nothing here was ever replaced.'
+              : 'Attaching a file never replaces an older one — every version is kept.'
+          }
           action={
             <div className="flex flex-wrap items-center gap-2">
               <span
@@ -290,7 +328,7 @@ export default function CandidateDetail() {
               >
                 Download all (ZIP)
               </Button>
-              {complete && candidate.status === 'draft' && (
+              {!readOnly && complete && candidate.status === 'draft' && (
                 <Button onClick={handleSubmit}>Submit for review</Button>
               )}
             </div>
@@ -306,6 +344,7 @@ export default function CandidateDetail() {
               uploading={uploading}
               onUpload={handleUpload}
               onDownload={handleDownloadOne}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -315,6 +354,38 @@ export default function CandidateDetail() {
           The ZIP contains one folder per document type, holding the latest file of each.
         </div>
       </Card>
+
+      <Modal
+        open={confirmDelete}
+        title={'Remove ' + candidate.name + '?'}
+        subtitle="The candidate no longer appears in the register."
+        onClose={() => (deleting ? null : setConfirmDelete(false))}
+        footer={
+          <>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={deleting}
+              onClick={() => setConfirmDelete(false)}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" variant="danger" loading={deleting} onClick={handleDelete}>
+              Remove Candidate
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-gray-600">
+          Passport{' '}
+          <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-900">
+            {candidate.passportNo}
+          </code>{' '}
+          is removed from the register. The {uploadedCount} attached document
+          {uploadedCount === 1 ? '' : 's'} stay on the server, so the record can be restored if this
+          was a mistake.
+        </p>
+      </Modal>
     </div>
   );
 }

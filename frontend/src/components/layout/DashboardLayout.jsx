@@ -10,7 +10,9 @@ const PAGE_META = [
   { match: /^\/agencies/, title: 'Agency Management', subtitle: 'Review pending, active and deactivated agencies' },
   { match: /^\/candidates\/register/, title: 'Register Candidate', subtitle: 'Capture the candidate details, then attach the documents' },
   { match: /^\/candidates\/\d+/, title: 'Candidate File', subtitle: 'Details and attached documents' },
-  { match: /^\/candidates/, title: 'Candidates', subtitle: 'Everyone registered by your agency' },
+  // Wording that holds for both readers: an agency sees its own, the admin
+  // picks whose to look at. The card below carries the role-specific line.
+  { match: /^\/candidates/, title: 'Candidates', subtitle: 'Registered candidate files' },
   { match: /^\/users\/types/, title: 'User Types & Roles', subtitle: 'Define the roles available across the system' },
   { match: /^\/users\/permissions/, title: 'User Permissions', subtitle: 'Assign access rights to each user type' },
   { match: /^\/users/, title: 'Users List', subtitle: 'Manage every user account in the system' },

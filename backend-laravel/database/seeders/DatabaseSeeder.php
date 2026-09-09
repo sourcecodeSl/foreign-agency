@@ -47,14 +47,15 @@ class DatabaseSeeder extends Seeder
             ['id' => 'RL-02', 'name' => 'Agency Owner', 'slug' => 'agency_owner', 'is_system' => false,
                 'description' => 'Manages a single agency, its staff and its data.',
                 // An agency signs in to register candidates and nothing else.
-                // Documents are never removed, so there is no delete grant.
+                // Removing a candidate is the agency's own call, so delete is
+                // granted here; an attached document still cannot be removed.
                 'permissions' => array_merge(Role::emptyMatrix(), [
-                    'candidates' => $grid(true, true, true, false),
+                    'candidates' => $grid(true, true, true, true),
                 ])],
             ['id' => 'RL-03', 'name' => 'Agency Manager', 'slug' => 'agency_manager', 'is_system' => false,
                 'description' => 'Day-to-day operations inside an agency, no billing access.',
                 'permissions' => array_merge(Role::emptyMatrix(), [
-                    'candidates' => $grid(true, true, true, false),
+                    'candidates' => $grid(true, true, true, true),
                 ])],
             ['id' => 'RL-04', 'name' => 'Agent', 'slug' => 'agent', 'is_system' => false,
                 'description' => 'Handles assigned records only.',

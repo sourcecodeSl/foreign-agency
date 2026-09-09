@@ -67,6 +67,7 @@ class CandidateDocumentController extends Controller
      */
     public function store(Request $request, $candidateId)
     {
+        $this->requireOwningAgency($request);
         $candidate = $this->find($request, $candidateId);
 
         $request->validate([
@@ -104,6 +105,7 @@ class CandidateDocumentController extends Controller
      */
     public function storeMany(Request $request, $candidateId)
     {
+        $this->requireOwningAgency($request);
         $candidate = $this->find($request, $candidateId);
 
         $rules = ['documents' => ['required', 'array', 'min:1']];
@@ -261,6 +263,22 @@ class CandidateDocumentController extends Controller
         $name = basename(str_replace('\\', '/', $name));
 
         return preg_replace('/[^A-Za-z0-9._ -]/', '_', $name) ?: 'document';
+    }
+
+    /**
+     * Attaching paperwork is the owning agency's job.
+     *
+     * A cross-agency role reads candidate files to review them; it never files
+     * documents on an agency's behalf, so a stray upload cannot end up under a
+     * candidate that the admin was only looking at.
+     */
+    private function requireOwningAgency(Request $request): void
+    {
+        $auth = $request->attributes->get('auth_user');
+
+        if (in_array($auth['roleSlug'] ?? null, self::GLOBAL_ROLES, true)) {
+            throw new ApiException(403, 'Documents are attached by the agency that owns the candidate.');
+        }
     }
 
     private function find(Request $request, $id): Candidate

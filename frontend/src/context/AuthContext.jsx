@@ -6,6 +6,16 @@ const AuthContext = createContext(null);
 
 const ADMIN_ROLES = ['main_admin', 'auditor'];
 
+/**
+ * Whether a role works across agencies rather than inside one.
+ *
+ * These roles review candidate files but do not own them, so the UI reads them
+ * one agency at a time and never offers to register or attach anything.
+ */
+export function isGlobalRole(roleSlug) {
+  return ADMIN_ROLES.includes(roleSlug);
+}
+
 /** Landing route for a role. */
 export function homePathFor(roleSlug) {
   if (!roleSlug) return '/dashboard';

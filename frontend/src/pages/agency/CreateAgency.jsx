@@ -4,10 +4,10 @@ import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import CopyButton from '../../components/ui/CopyButton';
 import { useToast } from '../../components/ui/Toast';
-import { IconBuilding, IconRefresh, IconCheck } from '../../components/ui/Icons';
+import { IconBuilding, IconRefresh, IconCheck, IconUsers } from '../../components/ui/Icons';
 import { agencyApi } from '../../lib/api';
 
-const EMPTY = { name: '', address: '', email: '', phone: '', username: '', password: '' };
+const EMPTY = { name: '', contact: '', address: '', email: '', phone: '', username: '', password: '' };
 
 /** Field-level rules. Returns a { field: message } map; empty means valid. */
 function validate(values) {
@@ -15,6 +15,10 @@ function validate(values) {
 
   if (!values.name.trim()) errors.name = 'Agency name is required.';
   else if (values.name.trim().length < 3) errors.name = 'Name must be at least 3 characters.';
+
+  if (!values.contact.trim()) errors.contact = 'Contact person is required.';
+  else if (values.contact.trim().length < 3)
+    errors.contact = 'Contact name must be at least 3 characters.';
 
   if (!values.address.trim()) errors.address = 'Address is required.';
   else if (values.address.trim().length < 8) errors.address = 'Please enter the full address.';
@@ -88,7 +92,15 @@ export default function CreateAgency() {
     e.preventDefault();
     const found = validate(values);
     setErrors(found);
-    setTouched({ name: true, address: true, email: true, phone: true, username: true, password: true });
+    setTouched({
+      name: true,
+      contact: true,
+      address: true,
+      email: true,
+      phone: true,
+      username: true,
+      password: true,
+    });
     if (Object.keys(found).length > 0) return;
 
     setSubmitting(true);
@@ -144,6 +156,22 @@ export default function CreateAgency() {
                 error={errors.name}
                 icon={IconBuilding}
                 className="sm:col-span-2"
+              />
+
+              <Input
+                label="Contact Person"
+                name="contact"
+                required
+                placeholder="e.g. Nadia Perera"
+                value={values.contact}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={errors.contact}
+                icon={IconUsers}
+                className="sm:col-span-2"
+                hint={
+                  !errors.contact ? 'Who to call at the agency. The owner login is created under this name.' : undefined
+                }
               />
 
               <div className="sm:col-span-2">

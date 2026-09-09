@@ -30,7 +30,9 @@ const ADMIN_NAV = [
   },
   {
     section: 'Candidates',
-    items: [{ to: '/candidates', label: 'All Candidates', icon: IconUsers, end: true }],
+    // Read one agency at a time, so the label says so rather than promising
+    // a single list of everybody.
+    items: [{ to: '/candidates', label: 'Candidates by Agency', icon: IconUsers, end: true }],
   },
   {
     section: 'User Management',

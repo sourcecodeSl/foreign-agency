@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Agency;
+use App\Models\Candidate;
 use App\Models\User;
 use App\Support\Jwt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -127,6 +128,7 @@ class AdminOnlyAccountsTest extends TestCase
                 'address' => '221B Baker Street, Colombo 03',
                 'username' => 'skyline.owner',
                 'password' => 'Skyline@2026',
+                'contact' => 'Nadia Perera',
             ])->assertStatus(422)
             ->assertJsonStructure(['errors' => ['email', 'phone']]);
     }
@@ -140,6 +142,7 @@ class AdminOnlyAccountsTest extends TestCase
             'password' => 'Skyline@2026',
             'email' => 'owner@skyline.lk',
             'phone' => '0771234567',
+            'contact' => 'Nadia Perera',
         ];
 
         $this->withToken($this->adminToken())->postJson('/api/v1/agencies', $payload)->assertCreated();
@@ -159,6 +162,7 @@ class AdminOnlyAccountsTest extends TestCase
                 'password' => 'Skyline@2026',
                 'email' => 'owner@skyline.lk',
                 'phone' => '0771234567',
+                'contact' => 'Nadia Perera',
             ])->assertCreated()->json('data');
 
         $fresh = $this->withToken($this->adminToken())
@@ -206,5 +210,114 @@ class AdminOnlyAccountsTest extends TestCase
                 'email' => 'sneaky@example.lk',
                 'phone' => '0719999999',
             ])->assertStatus(403);
+    }
+
+    /** Creates an agency through the API and returns its public payload. */
+    private function createAgency(array $overrides = []): array
+    {
+        return $this->withToken($this->adminToken())
+            ->postJson('/api/v1/agencies', $overrides + [
+                'name' => 'Skyline Marketing',
+                'address' => '221B Baker Street, Colombo 03',
+                'username' => 'skyline.owner',
+                'password' => 'Skyline@2026',
+                'email' => 'owner@skyline.lk',
+                'phone' => '0771234567',
+                'contact' => 'Nadia Perera',
+            ])->assertCreated()->json('data');
+    }
+
+    public function test_the_contact_person_is_required_and_names_the_owner_login(): void
+    {
+        $this->withToken($this->adminToken())
+            ->postJson('/api/v1/agencies', [
+                'name' => 'Skyline Marketing',
+                'address' => '221B Baker Street, Colombo 03',
+                'username' => 'skyline.owner',
+                'password' => 'Skyline@2026',
+                'email' => 'owner@skyline.lk',
+                'phone' => '0771234567',
+            ])->assertStatus(422)
+            ->assertJsonPath('errors.contact', 'A contact person is required.');
+
+        $created = $this->createAgency();
+
+        // Stored on the agency and used as the owner login's own name, so the
+        // admin is not left calling an account named after the company.
+        $this->assertSame('Nadia Perera', $created['contact']);
+        $this->assertSame('Nadia Perera', User::where('username', 'skyline.owner')->firstOrFail()->name);
+    }
+
+    public function test_an_agency_that_never_started_working_can_be_deleted(): void
+    {
+        $created = $this->createAgency();
+
+        $this->withToken($this->adminToken())
+            ->deleteJson('/api/v1/agencies/'.$created['id'])
+            ->assertOk()
+            ->assertJsonPath('message', 'Skyline Marketing has been deleted.');
+
+        $this->assertDatabaseMissing('agencies', ['id' => $created['id']]);
+
+        // The login goes with it, which is what frees the username again.
+        $this->assertDatabaseMissing('users', ['username' => 'skyline.owner']);
+        $this->createAgency();
+    }
+
+    public function test_an_agency_with_candidates_is_not_deletable(): void
+    {
+        $created = $this->createAgency();
+
+        $this->withToken($this->adminToken())
+            ->patchJson('/api/v1/agencies/'.$created['id'].'/status', ['status' => 'active'])
+            ->assertOk();
+
+        Candidate::create([
+            'agency_id' => $created['id'],
+            'name' => 'Kamal Perera',
+            'passport_no' => 'N7788990',
+            'address' => '12 Temple Road, Negombo',
+            'mobile' => '0771234567',
+            'status' => 'draft',
+        ]);
+
+        // candidates.agency_id cascades, so this would take the candidate and
+        // every document row with it.
+        $this->withToken($this->adminToken())
+            ->deleteJson('/api/v1/agencies/'.$created['id'])
+            ->assertStatus(409)
+            ->assertJsonPath(
+                'message',
+                'Skyline Marketing has 1 candidate on file, so it cannot be deleted. Deactivate it instead.'
+            );
+
+        $this->assertDatabaseHas('agencies', ['id' => $created['id']]);
+        $this->assertDatabaseCount('candidates', 1);
+    }
+
+    public function test_only_the_administrator_can_delete_an_agency(): void
+    {
+        $created = $this->createAgency();
+
+        $owner = User::where('username', 'skyline.owner')->firstOrFail();
+
+        $this->withToken(Jwt::sign($owner->toPublic()))
+            ->deleteJson('/api/v1/agencies/'.$created['id'])
+            ->assertStatus(403);
+
+        $this->assertDatabaseHas('agencies', ['id' => $created['id']]);
+    }
+
+    public function test_one_agency_carries_the_phone_and_candidate_count_for_its_detail_card(): void
+    {
+        $created = $this->createAgency();
+
+        $this->withToken($this->adminToken())
+            ->getJson('/api/v1/agencies/'.$created['id'])
+            ->assertOk()
+            // The phone lives on the owner login, not on the agency row.
+            ->assertJsonPath('data.phone', '0771234567')
+            ->assertJsonPath('data.contact', 'Nadia Perera')
+            ->assertJsonPath('data.candidates', 0);
     }
 }
