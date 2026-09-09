@@ -13,7 +13,16 @@ class Jwt
 {
     protected static function secret(): string
     {
-        return (string) (env('JWT_SECRET') ?: 'dev-secret');
+        $secret = (string) env('JWT_SECRET', '');
+
+        // HS256 refuses keys shorter than 256 bits, so a short or missing
+        // JWT_SECRET is widened deterministically from the app key rather
+        // than failing every sign-in with "Provided key is too short".
+        if (strlen($secret) >= 32) {
+            return $secret;
+        }
+
+        return hash('sha256', $secret.'|'.config('app.key'), true);
     }
 
     /** Parses values like "8h", "300s", "7d", or a plain number of seconds. */
@@ -41,6 +50,9 @@ class Jwt
             'email' => $user['email'],
             'role' => $user['role'],
             'roleSlug' => $user['roleSlug'],
+            // Candidate queries are scoped by this, so agency staff never
+            // reach another agency's records.
+            'agencyId' => $user['agencyId'] ?? null,
             'iat' => $now,
             'exp' => $now + self::ttlSeconds(),
         ];

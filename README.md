@@ -91,6 +91,26 @@ channels that could not actually send, and never in production.
 | `/users/permissions` | Permission matrix (modules × view/create/edit/delete) |
 | `/verification/emails` | Email confirmation table with resend / mark-verified |
 
+### Candidates & documents (API)
+
+Candidates are registered by an agency and **never sign in** - no password, no OTP.
+Full detail in [backend-laravel/README.md](backend-laravel/README.md#candidates-and-documents).
+
+| Method | Endpoint |
+| --- | --- |
+| GET | `/candidates/document-types` (the eight required documents) |
+| GET / POST | `/candidates` |
+| GET / PUT / DELETE | `/candidates/{id}` |
+| PATCH | `/candidates/{id}/status` |
+| GET / POST | `/candidates/{id}/documents` |
+| POST | `/candidates/{id}/documents/bulk` |
+| GET | `/candidates/{id}/documents/{doc}/download` |
+| DELETE | `/candidates/{id}/documents/{doc}` |
+
+Queries are scoped by the agency in the caller's token, passport/NIC are unique
+per agency, files are stored privately, and a candidate cannot be submitted
+until all eight documents are attached.
+
 ---
 
 ## API reference

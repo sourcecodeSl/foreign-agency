@@ -64,3 +64,65 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+---
+
+## Candidates and documents
+
+Candidates (students) are registered by an agency and **never sign in**, so no
+password and no OTP is involved anywhere in this flow.
+
+`GET /api/v1/candidates/document-types` returns the eight required documents,
+so the frontend never hard-codes the list. They are defined once in
+[`app/Support/DocumentType.php`](app/Support/DocumentType.php), which also
+drives the upload validation and the database enum:
+
+| Value | Label |
+| --- | --- |
+| `passport_copy` | Passport Copy |
+| `online_police_report` | Online Police Report |
+| `medical` | Medical |
+| `affidavit_english` | Affidavit English |
+| `affidavit_sinhala` | Affidavit Sinhala |
+| `family_affidavit_english` | Family Affidavit English |
+| `family_affidavit_sinhala` | Family Affidavit Sinhala |
+| `agreement` | Agreement |
+
+### Endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/candidates/document-types` | The eight required documents |
+| GET | `/candidates?search=&status=` | List (scoped to the caller's agency) |
+| POST | `/candidates` | Register a candidate |
+| GET | `/candidates/{id}` | One candidate, with documents and what is missing |
+| PUT | `/candidates/{id}` | Update |
+| PATCH | `/candidates/{id}/status` | draft / submitted / approved / rejected |
+| DELETE | `/candidates/{id}` | Soft delete |
+| GET | `/candidates/{id}/documents` | Attached, required and missing |
+| POST | `/candidates/{id}/documents` | Upload one (`type`, `file`) |
+| POST | `/candidates/{id}/documents/bulk` | Upload several (`documents[type]`) |
+| GET | `/candidates/{id}/documents/{doc}/download` | Stream the file |
+| DELETE | `/candidates/{id}/documents/{doc}` | Remove |
+
+### Rules that are enforced
+
+- **Agency isolation** - every query is scoped by the `agencyId` claim in the
+  JWT. One agency cannot read, edit or download another agency's candidates;
+  `main_admin` and `auditor` span all agencies.
+- **Permissions** - the routes sit behind `can.perm:candidates,<action>`, so
+  the `candidates` module appears in the existing permission matrix.
+- **Passport / NIC uniqueness is per agency**, so the same person may
+  legitimately appear under two different agencies.
+- **Private storage** - files go to the `FILESYSTEM_DISK` disk under
+  `candidates/{agency_id}/{candidate_id}/`, which on the default `local` disk
+  is `storage/app/private` and is not web-reachable. Downloads pass back
+  through the API, which re-checks ownership. Set `FILESYSTEM_DISK=s3` to use a
+  bucket; no code changes needed. Limits: `DOCUMENTS_MAX_KB` (default 10 MB),
+  pdf/jpg/jpeg/png/webp.
+- **Re-uploading a type replaces** the previous file rather than piling up.
+- **Submit gate** - a candidate cannot move to `submitted` until all eight
+  documents are attached; the API answers 422 and lists what is missing.
+
+Covered by [`tests/Feature/CandidateFlowTest.php`](tests/Feature/CandidateFlowTest.php)
+(`php artisan test`).

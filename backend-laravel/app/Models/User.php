@@ -47,6 +47,7 @@ class User extends Model
             'roleSlug' => $this->role_slug,
             'role' => self::roleLabel($this->role_slug),
             'agency' => $this->agency_name ?: null,
+            'agencyId' => $this->agency_id,
             'status' => $this->status,
             'emailVerifiedAt' => $this->email_verified_at,
             'phoneVerifiedAt' => $this->phone_verified_at,

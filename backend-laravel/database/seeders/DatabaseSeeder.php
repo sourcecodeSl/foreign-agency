@@ -33,6 +33,8 @@ class DatabaseSeeder extends Seeder
 
         $agent = Role::emptyMatrix();
         $agent['reports'] = $grid(true, false, false, false);
+        // Agents do the day-to-day registration and document uploads.
+        $agent['candidates'] = $grid(true, true, true, false);
 
         $auditor = [];
         foreach ($modules as $m) {
@@ -47,6 +49,7 @@ class DatabaseSeeder extends Seeder
                 'description' => 'Manages a single agency, its staff and its data.',
                 'permissions' => [
                     'agencies' => $grid(true, false, true, false),
+                    'candidates' => $grid(true, true, true, true),
                     'users' => $grid(true, true, true, false),
                     'roles' => $grid(true, false, false, false),
                     'reports' => $grid(true, false, false, false),
@@ -57,6 +60,7 @@ class DatabaseSeeder extends Seeder
                 'description' => 'Day-to-day operations inside an agency, no billing access.',
                 'permissions' => [
                     'agencies' => $grid(true, false, false, false),
+                    'candidates' => $grid(true, true, true, false),
                     'users' => $grid(true, true, false, false),
                     'roles' => $grid(false, false, false, false),
                     'reports' => $grid(true, false, false, false),

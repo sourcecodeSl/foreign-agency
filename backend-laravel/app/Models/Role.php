@@ -21,7 +21,7 @@ class Role extends Model
         'is_system' => 'boolean',
     ];
 
-    public const MODULES = ['agencies', 'users', 'roles', 'reports', 'billing', 'settings'];
+    public const MODULES = ['agencies', 'candidates', 'users', 'roles', 'reports', 'billing', 'settings'];
     public const ACTIONS = ['view', 'create', 'edit', 'delete'];
 
     public static function emptyMatrix(): array

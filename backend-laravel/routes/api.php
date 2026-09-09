@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\AgencyController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CandidateController;
+use App\Http\Controllers\CandidateDocumentController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
@@ -37,6 +39,26 @@ Route::prefix('agencies')->middleware('auth.jwt')->group(function () {
     Route::patch('/{id}/status', [AgencyController::class, 'updateStatus'])->middleware('can.perm:agencies,edit');
     Route::post('/{id}/credentials/reset', [AgencyController::class, 'resetCredentials'])->middleware('can.perm:agencies,edit');
     Route::delete('/{id}', [AgencyController::class, 'destroy'])->middleware('can.perm:agencies,delete');
+});
+
+// --- Candidates (registered by an agency; no OTP anywhere in this flow) -----
+Route::prefix('candidates')->middleware('auth.jwt')->group(function () {
+    // The eight required documents, so the UI never hard-codes the list.
+    Route::get('/document-types', [CandidateController::class, 'documentTypes']);
+
+    Route::get('/', [CandidateController::class, 'index'])->middleware('can.perm:candidates,view');
+    Route::post('/', [CandidateController::class, 'store'])->middleware('can.perm:candidates,create');
+    Route::get('/{id}', [CandidateController::class, 'show'])->middleware('can.perm:candidates,view');
+    Route::put('/{id}', [CandidateController::class, 'update'])->middleware('can.perm:candidates,edit');
+    Route::patch('/{id}/status', [CandidateController::class, 'updateStatus'])->middleware('can.perm:candidates,edit');
+    Route::delete('/{id}', [CandidateController::class, 'destroy'])->middleware('can.perm:candidates,delete');
+
+    // Documents attached to one candidate.
+    Route::get('/{id}/documents', [CandidateDocumentController::class, 'index'])->middleware('can.perm:candidates,view');
+    Route::post('/{id}/documents', [CandidateDocumentController::class, 'store'])->middleware('can.perm:candidates,edit');
+    Route::post('/{id}/documents/bulk', [CandidateDocumentController::class, 'storeMany'])->middleware('can.perm:candidates,edit');
+    Route::get('/{id}/documents/{documentId}/download', [CandidateDocumentController::class, 'download'])->middleware('can.perm:candidates,view');
+    Route::delete('/{id}/documents/{documentId}', [CandidateDocumentController::class, 'destroy'])->middleware('can.perm:candidates,delete');
 });
 
 // --- Users ------------------------------------------------------------------
