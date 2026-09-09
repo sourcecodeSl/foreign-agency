@@ -22,6 +22,7 @@ class Role extends Model
     ];
 
     public const MODULES = ['agencies', 'candidates', 'users', 'roles', 'reports', 'billing', 'settings'];
+
     public const ACTIONS = ['view', 'create', 'edit', 'delete'];
 
     public static function emptyMatrix(): array
@@ -30,6 +31,7 @@ class Role extends Model
         foreach (self::MODULES as $m) {
             $matrix[$m] = ['view' => false, 'create' => false, 'edit' => false, 'delete' => false];
         }
+
         return $matrix;
     }
 
@@ -42,6 +44,7 @@ class Role extends Model
                 $clean[$m][$a] = (bool) ($incoming[$m][$a] ?? false);
             }
         }
+
         return $clean;
     }
 

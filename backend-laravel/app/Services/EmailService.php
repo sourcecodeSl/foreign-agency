@@ -55,6 +55,7 @@ class EmailService
     {
         if (! self::isConfigured()) {
             Log::info($logLine);
+
             return ['delivered' => false, 'to' => $to];
         }
 
@@ -63,9 +64,11 @@ class EmailService
                 $message->to($to)->subject($subject);
             });
             Log::info('[mail] sent to '.$to);
+
             return ['delivered' => true, 'to' => $to];
         } catch (\Throwable $e) {
             Log::error('[mail] failed to '.$to.': '.$e->getMessage());
+
             return ['delivered' => false, 'to' => $to];
         }
     }

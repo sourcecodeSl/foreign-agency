@@ -32,6 +32,21 @@ class CandidateDocument extends Model
         Storage::disk($this->disk)->delete($this->path);
     }
 
+    /**
+     * Whether the file this row points at is actually on disk.
+     *
+     * A row can outlive its file: an upload that failed to write before the
+     * disk was checked left an empty path behind, and a deploy that skips
+     * storage/ leaves the paths pointing at nothing. Either way the row must
+     * not keep claiming the document is attached.
+     */
+    public function fileExists(): bool
+    {
+        return is_string($this->path)
+            && $this->path !== ''
+            && Storage::disk($this->disk)->exists($this->path);
+    }
+
     public function toPublic(): array
     {
         return [
@@ -42,6 +57,9 @@ class CandidateDocument extends Model
             'originalName' => $this->original_name,
             'mimeType' => $this->mime_type,
             'sizeBytes' => (int) $this->size_bytes,
+            // False means the row is there but the file behind it is not, so
+            // the UI can ask for it again instead of offering a dead download.
+            'available' => $this->fileExists(),
             'uploadedBy' => $this->uploaded_by,
             'uploadedAt' => $this->created_at,
         ];

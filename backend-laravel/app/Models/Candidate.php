@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\DocumentType;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -51,12 +52,24 @@ class Candidate extends Model
         });
     }
 
-    /** Which required documents have never been uploaded. */
+    /**
+     * Which required documents are not usable.
+     *
+     * A row on its own is not enough: the current file has to be readable on
+     * disk, otherwise the candidate would count as complete and become
+     * submittable while the documents cannot actually be downloaded.
+     */
     public function missingDocumentTypes(): array
     {
-        $present = $this->documents()->distinct()->pluck('type')->all();
+        $present = [];
 
-        return array_values(array_diff(\App\Support\DocumentType::values(), $present));
+        foreach ($this->latestDocumentsByType() as $type => $document) {
+            if ($document->fileExists()) {
+                $present[] = $type;
+            }
+        }
+
+        return array_values(array_diff(DocumentType::values(), $present));
     }
 
     /**
@@ -65,7 +78,7 @@ class Candidate extends Model
      * Every upload is kept, so "the current file" is simply the highest id
      * within a type. Keyed by type value.
      *
-     * @return array<string, \App\Models\CandidateDocument>
+     * @return array<string, CandidateDocument>
      */
     public function latestDocumentsByType(): array
     {

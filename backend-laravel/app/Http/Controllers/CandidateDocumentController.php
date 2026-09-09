@@ -140,6 +140,10 @@ class CandidateDocumentController extends Controller
         $candidate = $this->find($request, $candidateId);
         $document = $this->findDocument($candidate, $documentId);
 
+        if (! $document->fileExists()) {
+            throw new ApiException(404, $document->typeLabel().' is recorded but its file is not on the server. Attach it again.');
+        }
+
         return Storage::disk($document->disk)->download($document->path, $document->original_name);
     }
 
@@ -175,7 +179,7 @@ class CandidateDocumentController extends Controller
                 continue;   // nothing uploaded for this type
             }
 
-            if (! Storage::disk($document->disk)->exists($document->path)) {
+            if (! $document->fileExists()) {
                 continue;   // row survived but the file is gone
             }
 
@@ -190,7 +194,7 @@ class CandidateDocumentController extends Controller
         }
 
         if ($files === []) {
-            throw new ApiException(404, 'None of the attached files could be found on disk.');
+            throw new ApiException(404, 'Every attached file is missing from the server, so there is nothing to archive. Attach them again.');
         }
 
         return response()->streamDownload(function () use ($files) {
@@ -220,6 +224,16 @@ class CandidateDocumentController extends Controller
         $filename = Str::uuid().'.'.$file->getClientOriginalExtension();
 
         $path = $file->storeAs($directory, $filename, ['disk' => $disk]);
+
+        // The local disk is configured with 'throw' => false, so a write that
+        // fails - storage/ not writable, which is the usual shared-hosting
+        // surprise - comes back as false rather than as an exception. Without
+        // this the row would still be created and the document would look
+        // attached while nothing had been stored, which is only noticed later
+        // when a download comes back empty.
+        if (! is_string($path) || ! Storage::disk($disk)->exists($path)) {
+            throw new ApiException(500, 'The file could not be saved on the server. Make sure storage/ is writable (permissions 755).');
+        }
 
         return CandidateDocument::create([
             'candidate_id' => $candidate->id,

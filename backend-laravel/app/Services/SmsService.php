@@ -42,6 +42,7 @@ class SmsService
 
         if (! self::isConfigured()) {
             Log::info('[sms] OTP for '.$to.': '.$code);
+
             return ['delivered' => false, 'to' => $to];
         }
 

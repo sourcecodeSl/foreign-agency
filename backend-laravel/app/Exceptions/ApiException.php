@@ -11,6 +11,7 @@ use Exception;
 class ApiException extends Exception
 {
     public int $status;
+
     public ?array $errors;
 
     public function __construct(int $status, string $message, ?array $errors = null)

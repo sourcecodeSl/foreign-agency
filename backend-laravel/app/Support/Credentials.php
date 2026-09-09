@@ -6,8 +6,11 @@ namespace App\Support;
 class Credentials
 {
     private const UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+
     private const LOWER = 'abcdefghijkmnopqrstuvwxyz';
+
     private const DIGIT = '23456789';
+
     private const SYMBOL = '!@#$%*?';
 
     private static function pick(string $chars): string

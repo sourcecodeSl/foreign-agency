@@ -74,6 +74,32 @@ class CandidateDocumentHistoryTest extends TestCase
         ]);
     }
 
+    /**
+     * Entry names inside a streamed archive.
+     *
+     * Read back with ZipArchive on purpose: the archive is written by hand in
+     * App\Support\ZipStream, so a real reader is what proves it is valid.
+     *
+     * @return string[]
+     */
+    private function zipEntries(string $archive): array
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'zip-test-');
+        file_put_contents($tmp, $archive);
+
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($tmp, ZipArchive::CHECKCONS) === true);
+
+        $entries = [];
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entries[] = $zip->getNameIndex($i);
+        }
+        $zip->close();
+        @unlink($tmp);
+
+        return $entries;
+    }
+
     public function test_a_candidate_registers_without_an_nic(): void
     {
         $id = $this->candidateId();
@@ -170,7 +196,7 @@ class CandidateDocumentHistoryTest extends TestCase
         $tmp = tempnam(sys_get_temp_dir(), 'zip-test-');
         file_put_contents($tmp, $response->streamedContent());
 
-        $zip = new ZipArchive();
+        $zip = new ZipArchive;
         $this->assertTrue($zip->open($tmp) === true);
 
         $entries = [];
@@ -203,7 +229,7 @@ class CandidateDocumentHistoryTest extends TestCase
         $tmp = tempnam(sys_get_temp_dir(), 'zip-test-');
         file_put_contents($tmp, $response->streamedContent());
 
-        $zip = new ZipArchive();
+        $zip = new ZipArchive;
         $zip->open($tmp);
         $count = $zip->numFiles;
         $first = $zip->getNameIndex(0);
@@ -248,6 +274,90 @@ class CandidateDocumentHistoryTest extends TestCase
         $this->withToken(Jwt::sign($intruder->toPublic()))
             ->get('/api/v1/candidates/'.$id.'/documents/download-all')
             ->assertStatus(403);
+    }
+
+    /**
+     * The live symptom this covers: rows survived a wipe of storage/, so every
+     * document looked attached while none of the files were downloadable.
+     */
+    public function test_a_row_whose_file_vanished_is_reported_instead_of_offered(): void
+    {
+        $id = $this->candidateId();
+        $this->upload($id, 'medical', 'medical.pdf')->assertCreated();
+        $this->upload($id, 'passport_copy', 'passport.pdf')->assertCreated();
+
+        $documents = Candidate::find($id)->documents;
+        $medical = $documents->firstWhere('type', 'medical');
+
+        // Whatever removed it - a redeploy, a failed write - the row stays.
+        Storage::disk('local')->delete($medical->path);
+
+        $listing = $this->withToken($this->token)
+            ->getJson('/api/v1/candidates/'.$id.'/documents')
+            ->assertOk();
+
+        // The type counts as missing again, so the candidate is not complete.
+        $this->assertContains('medical', $listing->json('data.missing'));
+        $this->assertFalse($listing->json('data.latest.medical.available'));
+        $this->assertTrue($listing->json('data.latest.passport_copy.available'));
+
+        // Downloading it says so rather than failing somewhere deeper.
+        $this->withToken($this->token)
+            ->getJson('/api/v1/candidates/'.$id.'/documents/'.$medical->id.'/download')
+            ->assertStatus(404)
+            ->assertJsonPath('message', 'Medical is recorded but its file is not on the server. Attach it again.');
+
+        // The zip still builds from what is left instead of erroring out.
+        $response = $this->withToken($this->token)
+            ->get('/api/v1/candidates/'.$id.'/documents/download-all')
+            ->assertOk();
+
+        $this->assertSame(
+            ['01 Passport Copy/passport.pdf'],
+            $this->zipEntries($response->streamedContent())
+        );
+    }
+
+    /**
+     * The local disk is configured with 'throw' => false, so an unwritable
+     * storage/ used to return false from storeAs and still leave a row behind.
+     * That is how the live install ended up full of documents with no files.
+     */
+    public function test_an_upload_that_cannot_be_written_is_refused_instead_of_recorded(): void
+    {
+        $id = $this->candidateId();
+
+        Storage::shouldReceive('disk')->andReturn($failing = \Mockery::mock());
+        $failing->shouldReceive('putFileAs')->andReturn(false);
+        $failing->shouldReceive('exists')->andReturn(false);
+
+        $this->upload($id, 'medical', 'medical.pdf')
+            ->assertStatus(500)
+            ->assertJsonPath(
+                'message',
+                'The file could not be saved on the server. Make sure storage/ is writable (permissions 755).'
+            );
+
+        // Nothing recorded, so the UI never claims the document is attached.
+        $this->assertDatabaseCount('candidate_documents', 0);
+    }
+
+    public function test_the_zip_is_refused_when_every_file_has_vanished(): void
+    {
+        $id = $this->candidateId();
+        $this->upload($id, 'medical', 'medical.pdf')->assertCreated();
+
+        foreach (Candidate::find($id)->documents as $document) {
+            Storage::disk('local')->delete($document->path);
+        }
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/candidates/'.$id.'/documents/download-all')
+            ->assertStatus(404)
+            ->assertJsonPath(
+                'message',
+                'Every attached file is missing from the server, so there is nothing to archive. Attach them again.'
+            );
     }
 
     public function test_an_agency_can_only_work_with_candidates(): void

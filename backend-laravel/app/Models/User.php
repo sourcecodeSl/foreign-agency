@@ -33,6 +33,7 @@ class User extends Model
         if ($slug && isset(self::ROLE_LABELS[$slug])) {
             return self::ROLE_LABELS[$slug];
         }
+
         return ucwords(str_replace('_', ' ', (string) $slug));
     }
 

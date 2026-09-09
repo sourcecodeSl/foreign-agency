@@ -72,6 +72,7 @@ class OtpService
 
         if (self::nowMs() > $challenge->expires_at) {
             $challenge->delete();
+
             return ['ok' => false, 'reason' => 'The code has expired. Request a new one.'];
         }
 
@@ -80,6 +81,7 @@ class OtpService
 
         if ($challenge->attempts > 5) {
             $challenge->delete();
+
             return ['ok' => false, 'reason' => 'Too many attempts. Please sign in again.'];
         }
         if ($challenge->code !== $code) {

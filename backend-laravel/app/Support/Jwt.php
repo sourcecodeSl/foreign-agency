@@ -31,6 +31,7 @@ class Jwt
         $raw = trim((string) (env('JWT_EXPIRES_IN') ?: '8h'));
         if (preg_match('/^(\d+)\s*([smhd])?$/i', $raw, $m)) {
             $n = (int) $m[1];
+
             return match (strtolower($m[2] ?? 's')) {
                 'm' => $n * 60,
                 'h' => $n * 3600,
@@ -38,6 +39,7 @@ class Jwt
                 default => $n,
             };
         }
+
         return 8 * 3600;
     }
 
@@ -65,6 +67,7 @@ class Jwt
     {
         try {
             $decoded = FirebaseJwt::decode($token, new Key(self::secret(), 'HS256'));
+
             return (array) $decoded;
         } catch (\Throwable $e) {
             return null;

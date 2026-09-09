@@ -33,6 +33,9 @@ function DocumentRow({ type, versions, onUpload, onDownload, uploading }) {
 
   const current = versions[0]; // the API returns newest first
   const older = versions.slice(1);
+  // The row exists but its file is gone from the server, so it cannot be
+  // downloaded and has to be attached again.
+  const broken = current && current.available === false;
 
   return (
     <div className="border-b border-gray-100 last:border-0">
@@ -40,15 +43,23 @@ function DocumentRow({ type, versions, onUpload, onDownload, uploading }) {
         <span
           className={
             'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ' +
-            (current ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-400')
+            (broken
+              ? 'bg-red-50 text-red-600'
+              : current
+                ? 'bg-emerald-50 text-emerald-700'
+                : 'bg-gray-100 text-gray-400')
           }
         >
-          {current ? <IconCheck className="h-4 w-4" /> : '—'}
+          {broken ? '!' : current ? <IconCheck className="h-4 w-4" /> : '—'}
         </span>
 
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-gray-900">{type.label}</p>
-          {current ? (
+          {broken ? (
+            <p className="truncate text-xs text-red-600">
+              {current.originalName} — file missing on the server, attach it again
+            </p>
+          ) : current ? (
             <p className="truncate text-xs text-gray-500">
               {current.originalName} · {formatSize(current.sizeBytes)} · {current.uploadedAt}
             </p>
@@ -68,7 +79,7 @@ function DocumentRow({ type, versions, onUpload, onDownload, uploading }) {
           </button>
         )}
 
-        {current && (
+        {current && !broken && (
           <Button
             size="sm"
             variant="ghost"
@@ -108,13 +119,17 @@ function DocumentRow({ type, versions, onUpload, onDownload, uploading }) {
               <span className="w-16 shrink-0 text-gray-400">v{older.length - index}</span>
               <span className="min-w-0 flex-1 truncate">{doc.originalName}</span>
               <span className="shrink-0 text-gray-400">{doc.uploadedAt}</span>
-              <button
-                type="button"
-                onClick={() => onDownload(doc.id, doc.originalName)}
-                className="shrink-0 font-medium text-primary-600 hover:text-primary-700"
-              >
-                Download
-              </button>
+              {doc.available === false ? (
+                <span className="shrink-0 text-red-500">file missing</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onDownload(doc.id, doc.originalName)}
+                  className="shrink-0 font-medium text-primary-600 hover:text-primary-700"
+                >
+                  Download
+                </button>
+              )}
             </li>
           ))}
         </ul>

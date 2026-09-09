@@ -151,12 +151,12 @@ class AgencyController extends Controller
 
         $agency = DB::transaction(function () use ($data, $sequence, $plainPassword, $auth) {
             $agency = Agency::create([
-            'id' => 'AG-'.$sequence,
-            'name' => $data['name'],
-            'code' => Credentials::generateAgencyCode($data['name'], $sequence),
-            'address' => $data['address'],
-            'username' => $data['username'],
-            'password_hash' => password_hash($plainPassword, PASSWORD_BCRYPT),
+                'id' => 'AG-'.$sequence,
+                'name' => $data['name'],
+                'code' => Credentials::generateAgencyCode($data['name'], $sequence),
+                'address' => $data['address'],
+                'username' => $data['username'],
+                'password_hash' => password_hash($plainPassword, PASSWORD_BCRYPT),
                 'contact' => $data['contact'] ?? '-',
                 'email' => $data['email'],
                 'users' => 1,

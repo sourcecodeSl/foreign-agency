@@ -116,6 +116,18 @@ Gmail App Password එකක් හදන්නේ: https://myaccount.google.com
   උනාද, `mod_rewrite` ON ද බලන්න.
 - **DB connect error:** user එක database එකට ALL PRIVILEGES එක්ක add
   කරලද, database නම `.env` එකට හරියටම දැම්මද බලන්න.
+- **"file missing on the server" / ZIP එක download වෙන්නෙ නෑ:** document
+  එකේ database row එක තියෙනවා, ඒත් file එක `storage/` ඇතුළේ නෑ. හේතු 2යි:
+  1. `storage/app/private/` writable නෑ — upload එක fail වෙලා. Step 5 බලලා
+     `storage/` folder එකට **755 (recursive)** දෙන්න.
+  2. අලුතෙන් upload කරද්දි `storage/app/private/candidates/` folder එක
+     replace කරලා — ඒ folder එක **කවදාවත් overwrite කරන්න එපා**, candidate
+     documents ඔක්කොම ඒක ඇතුළේ.
+
+  හදාගත්තට පස්සේ ඒ documents නැවත **Attach** කරන්න ඕන (පරණ file එක නැති
+  නිසා). Permissions හදන්නෙ නැතුව attach කරොත් දැන් "The file could not be
+  saved on the server" කියලා error එකක් එනවා — කලින් වගේ නිශ්ශබ්දව
+  attached වගේ පෙන්නන්නෙ නෑ.
 
 ---
 
