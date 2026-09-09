@@ -15,12 +15,18 @@ on:
 # why an old login page stayed live after the register link was removed.
 #
 # vendor/ is deliberately NOT deployed here: it is 8,400+ files and FTP uploads
-# one file at a time, which ran for 9.5 minutes and then failed. It only needs
-# re-uploading when composer.lock changes - use the "Deploy vendor" workflow
-# for that.
+# one file at a time. It only needs re-uploading when composer.lock changes -
+# use the "Deploy vendor" workflow for that.
+#
+# Transfers use lftp rather than an FTP action. The shared host kept closing
+# the control connection mid-upload ("Server sent FIN packet unexpectedly"),
+# which killed the whole run; lftp reconnects and carries on from where it
+# stopped.
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,35 +64,56 @@ jobs:
           if [ -f frontend/dist/favicon.ico ]; then
             cp frontend/dist/favicon.ico backend-laravel/public/favicon.ico
           fi
+          echo "Files to upload: $(find backend-laravel -type f -not -path '*/vendor/*' | wc -l)"
 
-      - name: Show what will be uploaded
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      # --only-newer means an interrupted run resumes instead of restarting,
+      # and parallel=1 keeps within the connection limit shared hosts enforce.
+      - name: Upload the app
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
-          echo "Files to upload (vendor excluded):"
-          find backend-laravel -type f -not -path '*/vendor/*' | wc -l
+          lftp -c "
+            set ftp:ssl-force true;
+            set ftp:ssl-protect-data true;
+            set ssl:verify-certificate no;
+            set ftp:passive-mode true;
+            set net:max-retries 10;
+            set net:persist-retries 10;
+            set net:timeout 30;
+            set net:reconnect-interval-base 5;
+            set net:reconnect-interval-multiplier 1;
+            set mirror:parallel-transfer-count 1;
+            set xfer:clobber on;
+            open -u \"$FTP_USERNAME\",\"$FTP_PASSWORD\" \"$FTP_SERVER\";
+            mirror --reverse --only-newer --continue --verbose=1 \
+              --exclude '^vendor/' \
+              --exclude '^node_modules/' \
+              --exclude '^tests/' \
+              --exclude '^install/' \
+              --exclude '^\.git' \
+              --exclude '^\.env' \
+              --exclude '^storage/logs/' \
+              --exclude '^storage/framework/(cache|sessions|views)/' \
+              ./backend-laravel/ ./;
+          "
 
-      # dangerous-clean-slate is deliberately off: it would wipe .env,
-      # storage/ and vendor/ on the server.
-      - name: Deploy the app to FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          protocol: ftps
-          port: 21
-          local-dir: ./backend-laravel/
-          server-dir: ./
-          log-level: standard
-          exclude: |
-            **/vendor/**
-            **/node_modules/**
-            **/.git*
-            **/.git*/**
-            **/tests/**
-            **/.env
-            **/.env.*
-            **/storage/logs/**
-            **/storage/framework/cache/**
-            **/storage/framework/sessions/**
-            **/storage/framework/views/**
-            **/install/**
+      # Only a completely unreachable site fails the run. A 500 usually means
+      # the database upgrade (sql/live-upgrade.sql) has not been applied yet,
+      # which is not a reason to call the file transfer broken.
+      - name: Confirm the site answers
+        run: |
+          sleep 5
+          code=$(curl -s -o /dev/null -w '%{http_code}' -L https://foreign-agency.solidrow.lk/api/v1/agencies || echo 000)
+          echo "GET /api/v1/agencies -> $code"
+          case "$code" in
+            401) echo "Laravel is alive and the API is responding." ;;
+            000) echo "The site did not respond at all."; exit 1 ;;
+            5*)  echo "WARNING: $code - deploy went through, but the app is erroring."
+                 echo "Have you run backend-laravel/sql/live-upgrade.sql on the live database?" ;;
+            *)   echo "Unexpected status $code - check the site." ;;
+          esac

@@ -19,13 +19,42 @@
 -- username column, "mainadmin" matches nothing and you get
 -- "Invalid username or password."
 
-ALTER TABLE `users` ADD COLUMN `agency_id` varchar(20) DEFAULT NULL AFTER `agency_name`;
-ALTER TABLE `users` ADD COLUMN `username`  varchar(60) DEFAULT NULL AFTER `name`;
-ALTER TABLE `users` ADD INDEX  `users_agency_id_index` (`agency_id`);
-ALTER TABLE `users` ADD UNIQUE `users_username_unique` (`username`);
+-- Each change is guarded by an information_schema check, so running this file
+-- a second time is harmless. (Plain ALTER ... ADD COLUMN would abort with
+-- "Duplicate column name", and phpMyAdmin stops at the first error - which
+-- would silently skip everything below.) This form works on both MySQL and
+-- MariaDB, unlike ADD COLUMN IF NOT EXISTS.
+
+SET @sql = IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'agency_id') > 0,
+  'SELECT "agency_id already exists"',
+  'ALTER TABLE `users` ADD COLUMN `agency_id` varchar(20) DEFAULT NULL AFTER `agency_name`');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username') > 0,
+  'SELECT "username already exists"',
+  'ALTER TABLE `users` ADD COLUMN `username` varchar(60) DEFAULT NULL AFTER `name`');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = IF(
+  (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND INDEX_NAME = 'users_agency_id_index') > 0,
+  'SELECT "agency_id index already exists"',
+  'ALTER TABLE `users` ADD INDEX `users_agency_id_index` (`agency_id`)');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = IF(
+  (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND INDEX_NAME = 'users_username_unique') > 0,
+  'SELECT "username index already exists"',
+  'ALTER TABLE `users` ADD UNIQUE `users_username_unique` (`username`)');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- Give the existing admin its username.
-UPDATE `users` SET `username` = "mainadmin" WHERE `role_slug` = "main_admin";
+UPDATE `users` SET `username` = 'mainadmin' WHERE `role_slug` = 'main_admin' AND `username` IS NULL;
 
 
 -- -----------------------------------------------------------------------------
@@ -81,11 +110,11 @@ CREATE TABLE IF NOT EXISTS `candidate_documents` (
 -- The live roles have no candidates entry, so every candidate route would
 -- answer 403 for an agency. Agency roles are limited to candidates only.
 
-UPDATE `roles` SET `permissions` = '{\"agencies\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":true},\"candidates\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":true},\"users\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":true},\"roles\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":true},\"reports\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":true},\"billing\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":true},\"settings\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":true}}' WHERE `slug` = 'main_admin';
-UPDATE `roles` SET `permissions` = '{\"agencies\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"candidates\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":false},\"users\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"roles\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"reports\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"billing\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"settings\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false}}' WHERE `slug` = 'agency_owner';
-UPDATE `roles` SET `permissions` = '{\"agencies\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"candidates\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":false},\"users\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"roles\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"reports\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"billing\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"settings\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false}}' WHERE `slug` = 'agency_manager';
-UPDATE `roles` SET `permissions` = '{\"agencies\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"candidates\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":false},\"users\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"roles\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"reports\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"billing\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"settings\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false}}' WHERE `slug` = 'agent';
-UPDATE `roles` SET `permissions` = '{\"agencies\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"candidates\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"users\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"roles\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"reports\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"billing\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"settings\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false}}' WHERE `slug` = 'auditor';
+UPDATE `roles` SET `permissions` = '{"agencies":{"view":true,"create":true,"edit":true,"delete":true},"candidates":{"view":true,"create":true,"edit":true,"delete":true},"users":{"view":true,"create":true,"edit":true,"delete":true},"roles":{"view":true,"create":true,"edit":true,"delete":true},"reports":{"view":true,"create":true,"edit":true,"delete":true},"billing":{"view":true,"create":true,"edit":true,"delete":true},"settings":{"view":true,"create":true,"edit":true,"delete":true}}' WHERE `slug` = 'main_admin';
+UPDATE `roles` SET `permissions` = '{"agencies":{"view":false,"create":false,"edit":false,"delete":false},"candidates":{"view":true,"create":true,"edit":true,"delete":false},"users":{"view":false,"create":false,"edit":false,"delete":false},"roles":{"view":false,"create":false,"edit":false,"delete":false},"reports":{"view":false,"create":false,"edit":false,"delete":false},"billing":{"view":false,"create":false,"edit":false,"delete":false},"settings":{"view":false,"create":false,"edit":false,"delete":false}}' WHERE `slug` = 'agency_owner';
+UPDATE `roles` SET `permissions` = '{"agencies":{"view":false,"create":false,"edit":false,"delete":false},"candidates":{"view":true,"create":true,"edit":true,"delete":false},"users":{"view":false,"create":false,"edit":false,"delete":false},"roles":{"view":false,"create":false,"edit":false,"delete":false},"reports":{"view":false,"create":false,"edit":false,"delete":false},"billing":{"view":false,"create":false,"edit":false,"delete":false},"settings":{"view":false,"create":false,"edit":false,"delete":false}}' WHERE `slug` = 'agency_manager';
+UPDATE `roles` SET `permissions` = '{"agencies":{"view":false,"create":false,"edit":false,"delete":false},"candidates":{"view":true,"create":true,"edit":true,"delete":false},"users":{"view":false,"create":false,"edit":false,"delete":false},"roles":{"view":false,"create":false,"edit":false,"delete":false},"reports":{"view":false,"create":false,"edit":false,"delete":false},"billing":{"view":false,"create":false,"edit":false,"delete":false},"settings":{"view":false,"create":false,"edit":false,"delete":false}}' WHERE `slug` = 'agent';
+UPDATE `roles` SET `permissions` = '{"agencies":{"view":true,"create":false,"edit":false,"delete":false},"candidates":{"view":true,"create":false,"edit":false,"delete":false},"users":{"view":true,"create":false,"edit":false,"delete":false},"roles":{"view":true,"create":false,"edit":false,"delete":false},"reports":{"view":true,"create":false,"edit":false,"delete":false},"billing":{"view":true,"create":false,"edit":false,"delete":false},"settings":{"view":false,"create":false,"edit":false,"delete":false}}' WHERE `slug` = 'auditor';
 
 
 -- -----------------------------------------------------------------------------
