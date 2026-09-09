@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/layout/AuthLayout';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
@@ -49,13 +49,16 @@ export default function Login() {
   return (
     <AuthLayout
       title="Sign in to your account"
-      subtitle="Enter your email or phone number and password to continue."
+      subtitle="Enter the username and password issued to you."
       footer={
         <p>
-          Don&apos;t have an account?{' '}
-          <Link to="/register" className="font-medium text-primary-600 hover:text-primary-700">
-            Create one
-          </Link>
+          Accounts are issued by the administrator.{' '}
+          <a
+            href="mailto:support@agency.local"
+            className="font-medium text-primary-600 hover:text-primary-700"
+          >
+            Contact support
+          </a>
         </p>
       }
     >
@@ -73,7 +76,7 @@ export default function Login() {
           label="Username"
           name="username"
           autoComplete="username"
-          placeholder="main.admin"
+          placeholder="mainadmin"
           value={values.username}
           onChange={handleChange}
           error={errors.username}

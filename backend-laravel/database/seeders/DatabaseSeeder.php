@@ -126,6 +126,7 @@ class DatabaseSeeder extends Seeder
             ['email' => $email],
             [
                 'name' => env('SEED_ADMIN_NAME') ?: 'Main Admin',
+                'username' => env('SEED_ADMIN_USERNAME') ?: 'mainadmin',
                 'phone' => env('SEED_ADMIN_PHONE') ?: '0781311850',
                 'password_hash' => password_hash(env('SEED_ADMIN_PASSWORD') ?: 'Admin@1234', PASSWORD_BCRYPT),
                 'role_slug' => 'main_admin',

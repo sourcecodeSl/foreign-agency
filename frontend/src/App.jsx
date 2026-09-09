@@ -4,7 +4,6 @@ import { ToastProvider } from './components/ui/Toast';
 import DashboardLayout from './components/layout/DashboardLayout';
 
 import Login from './pages/auth/Login';
-import Register from './pages/auth/Register';
 import VerifyPhone from './pages/auth/VerifyPhone';
 import VerifyEmail from './pages/auth/VerifyEmail';
 import EmailVerification from './pages/auth/EmailVerification';
@@ -23,7 +22,6 @@ export default function App() {
           <Routes>
             {/* Public */}
             <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
             <Route path="/verify-phone" element={<VerifyPhone />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
 

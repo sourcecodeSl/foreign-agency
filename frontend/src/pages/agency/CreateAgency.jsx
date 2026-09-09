@@ -7,7 +7,7 @@ import { useToast } from '../../components/ui/Toast';
 import { IconBuilding, IconRefresh, IconCheck } from '../../components/ui/Icons';
 import { agencyApi } from '../../lib/api';
 
-const EMPTY = { name: '', address: '', username: '', password: '' };
+const EMPTY = { name: '', address: '', email: '', phone: '', username: '', password: '' };
 
 /** Field-level rules. Returns a { field: message } map; empty means valid. */
 function validate(values) {
@@ -18,6 +18,14 @@ function validate(values) {
 
   if (!values.address.trim()) errors.address = 'Address is required.';
   else if (values.address.trim().length < 8) errors.address = 'Please enter the full address.';
+
+  if (!values.email.trim()) errors.email = 'Email is required.';
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim()))
+    errors.email = 'Enter a valid email address.';
+
+  if (!values.phone.trim()) errors.phone = 'Phone number is required.';
+  else if (!/^[0-9+\s-]{9,20}$/.test(values.phone.trim()))
+    errors.phone = 'Enter a valid phone number.';
 
   if (!values.username.trim()) errors.username = 'Username is required.';
   else if (!/^[a-zA-Z0-9._-]{4,20}$/.test(values.username))
@@ -80,7 +88,7 @@ export default function CreateAgency() {
     e.preventDefault();
     const found = validate(values);
     setErrors(found);
-    setTouched({ name: true, address: true, username: true, password: true });
+    setTouched({ name: true, address: true, email: true, phone: true, username: true, password: true });
     if (Object.keys(found).length > 0) return;
 
     setSubmitting(true);
@@ -155,6 +163,32 @@ export default function CreateAgency() {
                 />
                 {errors.address && <p className="field-error">{errors.address}</p>}
               </div>
+
+              <Input
+                label="Email"
+                name="email"
+                type="email"
+                required
+                placeholder="owner@agency.lk"
+                value={values.email}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={errors.email}
+                hint={!errors.email ? 'Sign-in codes are emailed here.' : undefined}
+              />
+
+              <Input
+                label="Phone"
+                name="phone"
+                type="tel"
+                required
+                placeholder="0771234567"
+                value={values.phone}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={errors.phone}
+                hint={!errors.phone ? 'Sign-in codes are texted here.' : undefined}
+              />
 
               <Input
                 label="Username"

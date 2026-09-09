@@ -43,52 +43,11 @@ class AuthController extends Controller
         return now()->format('Y-m-d H:i:s');
     }
 
-    /** POST /auth/register */
-    public function register(Request $request)
-    {
-        $data = $request->all();
-        Validator::make($data, [
-            'name' => 'required|string|min:3|max:120',
-            'email' => 'required|email',
-            'phone' => ['required', 'string', 'regex:/^[0-9+\s-]{9,20}$/'],
-            'password' => ['required', 'string', 'min:8', 'regex:/[A-Z]/', 'regex:/[0-9]/'],
-            'confirmPassword' => 'required|same:password',
-        ], [
-            'name.min' => 'Name must be at least 3 characters.',
-            'email.email' => 'Enter a valid email address.',
-            'phone.regex' => 'Enter a valid phone number.',
-            'password.min' => 'Password must be at least 8 characters.',
-            'password.regex' => 'Password must include an uppercase letter and a number.',
-            'confirmPassword.same' => 'Passwords do not match.',
-        ])->validate();
-
-        $errors = [];
-        if (User::emailExists($data['email'])) {
-            $errors['email'] = 'That email is already registered.';
-        }
-        if (User::phoneExists($data['phone'])) {
-            $errors['phone'] = 'That phone number is already registered.';
-        }
-        if ($errors) {
-            throw new ApiException(409, 'This account already exists.', $errors);
-        }
-
-        $user = User::create([
-            'name' => trim($data['name']),
-            'email' => strtolower(trim($data['email'])),
-            'phone' => trim($data['phone']),
-            'password_hash' => password_hash($data['password'], PASSWORD_BCRYPT),
-            'role_slug' => 'agent',
-            'status' => env('REGISTRATION_DEFAULT_STATUS') ?: 'active',
-        ]);
-
-        return ApiResponse::created(
-            ['id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'status' => $user->status],
-            $user->status === 'active'
-                ? 'Account created. You can sign in now.'
-                : 'Account created and is awaiting approval.'
-        );
-    }
+    /*
+     * There is deliberately no register() action. Accounts are never
+     * self-created: the Main Admin is seeded and agency logins are issued
+     * from the admin panel via AgencyController::store().
+     */
 
     /** POST /auth/login - step 1. */
     public function login(Request $request)
@@ -208,6 +167,7 @@ class AuthController extends Controller
             'token' => Jwt::sign($public),
             'admin' => [
                 'id' => $public['id'],
+                'username' => $public['username'],
                 'name' => $public['name'],
                 'email' => $public['email'],
                 'role' => $public['role'],
@@ -256,6 +216,7 @@ class AuthController extends Controller
 
         return ApiResponse::ok([
             'id' => $public['id'],
+            'username' => $public['username'],
             'name' => $public['name'],
             'email' => $public['email'],
             'role' => $public['role'],

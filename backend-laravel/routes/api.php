@@ -16,8 +16,9 @@ use Illuminate\Support\Facades\Route;
 */
 
 // --- Auth -------------------------------------------------------------------
+// There is deliberately no /auth/register: accounts are never self-created.
+// The Main Admin is seeded, and agency logins are issued from the admin panel.
 Route::prefix('auth')->group(function () {
-    Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:10,60');
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,15');
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:12,15');
     Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:12,15');

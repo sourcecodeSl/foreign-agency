@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Exceptions\ApiException;
 use App\Models\Agency;
 use App\Models\AppCounter;
+use App\Models\User;
 use App\Support\ApiResponse;
 use App\Support\Credentials;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class AgencyController extends Controller
@@ -72,7 +74,14 @@ class AgencyController extends Controller
             'address' => 'required|string|min:8',
             'username' => ['required', 'regex:/^[a-zA-Z0-9._-]{4,20}$/'],
             'password' => ['required', 'string', 'min:8', 'regex:/[A-Z]/', 'regex:/[0-9]/'],
+            // Sign-in sends a code to the phone and then to the email, so an
+            // agency cannot be usable without both.
+            'email' => ['required', 'email', 'max:190'],
+            'phone' => ['required', 'string', 'regex:/^[0-9+\s-]{9,20}$/'],
         ], [
+            'email.required' => 'An email address is required for sign-in codes.',
+            'phone.required' => 'A phone number is required for sign-in codes.',
+            'phone.regex' => 'Enter a valid phone number.',
             'name.min' => 'Name must be at least 3 characters.',
             'address.min' => 'Please provide the full address.',
             'username.regex' => 'Username must be 4-20 characters (letters, numbers, . _ -).',
@@ -80,28 +89,56 @@ class AgencyController extends Controller
             'password.regex' => 'Password must include an uppercase letter and a number.',
         ])->validate();
 
-        if (Agency::where('username', $data['username'])->exists()) {
-            throw new ApiException(409, 'That username is already taken.', ['username' => 'That username is already taken.']);
+        $conflicts = [];
+        if (Agency::where('username', $data['username'])->exists()
+            || User::where('username', $data['username'])->exists()) {
+            $conflicts['username'] = 'That username is already taken.';
+        }
+        if (User::emailExists($data['email'])) {
+            $conflicts['email'] = 'That email is already in use.';
+        }
+        if (User::phoneExists($data['phone'])) {
+            $conflicts['phone'] = 'That phone number is already in use.';
+        }
+        if ($conflicts) {
+            throw new ApiException(409, 'These credentials are already in use.', $conflicts);
         }
 
         $auth = $request->attributes->get('auth_user');
         $sequence = AppCounter::next('agency');
         $plainPassword = $data['password'] ?: Credentials::generatePassword();
 
-        $agency = Agency::create([
+        $agency = DB::transaction(function () use ($data, $sequence, $plainPassword, $auth) {
+            $agency = Agency::create([
             'id' => 'AG-'.$sequence,
             'name' => $data['name'],
             'code' => Credentials::generateAgencyCode($data['name'], $sequence),
             'address' => $data['address'],
             'username' => $data['username'],
             'password_hash' => password_hash($plainPassword, PASSWORD_BCRYPT),
-            'contact' => $data['contact'] ?? '-',
-            'email' => $data['email'] ?? '-',
-            'users' => 0,
-            'status' => 'pending',
-            'created_at' => now()->format('Y-m-d'),
-            'created_by' => $auth['sub'] ?? null,
-        ]);
+                'contact' => $data['contact'] ?? '-',
+                'email' => $data['email'],
+                'users' => 1,
+                'status' => 'pending',
+                'created_at' => now()->format('Y-m-d'),
+                'created_by' => $auth['sub'] ?? null,
+            ]);
+
+            // The login the agency owner actually signs in with.
+            User::create([
+                'name' => $data['contact'] ?? $data['name'],
+                'username' => $data['username'],
+                'email' => strtolower(trim($data['email'])),
+                'phone' => trim($data['phone']),
+                'password_hash' => password_hash($plainPassword, PASSWORD_BCRYPT),
+                'role_slug' => 'agency_owner',
+                'agency_name' => $data['name'],
+                'agency_id' => $agency->id,
+                'status' => 'active',
+            ]);
+
+            return $agency;
+        });
 
         return ApiResponse::created(
             array_merge($agency->toPublic(), [
@@ -166,8 +203,17 @@ class AgencyController extends Controller
         }
 
         $plainPassword = Credentials::generatePassword();
-        $agency->password_hash = password_hash($plainPassword, PASSWORD_BCRYPT);
-        $agency->save();
+        $hash = password_hash($plainPassword, PASSWORD_BCRYPT);
+
+        DB::transaction(function () use ($agency, $hash) {
+            $agency->password_hash = $hash;
+            $agency->save();
+
+            // Sign-in reads the users table, so rotate the login too.
+            User::where('agency_id', $agency->id)
+                ->where('role_slug', 'agency_owner')
+                ->update(['password_hash' => $hash]);
+        });
 
         return ApiResponse::ok([
             'username' => $agency->username,

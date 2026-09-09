@@ -42,6 +42,7 @@ class User extends Model
         return [
             'id' => $this->id,
             'name' => $this->name,
+            'username' => $this->username,
             'email' => $this->email,
             'phone' => $this->phone,
             'roleSlug' => $this->role_slug,
@@ -56,17 +57,23 @@ class User extends Model
         ];
     }
 
-    /** Accepts an email or a phone number, so people can sign in with either. */
+    /** Accepts a username, an email or a phone number as the identifier. */
     public static function findByLoginWithHash(?string $identifier): ?self
     {
         $value = trim((string) $identifier);
         $digits = preg_replace('/\D/', '', $value);
 
+        // Single quotes inside the raw SQL: SQLite reads double quotes as
+        // identifiers, so "+" there would not be a string literal.
         return self::query()
-            ->whereRaw('email = ? OR REPLACE(REPLACE(phone, " ", ""), "+", "") = ?', [
-                strtolower($value),
-                $digits,
-            ])
+            ->where(function ($q) use ($value, $digits) {
+                $q->where('username', $value)
+                    ->orWhere('email', strtolower($value));
+
+                if ($digits !== '') {
+                    $q->orWhereRaw("REPLACE(REPLACE(phone, ' ', ''), '+', '') = ?", [$digits]);
+                }
+            })
             ->first();
     }
 

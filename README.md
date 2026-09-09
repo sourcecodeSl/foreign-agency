@@ -45,11 +45,16 @@ Main Admin. It is safe to re-run.
 | --- | --- |
 | `users` | accounts: name, email, phone, bcrypt hash, role, status, verification timestamps |
 
+**There is no self-registration.** The Main Admin is seeded; every agency login
+is issued by the admin from the Create Agency screen.
+
 Seeded admin — **change the password after signing in**:
 
-| Email | Password |
+| Username | Password |
 | --- | --- |
-| `visaltheekshana555@gmail.com` | `Admin@1234` |
+| `mainadmin` | `Admin@1234` |
+
+You can also sign in with the admin's email or phone number.
 
 All data is persisted in MySQL through Eloquent models and migrations.
 
@@ -79,8 +84,7 @@ channels that could not actually send, and never in production.
 
 | Route | Screen |
 | --- | --- |
-| `/register` | Create an account (name, email, phone, password) |
-| `/login` | Sign in with email **or** phone number |
+| `/login` | Sign in with username, email **or** phone number |
 | `/verify-phone` | Step 1 of 2 — phone OTP, 59-second resend countdown |
 | `/verify-email` | Step 2 of 2 — email OTP; only this step signs you in |
 | `/dashboard` | Stat cards, pending-approval queue, quick actions |
@@ -122,7 +126,6 @@ All routes are prefixed with `/api/v1`. Every response uses the envelope
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| POST | `/auth/register` | Creates an account (bcrypt-hashed password) |
 | POST | `/auth/login` | Step 1 — checks the password, sends the SMS code |
 | POST | `/auth/verify-otp` | Step 2 — confirms the phone, sends the email code (**no token**) |
 | POST | `/auth/verify-email` | Step 3 — confirms the email and issues the JWT |

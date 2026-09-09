@@ -126,3 +126,30 @@ drives the upload validation and the database enum:
 
 Covered by [`tests/Feature/CandidateFlowTest.php`](tests/Feature/CandidateFlowTest.php)
 (`php artisan test`).
+
+---
+
+## Accounts: there is no self-registration
+
+`POST /auth/register` does not exist. Accounts can only come from two places:
+
+1. **The Main Admin** is created by `php artisan db:seed`.
+2. **Agency logins** are issued by the Main Admin from the admin panel
+   (`POST /agencies`), which creates the agency record and its `agency_owner`
+   login in one transaction and returns the password exactly once.
+
+### Signing in
+
+The identifier accepts a **username, an email address or a phone number**.
+
+| Account | Username | Password |
+| --- | --- | --- |
+| Main Admin | `mainadmin` | `Admin@1234` |
+
+Change the password after the first sign-in. Both are configurable before
+seeding via `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` in `.env`.
+
+Creating an agency requires an **email and a phone number**, because sign-in
+sends a code to the phone and then to the email - an agency without both could
+never complete the second factor. `POST /agencies/{id}/credentials/reset`
+rotates the password on the agency record *and* on its login.
