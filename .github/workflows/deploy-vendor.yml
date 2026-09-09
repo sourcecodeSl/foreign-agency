@@ -1,0 +1,48 @@
+name: Deploy vendor
+
+# Run this by hand (Actions > Deploy vendor > Run workflow) only when
+# composer.json / composer.lock changed. vendor/ is 8,400+ files and FTP
+# uploads them one at a time, so this takes a long while - the routine deploy
+# skips it for exactly that reason.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    # FTP is slow with this many small files; give it room rather than dying
+    # part-way through and leaving a half-written vendor folder.
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, openssl, tokenizer, xml, ctype, curl, fileinfo, zip
+
+      - name: Install production dependencies
+        working-directory: backend-laravel
+        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+      - name: Show the size of the upload
+        run: |
+          echo "vendor size : $(du -sh backend-laravel/vendor | cut -f1)"
+          echo "vendor files: $(find backend-laravel/vendor -type f | wc -l)"
+
+      - name: Upload vendor to FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
+          local-dir: ./backend-laravel/vendor/
+          server-dir: ./vendor/
+          log-level: minimal
+          # Its own state file, so it does not fight with the app deploy.
+          state-name: .ftp-deploy-vendor-state.json

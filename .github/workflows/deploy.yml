@@ -12,8 +12,12 @@ on:
 # The subdomain document root is the Laravel app folder, and its .htaccess
 # rewrites every request into public/. So the React build has to land in
 # public/ - uploading it to the document root leaves it unreachable, which is
-# exactly why the old login page stayed live after the register link was
-# removed.
+# why an old login page stayed live after the register link was removed.
+#
+# vendor/ is deliberately NOT deployed here: it is 8,400+ files and FTP uploads
+# one file at a time, which ran for 9.5 minutes and then failed. It only needs
+# re-uploading when composer.lock changes - use the "Deploy vendor" workflow
+# for that.
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -27,18 +31,6 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
-
-      # vendor/ is gitignored, so it is not in the checkout. Without this the
-      # deployed app would have no dependencies and every request would fatal.
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: mbstring, pdo_mysql, openssl, tokenizer, xml, ctype, curl, fileinfo, zip
-
-      - name: Install PHP dependencies
-        working-directory: backend-laravel
-        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
 
       - name: Install dependencies
         working-directory: frontend
@@ -66,7 +58,11 @@ jobs:
           if [ -f frontend/dist/favicon.ico ]; then
             cp frontend/dist/favicon.ico backend-laravel/public/favicon.ico
           fi
-          ls -la backend-laravel/public
+
+      - name: Show what will be uploaded
+        run: |
+          echo "Files to upload (vendor excluded):"
+          find backend-laravel -type f -not -path '*/vendor/*' | wc -l
 
       # dangerous-clean-slate is deliberately off: it would wipe .env,
       # storage/ and vendor/ on the server.
@@ -80,10 +76,12 @@ jobs:
           port: 21
           local-dir: ./backend-laravel/
           server-dir: ./
+          log-level: standard
           exclude: |
+            **/vendor/**
+            **/node_modules/**
             **/.git*
             **/.git*/**
-            **/node_modules/**
             **/tests/**
             **/.env
             **/.env.*
