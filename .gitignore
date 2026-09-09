@@ -22,3 +22,6 @@ npm-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Composer binary downloaded for local Laravel work
+/composer.phar
