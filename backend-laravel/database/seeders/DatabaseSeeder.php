@@ -31,9 +31,8 @@ class DatabaseSeeder extends Seeder
             $full[$m] = $grid(true, true, true, true);
         }
 
-        $agent = Role::emptyMatrix();
-        $agent['reports'] = $grid(true, false, false, false);
         // Agents do the day-to-day registration and document uploads.
+        $agent = Role::emptyMatrix();
         $agent['candidates'] = $grid(true, true, true, false);
 
         $auditor = [];
@@ -47,26 +46,16 @@ class DatabaseSeeder extends Seeder
                 'permissions' => $full],
             ['id' => 'RL-02', 'name' => 'Agency Owner', 'slug' => 'agency_owner', 'is_system' => false,
                 'description' => 'Manages a single agency, its staff and its data.',
-                'permissions' => [
-                    'agencies' => $grid(true, false, true, false),
-                    'candidates' => $grid(true, true, true, true),
-                    'users' => $grid(true, true, true, false),
-                    'roles' => $grid(true, false, false, false),
-                    'reports' => $grid(true, false, false, false),
-                    'billing' => $grid(true, false, true, false),
-                    'settings' => $grid(true, false, false, false),
-                ]],
+                // An agency signs in to register candidates and nothing else.
+                // Documents are never removed, so there is no delete grant.
+                'permissions' => array_merge(Role::emptyMatrix(), [
+                    'candidates' => $grid(true, true, true, false),
+                ])],
             ['id' => 'RL-03', 'name' => 'Agency Manager', 'slug' => 'agency_manager', 'is_system' => false,
                 'description' => 'Day-to-day operations inside an agency, no billing access.',
-                'permissions' => [
-                    'agencies' => $grid(true, false, false, false),
+                'permissions' => array_merge(Role::emptyMatrix(), [
                     'candidates' => $grid(true, true, true, false),
-                    'users' => $grid(true, true, false, false),
-                    'roles' => $grid(false, false, false, false),
-                    'reports' => $grid(true, false, false, false),
-                    'billing' => $grid(false, false, false, false),
-                    'settings' => $grid(false, false, false, false),
-                ]],
+                ])],
             ['id' => 'RL-04', 'name' => 'Agent', 'slug' => 'agent', 'is_system' => false,
                 'description' => 'Handles assigned records only.',
                 'permissions' => $agent],

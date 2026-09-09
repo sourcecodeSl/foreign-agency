@@ -128,31 +128,6 @@ class CandidateFlowTest extends TestCase
             ->assertJsonPath('data.status', 'submitted');
     }
 
-    public function test_re_uploading_a_type_replaces_the_previous_file(): void
-    {
-        Storage::fake('local');
-        $this->agency('AG-9001', 'Skyline Marketing', 'tst.skyline');
-        $token = $this->tokenFor('agency_owner', 'AG-9001', 'owner@skyline.lk');
-
-        $id = $this->withToken($token)->postJson('/api/v1/candidates', $this->payload())
-            ->assertCreated()->json('data.candidate.id');
-
-        $first = $this->withToken($token)->postJson('/api/v1/candidates/'.$id.'/documents', [
-            'type' => 'medical',
-            'file' => UploadedFile::fake()->create('old.pdf', 50, 'application/pdf'),
-        ])->assertCreated()->json('data.document');
-
-        $second = $this->withToken($token)->postJson('/api/v1/candidates/'.$id.'/documents', [
-            'type' => 'medical',
-            'file' => UploadedFile::fake()->create('new.pdf', 60, 'application/pdf'),
-        ])->assertCreated()->json('data.document');
-
-        // Same row, new file - not a duplicate.
-        $this->assertSame($first['id'], $second['id']);
-        $this->assertSame('new.pdf', $second['originalName']);
-        $this->assertDatabaseCount('candidate_documents', 1);
-    }
-
     public function test_bulk_upload_accepts_several_documents_at_once(): void
     {
         Storage::fake('local');

@@ -51,12 +51,37 @@ class Candidate extends Model
         });
     }
 
-    /** Which required documents are still outstanding. */
+    /** Which required documents have never been uploaded. */
     public function missingDocumentTypes(): array
     {
-        $present = $this->documents()->pluck('type')->all();
+        $present = $this->documents()->distinct()->pluck('type')->all();
 
         return array_values(array_diff(\App\Support\DocumentType::values(), $present));
+    }
+
+    /**
+     * The newest upload for each document type.
+     *
+     * Every upload is kept, so "the current file" is simply the highest id
+     * within a type. Keyed by type value.
+     *
+     * @return array<string, \App\Models\CandidateDocument>
+     */
+    public function latestDocumentsByType(): array
+    {
+        $latest = [];
+
+        foreach ($this->documents()->orderBy('id')->get() as $document) {
+            $latest[$document->type] = $document;   // later rows overwrite earlier
+        }
+
+        return $latest;
+    }
+
+    /** History for one type, newest first. */
+    public function documentHistory(string $type)
+    {
+        return $this->documents()->where('type', $type)->orderByDesc('id')->get();
     }
 
     /** camelCase shape, matching the rest of the API. */
@@ -78,7 +103,21 @@ class Candidate extends Model
         ];
 
         if ($withDocuments) {
-            $payload['documents'] = $this->documents->map->toPublic()->all();
+            $latest = $this->latestDocumentsByType();
+
+            // Full history, plus a flag marking the current file of each type.
+            $payload['documents'] = $this->documents
+                ->sortByDesc('id')
+                ->map(fn ($d) => $d->toPublic() + [
+                    'isLatest' => isset($latest[$d->type]) && $latest[$d->type]->id === $d->id,
+                ])
+                ->values()
+                ->all();
+
+            $payload['latestDocuments'] = array_map(
+                fn ($d) => $d->toPublic(),
+                $latest
+            );
             $payload['missingDocuments'] = $this->missingDocumentTypes();
         }
 

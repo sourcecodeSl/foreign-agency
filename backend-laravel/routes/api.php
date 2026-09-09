@@ -54,12 +54,16 @@ Route::prefix('candidates')->middleware('auth.jwt')->group(function () {
     Route::patch('/{id}/status', [CandidateController::class, 'updateStatus'])->middleware('can.perm:candidates,edit');
     Route::delete('/{id}', [CandidateController::class, 'destroy'])->middleware('can.perm:candidates,delete');
 
-    // Documents attached to one candidate.
+    // Documents attached to one candidate. Uploads are append-only and there
+    // is deliberately no delete route - an attached document cannot be removed.
     Route::get('/{id}/documents', [CandidateDocumentController::class, 'index'])->middleware('can.perm:candidates,view');
     Route::post('/{id}/documents', [CandidateDocumentController::class, 'store'])->middleware('can.perm:candidates,edit');
     Route::post('/{id}/documents/bulk', [CandidateDocumentController::class, 'storeMany'])->middleware('can.perm:candidates,edit');
+    // Every version ever uploaded for one type.
+    Route::get('/{id}/documents/history/{type}', [CandidateDocumentController::class, 'history'])->middleware('can.perm:candidates,view');
+    // All types zipped, one folder each holding the latest file.
+    Route::get('/{id}/documents/download-all', [CandidateDocumentController::class, 'downloadAll'])->middleware('can.perm:candidates,view');
     Route::get('/{id}/documents/{documentId}/download', [CandidateDocumentController::class, 'download'])->middleware('can.perm:candidates,view');
-    Route::delete('/{id}/documents/{documentId}', [CandidateDocumentController::class, 'destroy'])->middleware('can.perm:candidates,delete');
 });
 
 // --- Users ------------------------------------------------------------------

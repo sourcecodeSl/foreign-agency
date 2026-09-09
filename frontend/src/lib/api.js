@@ -23,27 +23,51 @@ export const tokenStore = {
   clear: () => localStorage.removeItem(TOKEN_KEY),
 };
 
+/**
+ * Shown when the API cannot be reached at all, which in development almost
+ * always means the backend was never started. A bare "500" here is the Vite
+ * proxy failing to connect, not an error the server actually returned.
+ */
+const OFFLINE_MESSAGE =
+  'Cannot reach the API server. Start it with: cd backend-laravel && php artisan serve';
+
 /** Thin fetch wrapper: attaches the bearer token and unwraps { success, data }. */
 async function request(path, { method = 'GET', body, headers } = {}) {
   const token = tokenStore.get();
-  const res = await fetch(BASE_URL + path, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: 'Bearer ' + token } : {}),
-      ...headers,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
 
-  const payload = await res.json().catch(() => ({}));
-
-  if (!res.ok || payload.success === false) {
-    const error = new Error(payload.message || 'Request failed (' + res.status + ')');
-    error.status = res.status;
-    error.errors = payload.errors;
+  let res;
+  try {
+    res = await fetch(BASE_URL + path, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        ...headers,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    // fetch only rejects when the request never completed.
+    const error = new Error(OFFLINE_MESSAGE);
+    error.status = 0;
     throw error;
   }
+
+  const payload = await res.json().catch(() => null);
+
+  if (!res.ok || payload?.success === false) {
+    // The API always answers with a { success, message } envelope, so a 5xx
+    // without one did not come from the application.
+    const unreachable = payload === null && res.status >= 500;
+
+    const error = new Error(
+      payload?.message || (unreachable ? OFFLINE_MESSAGE : 'Request failed (' + res.status + ')')
+    );
+    error.status = res.status;
+    error.errors = payload?.errors;
+    throw error;
+  }
+
   return payload;
 }
 
@@ -377,4 +401,143 @@ export const dashboardApi = {
       unverified: { total: emails.filter((e) => e.status !== 'verified').length, delta: '-3' },
     });
   },
+};
+
+// --- Candidates -------------------------------------------------------------
+/**
+ * Registered by an agency, never signing in themselves.
+ *
+ * These call the live API only: candidates live in the database, so there is
+ * nothing sensible for the offline mock adapter to return.
+ */
+function requireLiveApi() {
+  if (USE_MOCK) {
+    const e = new Error('Candidates need the live API. Set VITE_USE_MOCK=false in frontend/.env.');
+    e.status = 0;
+    throw e;
+  }
+}
+
+/** Pulls a filename out of a Content-Disposition header. */
+function filenameFrom(header, fallback) {
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header || '');
+  return match ? decodeURIComponent(match[1]) : fallback;
+}
+
+/**
+ * Downloads a protected file. The bearer token has to travel in a header, so
+ * a plain <a href> cannot be used - the body is fetched and handed to the
+ * browser as a blob instead.
+ */
+async function downloadFile(path, fallbackName) {
+  requireLiveApi();
+
+  const res = await fetch(BASE_URL + path, {
+    headers: { Authorization: 'Bearer ' + tokenStore.get() },
+  });
+
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const error = new Error(payload?.message || 'Download failed (' + res.status + ')');
+    error.status = res.status;
+    throw error;
+  }
+
+  const blob = await res.blob();
+  const name = filenameFrom(res.headers.get('content-disposition'), fallbackName);
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  return name;
+}
+
+export const candidateApi = {
+  /** The eight required documents, so the UI never hard-codes the list. */
+  async documentTypes() {
+    requireLiveApi();
+    return request('/candidates/document-types');
+  },
+
+  async list({ search = '', status = 'all' } = {}) {
+    requireLiveApi();
+    return request('/candidates?search=' + encodeURIComponent(search) + '&status=' + status);
+  },
+
+  async get(id) {
+    requireLiveApi();
+    return request('/candidates/' + id);
+  },
+
+  async create(payload) {
+    requireLiveApi();
+    return request('/candidates', { method: 'POST', body: payload });
+  },
+
+  async update(id, payload) {
+    requireLiveApi();
+    return request('/candidates/' + id, { method: 'PUT', body: payload });
+  },
+
+  async updateStatus(id, status) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/status', { method: 'PATCH', body: { status } });
+  },
+
+  async documents(id) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/documents');
+  },
+
+  /** Every version ever uploaded for one document type. */
+  async history(id, type) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/documents/history/' + type);
+  },
+
+  /**
+   * Attaches another file. Uploads are append-only, so this never replaces
+   * what is already there.
+   */
+  async upload(id, type, file) {
+    requireLiveApi();
+
+    const form = new FormData();
+    form.append('type', type);
+    form.append('file', file);
+
+    const res = await fetch(BASE_URL + '/candidates/' + id + '/documents', {
+      method: 'POST',
+      // No Content-Type: the browser sets the multipart boundary itself.
+      headers: { Authorization: 'Bearer ' + tokenStore.get() },
+      body: form,
+    });
+
+    const payload = await res.json().catch(() => null);
+
+    if (!res.ok || payload?.success === false) {
+      const error = new Error(payload?.message || 'Upload failed (' + res.status + ')');
+      error.status = res.status;
+      error.errors = payload?.errors;
+      throw error;
+    }
+
+    return payload;
+  },
+
+  downloadOne: (candidateId, documentId, name) =>
+    downloadFile('/candidates/' + candidateId + '/documents/' + documentId + '/download', name),
+
+  /** All types zipped, one folder each holding the latest file. */
+  downloadAll: (candidateId, candidateName) =>
+    downloadFile(
+      '/candidates/' + candidateId + '/documents/download-all',
+      (candidateName || 'candidate') + '-documents.zip'
+    ),
 };

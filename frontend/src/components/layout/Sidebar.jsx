@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import {
   IconDashboard,
   IconBuilding,
@@ -8,7 +9,14 @@ import {
   IconMail,
 } from '../ui/Icons';
 
-const NAV = [
+/**
+ * Navigation is built from the signed-in role.
+ *
+ * An agency account exists to register candidates, so it never sees the admin
+ * sections - the API refuses them anyway, and showing links that 403 is worse
+ * than not showing them.
+ */
+const ADMIN_NAV = [
   {
     section: 'Overview',
     items: [{ to: '/dashboard', label: 'Dashboard', icon: IconDashboard, end: true }],
@@ -21,6 +29,10 @@ const NAV = [
     ],
   },
   {
+    section: 'Candidates',
+    items: [{ to: '/candidates', label: 'All Candidates', icon: IconUsers, end: true }],
+  },
+  {
     section: 'User Management',
     items: [
       { to: '/users', label: 'Users List', icon: IconUsers, end: true },
@@ -31,6 +43,16 @@ const NAV = [
   {
     section: 'Verification',
     items: [{ to: '/verification/emails', label: 'Email Verification', icon: IconMail }],
+  },
+];
+
+const AGENCY_NAV = [
+  {
+    section: 'Candidates',
+    items: [
+      { to: '/candidates', label: 'Candidates', icon: IconUsers, end: true },
+      { to: '/candidates/register', label: 'Register Candidate', icon: IconUsers },
+    ],
   },
 ];
 
@@ -59,6 +81,11 @@ function NavItem({ item, onNavigate }) {
 }
 
 export default function Sidebar({ open, onClose }) {
+  const { admin } = useAuth();
+
+  const isAgency = admin?.roleSlug && admin.roleSlug !== 'main_admin' && admin.roleSlug !== 'auditor';
+  const nav = isAgency ? AGENCY_NAV : ADMIN_NAV;
+
   return (
     <>
       {/* Mobile scrim */}
@@ -85,8 +112,12 @@ export default function Sidebar({ open, onClose }) {
               AA
             </div>
             <div className="leading-tight">
-              <p className="text-sm font-semibold text-gray-900">Agency Admin</p>
-              <p className="text-xs text-gray-500">Main Admin System</p>
+              <p className="text-sm font-semibold text-gray-900">
+                {isAgency ? admin?.agency?.name || 'Agency' : 'Agency Admin'}
+              </p>
+              <p className="text-xs text-gray-500">
+                {isAgency ? 'Candidate Portal' : 'Main Admin System'}
+              </p>
             </div>
           </div>
           <button
@@ -101,7 +132,7 @@ export default function Sidebar({ open, onClose }) {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
-          {NAV.map((group) => (
+          {nav.map((group) => (
             <div key={group.section}>
               <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
                 {group.section}
@@ -118,10 +149,9 @@ export default function Sidebar({ open, onClose }) {
         {/* Footer card */}
         <div className="border-t border-gray-200 p-3">
           <div className="rounded-lg bg-gray-50 p-3">
-            <p className="text-xs font-semibold text-gray-900">System status</p>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-gray-500">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              All services operational
+            <p className="text-xs font-semibold text-gray-900">Signed in as</p>
+            <p className="mt-1 truncate text-xs text-gray-500">
+              {admin?.role || 'User'}
             </p>
           </div>
         </div>

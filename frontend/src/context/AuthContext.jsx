@@ -4,6 +4,14 @@ import { authApi, tokenStore } from '../lib/api';
 
 const AuthContext = createContext(null);
 
+const ADMIN_ROLES = ['main_admin', 'auditor'];
+
+/** Landing route for a role. */
+export function homePathFor(roleSlug) {
+  if (!roleSlug) return '/dashboard';
+  return ADMIN_ROLES.includes(roleSlug) ? '/dashboard' : '/candidates';
+}
+
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
@@ -36,6 +44,12 @@ export function AuthProvider({ children }) {
       challenge,
       booting,
       isAuthenticated: !!admin && !!tokenStore.get(),
+
+      /*
+       * Where this role belongs after signing in. An agency account exists to
+       * register candidates, so the admin dashboard is not its home.
+       */
+      homePath: homePathFor(admin?.roleSlug),
 
       /** Step 1: credentials -> opens the phone challenge. */
       async login(credentials) {

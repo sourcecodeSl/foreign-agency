@@ -8,17 +8,22 @@ use App\Models\CandidateDocument;
 use App\Support\ApiResponse;
 use App\Support\DocumentType;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use ZipArchive;
 
 /**
- * Upload, list, download and remove the documents attached to a candidate.
+ * Documents attached to a candidate.
+ *
+ * Uploads are append-only: nothing is ever replaced or deleted, so attaching
+ * the same type three times leaves three rows and the newest one is the
+ * current file. There is deliberately no delete action.
  *
  * Files live on a private disk under candidates/{agency}/{candidate} and are
- * never served from the public directory, so downloads pass back through this
- * controller and its ownership check.
+ * never served from the public directory, so every read passes back through
+ * this controller and its ownership check.
  */
 class CandidateDocumentController extends Controller
 {
@@ -28,17 +33,37 @@ class CandidateDocumentController extends Controller
     public function index(Request $request, $candidateId)
     {
         $candidate = $this->find($request, $candidateId);
+        $latest = $candidate->latestDocumentsByType();
 
         return ApiResponse::ok([
-            'documents' => $candidate->documents()->orderByDesc('id')->get()->map->toPublic()->all(),
+            // Every upload, newest first, with the current one flagged.
+            'documents' => $candidate->documents()->orderByDesc('id')->get()
+                ->map(fn ($d) => $d->toPublic() + [
+                    'isLatest' => isset($latest[$d->type]) && $latest[$d->type]->id === $d->id,
+                ])->all(),
+            'latest' => array_map(fn ($d) => $d->toPublic(), $latest),
             'required' => DocumentType::options(),
             'missing' => $candidate->missingDocumentTypes(),
         ]);
     }
 
+    /** GET /candidates/{id}/documents/history/{type} - every version of one type. */
+    public function history(Request $request, $candidateId, string $type)
+    {
+        $candidate = $this->find($request, $candidateId);
+
+        if (! DocumentType::tryFrom($type)) {
+            throw new ApiException(404, 'Unknown document type.');
+        }
+
+        return ApiResponse::ok(
+            $candidate->documentHistory($type)->map->toPublic()->values()->all()
+        );
+    }
+
     /**
      * POST /candidates/{id}/documents
-     * Uploading the same type again replaces the previous file.
+     * Adds another version. Any number may be attached to the same type.
      */
     public function store(Request $request, $candidateId)
     {
@@ -64,15 +89,18 @@ class CandidateDocumentController extends Controller
             $request->attributes->get('auth_user')['sub'] ?? null
         );
 
+        $versions = $candidate->documents()->where('type', $document->type)->count();
+
         return ApiResponse::created([
             'document' => $document->toPublic(),
+            'versionCount' => $versions,
             'missing' => $candidate->fresh()->missingDocumentTypes(),
-        ], $document->typeLabel().' uploaded.');
+        ], $document->typeLabel().' uploaded (version '.$versions.').');
     }
 
     /**
      * POST /candidates/{id}/documents/bulk
-     * Accepts several files at once, keyed by document type.
+     * Several files at once, keyed by document type.
      */
     public function storeMany(Request $request, $candidateId)
     {
@@ -106,7 +134,7 @@ class CandidateDocumentController extends Controller
         ], count($saved).' document(s) uploaded.');
     }
 
-    /** GET /candidates/{id}/documents/{documentId}/download */
+    /** GET /candidates/{id}/documents/{documentId}/download - one exact version. */
     public function download(Request $request, $candidateId, $documentId)
     {
         $candidate = $this->find($request, $candidateId);
@@ -115,60 +143,97 @@ class CandidateDocumentController extends Controller
         return Storage::disk($document->disk)->download($document->path, $document->original_name);
     }
 
-    /** DELETE /candidates/{id}/documents/{documentId} */
-    public function destroy(Request $request, $candidateId, $documentId)
+    /**
+     * GET /candidates/{id}/documents/download-all
+     *
+     * One folder per document type, each holding the latest file uploaded for
+     * it, so every type is visible separately. The archive is named after the
+     * candidate.
+     */
+    public function downloadAll(Request $request, $candidateId): StreamedResponse
     {
         $candidate = $this->find($request, $candidateId);
-        $document = $this->findDocument($candidate, $documentId);
+        $latest = $candidate->latestDocumentsByType();
 
-        $label = $document->typeLabel();
-        $document->deleteFile();
-        $document->delete();
+        if ($latest === []) {
+            throw new ApiException(404, 'This candidate has no documents yet.');
+        }
 
-        return ApiResponse::ok(
-            ['missing' => $candidate->fresh()->missingDocumentTypes()],
-            $label.' removed.'
-        );
+        $zipName = $this->archiveName($candidate->name);
+        $tempPath = tempnam(sys_get_temp_dir(), 'candidate-docs-');
+
+        $zip = new ZipArchive();
+        if ($zip->open($tempPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            throw new ApiException(500, 'Could not build the archive.');
+        }
+
+        // Walk the canonical type order so the folders always read the same way.
+        $position = 0;
+        foreach (DocumentType::cases() as $type) {
+            $document = $latest[$type->value] ?? null;
+            if (! $document) {
+                continue;   // nothing uploaded for this type
+            }
+
+            $disk = Storage::disk($document->disk);
+            if (! $disk->exists($document->path)) {
+                continue;
+            }
+
+            $position++;
+            // "01 Passport Copy/passport.pdf"
+            $folder = sprintf('%02d %s', $position, $type->label());
+            $zip->addFromString(
+                $folder.'/'.$this->safeFileName($document->original_name),
+                $disk->get($document->path)
+            );
+        }
+
+        $zip->close();
+
+        return response()->streamDownload(function () use ($tempPath) {
+            readfile($tempPath);
+            @unlink($tempPath);
+        }, $zipName, ['Content-Type' => 'application/zip']);
     }
 
     // ---------------------------------------------------------------------
 
+    /** Always inserts a new row; earlier versions are left untouched. */
     private function save(Candidate $candidate, DocumentType $type, $file, $userId): CandidateDocument
     {
         $disk = config('documents.disk');
-        $directory = 'candidates/'.$candidate->agency_id.'/'.$candidate->id;
-        $filename = $type->value.'-'.Str::uuid().'.'.$file->getClientOriginalExtension();
+        $directory = 'candidates/'.$candidate->agency_id.'/'.$candidate->id.'/'.$type->value;
+        $filename = Str::uuid().'.'.$file->getClientOriginalExtension();
 
         $path = $file->storeAs($directory, $filename, ['disk' => $disk]);
 
-        return DB::transaction(function () use ($candidate, $type, $file, $userId, $disk, $path) {
-            $existing = $candidate->documents()->where('type', $type->value)->first();
+        return CandidateDocument::create([
+            'candidate_id' => $candidate->id,
+            'type' => $type->value,
+            'disk' => $disk,
+            'path' => $path,
+            'original_name' => $file->getClientOriginalName(),
+            'mime_type' => $file->getClientMimeType(),
+            'size_bytes' => $file->getSize(),
+            'uploaded_by' => $userId,
+        ]);
+    }
 
-            $attributes = [
-                'disk' => $disk,
-                'path' => $path,
-                'original_name' => $file->getClientOriginalName(),
-                'mime_type' => $file->getClientMimeType(),
-                'size_bytes' => $file->getSize(),
-                'uploaded_by' => $userId,
-            ];
+    /** "Kamal Perera" becomes "Kamal-Perera-documents.zip". */
+    private function archiveName(string $candidateName): string
+    {
+        $slug = trim(preg_replace('/[^A-Za-z0-9]+/', '-', $candidateName), '-');
 
-            if ($existing) {
-                $oldPath = $existing->path;
-                $existing->update($attributes);
-                // Drop the superseded file only once the row points at the new one.
-                if ($oldPath !== $path) {
-                    Storage::disk($disk)->delete($oldPath);
-                }
+        return ($slug !== '' ? $slug : 'candidate').'-documents.zip';
+    }
 
-                return $existing->fresh();
-            }
+    /** Keeps a stored name from escaping its folder inside the archive. */
+    private function safeFileName(string $name): string
+    {
+        $name = basename(str_replace('\\', '/', $name));
 
-            return CandidateDocument::create([
-                'candidate_id' => $candidate->id,
-                'type' => $type->value,
-            ] + $attributes);
-        });
+        return preg_replace('/[^A-Za-z0-9._ -]/', '_', $name) ?: 'document';
     }
 
     private function find(Request $request, $id): Candidate

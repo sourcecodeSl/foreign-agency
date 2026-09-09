@@ -2,18 +2,18 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/layout/AuthLayout';
 import OtpForm from '../../components/auth/OtpForm';
 import StepIndicator from '../../components/auth/StepIndicator';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, homePathFor } from '../../context/AuthContext';
 import { IconMail, IconCheck } from '../../components/ui/Icons';
 
 /** Step 2 of 2: confirm the email address. Only this step issues the session. */
 export default function VerifyEmail() {
   const navigate = useNavigate();
-  const { challenge, verifyEmail, resendOtp, isAuthenticated } = useAuth();
+  const { challenge, verifyEmail, resendOtp, isAuthenticated, homePath } = useAuth();
 
   // An in-flight challenge always wins over an existing session, otherwise a
   // stale token would let this required step be skipped.
   if (challenge?.stage === 'phone') return <Navigate to="/verify-phone" replace />;
-  if (!challenge) return <Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />;
+  if (!challenge) return <Navigate to={isAuthenticated ? homePath : '/login'} replace />;
 
   return (
     <AuthLayout
@@ -46,8 +46,8 @@ export default function VerifyEmail() {
         onResend={resendOtp}
         onVerify={async (code) => {
           // Both factors confirmed - this is where the token is issued.
-          await verifyEmail(code);
-          navigate('/dashboard', { replace: true });
+          const data = await verifyEmail(code);
+          navigate(homePathFor(data?.admin?.roleSlug), { replace: true });
         }}
       />
     </AuthLayout>

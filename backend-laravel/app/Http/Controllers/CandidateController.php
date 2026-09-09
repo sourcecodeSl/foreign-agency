@@ -54,7 +54,7 @@ class CandidateController extends Controller
             'agency_id' => $agencyId,
             'name' => $data['name'],
             'passport_no' => $data['passportNo'],
-            'nic_no' => $data['nicNo'],
+            'nic_no' => $data['nicNo'] ?? null,
             'address' => $data['address'],
             'mobile' => $data['mobile'],
             'email' => $data['email'] ?? null,
@@ -142,7 +142,9 @@ class CandidateController extends Controller
         return $request->validate([
             'name' => [$required, 'string', 'min:3', 'max:150'],
             'passportNo' => [$required, 'string', 'max:30', 'regex:/^[A-Za-z0-9]+$/', $scoped('passport_no')],
-            'nicNo' => [$required, 'string', 'max:20', 'regex:/^([0-9]{9}[VvXx]|[0-9]{12})$/', $scoped('nic_no')],
+            // Optional: the agency registration form collects passport, name,
+            // address, mobile and email. NIC is accepted when supplied.
+            'nicNo' => ['nullable', 'string', 'max:20', 'regex:/^([0-9]{9}[VvXx]|[0-9]{12})$/', $scoped('nic_no')],
             'address' => [$required, 'string', 'min:5', 'max:255'],
             'mobile' => [$required, 'string', 'regex:/^[0-9+\s-]{9,20}$/'],
             'email' => ['nullable', 'email', 'max:190'],

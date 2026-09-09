@@ -20,12 +20,45 @@ class AgencyController extends Controller
     }
 
     /** GET /agencies?status=&search= */
+    /** Roles that legitimately see every agency. */
+    private const GLOBAL_ROLES = ['main_admin', 'auditor'];
+
+    /** Approving, resetting credentials and deleting stay with the admin. */
+    private function requireGlobalRole(Request $request): void
+    {
+        $auth = $request->attributes->get('auth_user');
+
+        if (! in_array($auth['roleSlug'] ?? null, self::GLOBAL_ROLES, true)) {
+            throw new ApiException(403, 'Only the administrator can do this.');
+        }
+    }
+
+    /** Null for those roles, the caller's own agency id otherwise. */
+    private function scopeAgencyId(Request $request): ?string
+    {
+        $auth = $request->attributes->get('auth_user');
+
+        if (in_array($auth['roleSlug'] ?? null, self::GLOBAL_ROLES, true)) {
+            return null;
+        }
+
+        return $auth['agencyId'] ?? '';
+    }
+
     public function index(Request $request)
     {
         $status = $request->query('status', 'all');
         $search = trim((string) $request->query('search', ''));
 
         $query = Agency::query();
+
+        // An agency must never see the other agencies on the platform - the
+        // listing carries their names, addresses and login usernames.
+        $scope = $this->scopeAgencyId($request);
+        if ($scope !== null) {
+            $query->where('id', $scope);
+        }
+
         if ($status !== 'all') {
             $query->where('status', $status);
         }
@@ -44,22 +77,30 @@ class AgencyController extends Controller
     }
 
     /** GET /agencies/counts */
-    public function counts()
+    public function counts(Request $request)
     {
+        $scope = $this->scopeAgencyId($request);
+        $base = fn () => $scope === null ? Agency::query() : Agency::where('id', $scope);
+
         return ApiResponse::ok([
-            'all' => Agency::count(),
-            'pending' => Agency::where('status', 'pending')->count(),
-            'active' => Agency::where('status', 'active')->count(),
-            'deactivated' => Agency::where('status', 'deactivated')->count(),
+            'all' => $base()->count(),
+            'pending' => $base()->where('status', 'pending')->count(),
+            'active' => $base()->where('status', 'active')->count(),
+            'deactivated' => $base()->where('status', 'deactivated')->count(),
         ]);
     }
 
     /** GET /agencies/:id */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $agency = Agency::find($id);
         if (! $agency) {
             throw new ApiException(404, 'Agency not found.');
+        }
+
+        $scope = $this->scopeAgencyId($request);
+        if ($scope !== null && $agency->id !== $scope) {
+            throw new ApiException(403, 'You can only view your own agency.');
         }
 
         return ApiResponse::ok($agency->toPublic());
@@ -155,6 +196,11 @@ class AgencyController extends Controller
     /** PUT /agencies/:id */
     public function update(Request $request, string $id)
     {
+        $scope = $this->scopeAgencyId($request);
+        if ($scope !== null && $id !== $scope) {
+            throw new ApiException(403, 'You can only edit your own agency.');
+        }
+
         $agency = Agency::find($id);
         if (! $agency) {
             throw new ApiException(404, 'Agency not found.');
@@ -173,6 +219,9 @@ class AgencyController extends Controller
     /** PATCH /agencies/:id/status */
     public function updateStatus(Request $request, string $id)
     {
+        // Approving or deactivating an agency is an administrator action.
+        $this->requireGlobalRole($request);
+
         Validator::make($request->all(), [
             'status' => 'required|in:pending,active,deactivated',
         ], ['status.in' => 'Unknown status.'])->validate();
@@ -195,8 +244,12 @@ class AgencyController extends Controller
     }
 
     /** POST /agencies/:id/credentials/reset */
-    public function resetCredentials(string $id)
+    public function resetCredentials(Request $request, string $id)
     {
+        // Without this an agency with `agencies,edit` could reset another
+        // agency's password and take the account over.
+        $this->requireGlobalRole($request);
+
         $agency = Agency::find($id);
         if (! $agency) {
             throw new ApiException(404, 'Agency not found.');
@@ -223,8 +276,10 @@ class AgencyController extends Controller
     }
 
     /** DELETE /agencies/:id */
-    public function destroy(string $id)
+    public function destroy(Request $request, string $id)
     {
+        $this->requireGlobalRole($request);
+
         $agency = Agency::find($id);
         if (! $agency) {
             throw new ApiException(404, 'Agency not found.');

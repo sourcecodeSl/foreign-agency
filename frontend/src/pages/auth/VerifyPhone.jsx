@@ -8,14 +8,14 @@ import { IconPhone } from '../../components/ui/Icons';
 /** Step 1 of 2: confirm the registered phone number. */
 export default function VerifyPhone() {
   const navigate = useNavigate();
-  const { challenge, verifyOtp, resendOtp, isAuthenticated } = useAuth();
+  const { challenge, verifyOtp, resendOtp, isAuthenticated, homePath } = useAuth();
 
   // Phone already done - the email step is what is outstanding. Checked before
   // the session test so a stale token can never skip a step.
   if (challenge?.stage === 'email') return <Navigate to="/verify-email" replace />;
 
   // Nothing to verify without a login challenge in flight.
-  if (!challenge) return <Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />;
+  if (!challenge) return <Navigate to={isAuthenticated ? homePath : '/login'} replace />;
 
   return (
     <AuthLayout
