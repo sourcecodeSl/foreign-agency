@@ -88,6 +88,34 @@ Login උනාට පස්සේ Admin password එක වෙනස් කර�
 
 ---
 
+## අලුත් version එකක් දාද්දි — Update කරන විදිය
+
+Shared hosting එකේ terminal එකක් නෑ, ඒ නිසා `php artisan migrate` run කරන්න
+බෑ. ඒකට browser එකෙන් run කරන්න පුළුවන් **`upgrade.php`** එකක් තියෙනවා.
+
+1. අලුත් files ටික File Manager එකෙන් upload කරන්න (හැම විටම `app/`,
+   `database/`, `public/`).
+2. `.env` එකේ **`UPGRADE_TOKEN`** එකට දිග random string එකක් දෙන්න
+   (අඩුම තරමේ අකුරු 16ක්). උදා:
+
+   ```
+   UPGRADE_TOKEN=k9Fx2Qm7Zt4Rv8Ly1Nb6Ws3Pd5Hc0Ja
+   ```
+
+3. Browser එකේ මේක open කරන්න (token එක ඔයාගේ එකට මාරු කරන්න):
+
+   `https://foreign-agency.solidrow.lk/upgrade.php?token=k9Fx2Qm7Zt4Rv8Ly1Nb6Ws3Pd5Hc0Ja`
+
+   Run වුණු migrations මොනවද කියලා screen එකේම පේනවා.
+4. ඉවර උනාම **`UPGRADE_TOKEN` එක හිස් කරන්න** (නැත්තං `public/upgrade.php`
+   එක delete කරන්න). Token එක හිස්ව තියෙනකම් ඒ page එකෙන් කිසිවක් වෙන්නෙ නෑ.
+
+> Token එකක් නැතුව හෝ වැරදි token එකකින් `upgrade.php` එකට ගියොත් 403 එකක්
+> විතරයි එන්නෙ — ඒ නිසා upload කරලා අමතක උනත් අනතුරක් නෑ. හැබැයි ඉවර
+> උනාම token එක අයින් කරන එක තමයි හොඳම.
+
+---
+
 ## Email (OTP) නියම විදියට යවන්න (optional)
 
 Codes screen එකේ පෙන්නීම නවත්තලා, ඇත්තටම email යවන්න ඕන නම් — `.env` එකේ:

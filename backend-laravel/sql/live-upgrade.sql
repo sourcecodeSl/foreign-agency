@@ -128,6 +128,9 @@ INSERT IGNORE INTO `migrations` (`migration`, `batch`) VALUES ('0001_01_01_00080
 INSERT IGNORE INTO `migrations` (`migration`, `batch`) VALUES ('0001_01_01_000900_add_username_to_users_table', 9);
 INSERT IGNORE INTO `migrations` (`migration`, `batch`) VALUES ('0001_01_01_001000_allow_document_history_on_candidate_documents', 9);
 INSERT IGNORE INTO `migrations` (`migration`, `batch`) VALUES ('0001_01_01_001100_make_nic_optional_on_candidates', 9);
+-- The permission grid above already carries candidates.delete, so the matching
+-- migration is recorded as applied rather than left pending for upgrade.php.
+INSERT IGNORE INTO `migrations` (`migration`, `batch`) VALUES ('0001_01_01_001200_allow_agency_roles_to_delete_candidates', 9);
 
 
 -- =============================================================================

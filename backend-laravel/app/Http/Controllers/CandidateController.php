@@ -30,14 +30,22 @@ class CandidateController extends Controller
      */
     public function index(Request $request)
     {
-        $scope = $this->scopeAgencyId($request);
+        $auth = $request->attributes->get('auth_user');
 
-        if ($scope === null) {
+        // Branch on the role, not on whether a scope came back: an agency login
+        // with no agency linked would otherwise look like a cross-agency role
+        // and be handed a silent empty list instead of being told what is wrong.
+        if (in_array($auth['roleSlug'] ?? null, self::GLOBAL_ROLES, true)) {
             $scope = trim((string) $request->query('agencyId'));
 
             // Nothing picked yet - an empty listing, not everybody's records.
             if ($scope === '') {
                 return ApiResponse::ok([]);
+            }
+        } else {
+            $scope = $auth['agencyId'] ?? null;
+            if (! $scope) {
+                throw new ApiException(403, 'Your account is not linked to an agency.');
             }
         }
 
