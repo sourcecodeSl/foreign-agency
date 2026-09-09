@@ -3,7 +3,7 @@
 Admin console for managing agencies, users, roles and verification flows.
 
 - **frontend/** — React 18 + Vite + Tailwind CSS
-- **backend/** — Node.js + Express REST API (`/api/v1`)
+- **backend-laravel/** — Laravel REST API (`/api/v1`)
 
 ---
 
@@ -12,11 +12,12 @@ Admin console for managing agencies, users, roles and verification flows.
 **Backend**
 
 ```bash
-cd backend
-npm install
+cd backend-laravel
+composer install
 cp .env.example .env
-npm run db:migrate     # creates the `users` table and seeds the admin
-npm run dev            # http://localhost:5000
+php artisan key:generate
+php artisan migrate --seed   # creates the tables and seeds the admin
+php artisan serve            # http://localhost:8000
 ```
 
 Start **MySQL** in the XAMPP control panel first, and make sure a database named
@@ -30,13 +31,14 @@ npm install
 npm run dev            # http://localhost:5173
 ```
 
-`frontend/.env` ships with `VITE_USE_MOCK=false`, so the app talks to the live Express API
-(Vite proxies `/api` to `http://localhost:5000`). Set it to `true` to browse the UI offline on
+`frontend/.env` ships with `VITE_USE_MOCK=false`, so the app talks to the live Laravel API
+(Vite proxies `/api` to `http://localhost:8000`). Set it to `true` to browse the UI offline on
 the built-in mock adapter — registration and login need the real API, since they use the database.
 
 ### Database
 
-`npm run db:migrate` applies [`backend/sql/schema.sql`](backend/sql/schema.sql) and seeds a
+`php artisan migrate --seed` applies the migrations in
+[`backend-laravel/database/migrations`](backend-laravel/database/migrations) and seeds a
 Main Admin. It is safe to re-run.
 
 | Table | Holds |
@@ -49,8 +51,7 @@ Seeded admin — **change the password after signing in**:
 | --- | --- |
 | `visaltheekshana555@gmail.com` | `Admin@1234` |
 
-Agencies, roles and permissions still use in-memory stores
-(`backend/src/models/*.store.js`); only users are persisted so far.
+All data is persisted in MySQL through Eloquent models and migrations.
 
 ### Sign-in flow
 
@@ -160,29 +161,23 @@ All routes are prefixed with `/api/v1`. Every response uses the envelope
 
 ## Sending real emails
 
-Email is sent through Nodemailer as soon as SMTP credentials exist in `backend/.env`;
-without them the code is logged to the console instead.
+Email is sent through Laravel's mailer as soon as SMTP credentials exist in
+`backend-laravel/.env`; without them the code is logged to the console instead.
 
 Gmail needs an **App Password**, not your normal password:
 
 1. Turn on 2-Step Verification: <https://myaccount.google.com/security>
 2. Create an App Password: <https://myaccount.google.com/apppasswords>
-3. Put the 16-character value in `backend/.env`:
+3. Put the 16-character value in `backend-laravel/.env`:
 
 ```ini
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=you@gmail.com
-SMTP_PASS=abcdefghijklmnop     # the App Password, spaces removed
-SMTP_FROM="Agency Admin" <you@gmail.com>
-```
-
-4. Check it without going through a login:
-
-```bash
-cd backend
-npm run test:email               # sends to SMTP_USER
-npm run test:email you@other.com # or to a specific address
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=you@gmail.com
+MAIL_PASSWORD=abcdefghijklmnop     # the App Password, spaces removed
+MAIL_FROM_ADDRESS=you@gmail.com
+MAIL_FROM_NAME="Agency Admin"
 ```
 
 Restart the API after editing `.env`. The on-screen "Demo mode" code panel
@@ -193,14 +188,11 @@ channels that could not send (currently SMS), and never in production.
 
 ## Before production
 
-The backend uses **in-memory stores** (`backend/src/models/*.store.js`) as a database stand-in.
-Each exposes `findAll / findById / insert / update / remove`, so swapping in Mongoose, Prisma or
-Knex only touches those files — controllers stay unchanged.
+All data is persisted in MySQL through Eloquent. Still required:
 
-Also required:
-
-- Move agencies, roles and permissions into MySQL as well (users are already there).
-- Configure a real SMS provider in `services/sms.service.js` (it still logs to the console).
-- Move OTP challenges out of memory into Redis so the 59s cooldown survives restarts and works
-  across instances (`utils/otp.js`).
-- Set a strong `JWT_SECRET`.
+- Configure a real SMS provider (OTP delivery still logs to the console).
+- Move OTP challenges into Redis/cache so the 59s cooldown survives restarts and works
+  across instances.
+- Set a strong `APP_KEY` and `JWT_SECRET`.
+- Run behind HTTPS and set `APP_URL` / `CLIENT_URL` accordingly (see
+  [`backend-laravel/DEPLOY-SINHALA.md`](backend-laravel/DEPLOY-SINHALA.md)).

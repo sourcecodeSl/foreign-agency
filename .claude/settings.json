@@ -22,7 +22,19 @@
       "Bash(php -r ' *)",
       "Bash(awk ' *)",
       "Bash(grep -vE \"^\\(LOCK TABLES \\\\`users\\\\`|/\\\\*!40000 ALTER TABLE \\\\`users\\\\`|INSERT INTO \\\\`users\\\\`|UNLOCK TABLES;\\)\")",
-      "Bash(grep -nE \"TABLE \\\\`users\\\\`|INTO \\\\`users\\\\`\" install/tables-only.sql)"
+      "Bash(grep -nE \"TABLE \\\\`users\\\\`|INTO \\\\`users\\\\`\" install/tables-only.sql)",
+      "Bash(gh auth *)",
+      "Bash(gh secret *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'ci: add GitHub Actions FTP deploy for frontend *)",
+      "Bash(git push *)",
+      "Bash(gh run *)",
+      "Bash(nslookup ftp.festi.lk)",
+      "Bash(nslookup festi.lk)",
+      "Bash(nslookup foreign-agency.solidrow.lk)",
+      "Bash(nslookup solidrow.lk)",
+      "Bash(gh workflow *)",
+      "Bash(git commit -q -m 'ci: use explicit FTPS for deploy *)"
     ]
   }
 }
