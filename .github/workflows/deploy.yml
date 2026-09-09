@@ -1,13 +1,19 @@
-name: Deploy frontend to FTP
+name: Deploy to FTP
 
 on:
   push:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'backend-laravel/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch: {}
 
+# The subdomain document root is the Laravel app folder, and its .htaccess
+# rewrites every request into public/. So the React build has to land in
+# public/ - uploading it to the document root leaves it unreachable, which is
+# exactly why the old login page stayed live after the register link was
+# removed.
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -22,6 +28,18 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      # vendor/ is gitignored, so it is not in the checkout. Without this the
+      # deployed app would have no dependencies and every request would fatal.
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, openssl, tokenizer, xml, ctype, curl, fileinfo, zip
+
+      - name: Install PHP dependencies
+        working-directory: backend-laravel
+        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
@@ -30,7 +48,29 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Deploy to FTP
+      - name: Fail if the build still contains the sign-up link
+        run: |
+          if grep -rq "Create one" frontend/dist/assets/*.js; then
+            echo "The removed sign-up link is still in the bundle - refusing to deploy."
+            exit 1
+          fi
+          echo "Bundle looks right: $(ls frontend/dist/assets)"
+
+      # index.php and .htaccess in public/ belong to Laravel, so only the
+      # React output is replaced.
+      - name: Stage the React build into the Laravel public folder
+        run: |
+          rm -rf backend-laravel/public/assets
+          cp -r frontend/dist/assets backend-laravel/public/assets
+          cp frontend/dist/index.html backend-laravel/public/index.html
+          if [ -f frontend/dist/favicon.ico ]; then
+            cp frontend/dist/favicon.ico backend-laravel/public/favicon.ico
+          fi
+          ls -la backend-laravel/public
+
+      # dangerous-clean-slate is deliberately off: it would wipe .env,
+      # storage/ and vendor/ on the server.
+      - name: Deploy the app to FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
@@ -38,5 +78,17 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ftps
           port: 21
-          local-dir: ./frontend/dist/
+          local-dir: ./backend-laravel/
           server-dir: ./
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/tests/**
+            **/.env
+            **/.env.*
+            **/storage/logs/**
+            **/storage/framework/cache/**
+            **/storage/framework/sessions/**
+            **/storage/framework/views/**
+            **/install/**
