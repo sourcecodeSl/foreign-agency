@@ -7,12 +7,12 @@ use App\Models\Candidate;
 use App\Models\CandidateDocument;
 use App\Support\ApiResponse;
 use App\Support\DocumentType;
+use App\Support\ZipStream;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use ZipArchive;
 
 /**
  * Documents attached to a candidate.
@@ -149,6 +149,10 @@ class CandidateDocumentController extends Controller
      * One folder per document type, each holding the latest file uploaded for
      * it, so every type is visible separately. The archive is named after the
      * candidate.
+     *
+     * Built straight into the response by App\Support\ZipStream rather than
+     * by ZipArchive: shared hosting often has neither ext-zip nor a reachable
+     * sys_get_temp_dir(), and both failures used to surface only as a 500.
      */
     public function downloadAll(Request $request, $candidateId): StreamedResponse
     {
@@ -159,42 +163,51 @@ class CandidateDocumentController extends Controller
             throw new ApiException(404, 'This candidate has no documents yet.');
         }
 
-        $zipName = $this->archiveName($candidate->name);
-        $tempPath = tempnam(sys_get_temp_dir(), 'candidate-docs-');
-
-        $zip = new ZipArchive();
-        if ($zip->open($tempPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-            throw new ApiException(500, 'Could not build the archive.');
-        }
+        // Resolve everything before a single byte goes out: once the archive
+        // has started streaming, a failure can no longer become a JSON error.
+        $files = [];
+        $position = 0;
 
         // Walk the canonical type order so the folders always read the same way.
-        $position = 0;
         foreach (DocumentType::cases() as $type) {
             $document = $latest[$type->value] ?? null;
             if (! $document) {
                 continue;   // nothing uploaded for this type
             }
 
-            $disk = Storage::disk($document->disk);
-            if (! $disk->exists($document->path)) {
-                continue;
+            if (! Storage::disk($document->disk)->exists($document->path)) {
+                continue;   // row survived but the file is gone
             }
 
             $position++;
-            // "01 Passport Copy/passport.pdf"
-            $folder = sprintf('%02d %s', $position, $type->label());
-            $zip->addFromString(
-                $folder.'/'.$this->safeFileName($document->original_name),
-                $disk->get($document->path)
-            );
+            $files[] = [
+                'disk' => $document->disk,
+                'path' => $document->path,
+                // "01 Passport Copy/passport.pdf"
+                'name' => sprintf('%02d %s', $position, $type->label())
+                    .'/'.$this->safeFileName($document->original_name),
+            ];
         }
 
-        $zip->close();
+        if ($files === []) {
+            throw new ApiException(404, 'None of the attached files could be found on disk.');
+        }
 
-        return response()->streamDownload(function () use ($tempPath) {
-            readfile($tempPath);
-            @unlink($tempPath);
-        }, $zipName, ['Content-Type' => 'application/zip']);
+        return response()->streamDownload(function () use ($files) {
+            $zip = new ZipStream;
+
+            foreach ($files as $file) {
+                $zip->add($file['name'], Storage::disk($file['disk'])->get($file['path']));
+                flush();
+            }
+
+            $zip->finish();
+            flush();
+        }, $this->archiveName($candidate->name), [
+            'Content-Type' => 'application/zip',
+            // Stops nginx/LiteSpeed from buffering the stream.
+            'X-Accel-Buffering' => 'no',
+        ]);
     }
 
     // ---------------------------------------------------------------------

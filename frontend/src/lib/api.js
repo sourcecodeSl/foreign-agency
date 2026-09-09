@@ -444,16 +444,27 @@ async function downloadFile(path, fallbackName) {
   }
 
   const blob = await res.blob();
+
+  // A proxy or a fatal PHP error can answer 200 with nothing in it, which the
+  // browser would happily save as an empty file.
+  if (blob.size === 0) {
+    throw new Error('The server returned an empty file.');
+  }
+
   const name = filenameFrom(res.headers.get('content-disposition'), fallbackName);
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
+  link.rel = 'noopener';
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+
+  // Revoking in the same tick cancels the download in Firefox and Edge, so the
+  // URL is released only once the browser has had a turn to read it.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 
   return name;
 }
