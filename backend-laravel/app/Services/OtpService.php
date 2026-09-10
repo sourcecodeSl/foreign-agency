@@ -20,6 +20,22 @@ class OtpService
         return (int) (env('OTP_RESEND_COOLDOWN') ?: 59);
     }
 
+    /**
+     * The code is echoed to the UI only when the provider could not actually
+     * deliver it. Unlike the Node version this is not gated on APP_ENV, so a
+     * fresh deployment without SMTP/SMS still lets the admin sign in; set
+     * SHOW_DEV_OTP=false once real delivery is configured.
+     */
+    public static function devCode(string $code, array $sent): ?string
+    {
+        if (! empty($sent['delivered'])) {
+            return null;
+        }
+        $show = filter_var(env('SHOW_DEV_OTP', true), FILTER_VALIDATE_BOOL);
+
+        return $show ? $code : null;
+    }
+
     private static function nowMs(): int
     {
         return (int) round(microtime(true) * 1000);

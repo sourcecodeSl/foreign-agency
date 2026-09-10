@@ -7,6 +7,7 @@ use App\Models\Agency;
 use App\Models\AppCounter;
 use App\Models\Candidate;
 use App\Models\User;
+use App\Services\EmailService;
 use App\Support\ApiResponse;
 use App\Support\Credentials;
 use Illuminate\Http\Request;
@@ -73,7 +74,17 @@ class AgencyController extends Controller
             });
         }
 
-        $rows = $query->get()->map(fn (Agency $a) => $a->toPublic())->values();
+        $agencies = $query->get();
+
+        // Every row's login count in one grouped query.
+        $users = User::whereIn('agency_id', $agencies->pluck('id'))
+            ->selectRaw('agency_id, COUNT(*) as total')
+            ->groupBy('agency_id')
+            ->pluck('total', 'agency_id');
+
+        $rows = $agencies
+            ->map(fn (Agency $a) => $a->toPublic((int) ($users[$a->id] ?? 0)))
+            ->values();
 
         return ApiResponse::ok($rows);
     }
@@ -105,17 +116,19 @@ class AgencyController extends Controller
             throw new ApiException(403, 'You can only view your own agency.');
         }
 
-        // The phone lives on the owner login rather than on the agency row, and
-        // the candidate count is what says whether this agency can be deleted.
-        // Both are looked up here and not in index(), which would be a query
-        // per row for a listing that never shows them.
+        // The phone lives on the owner login rather than on the agency row.
+        // Candidates are the ones still on file - a candidate the agency
+        // removed is gone from its list, so it is not counted here either, and
+        // this is the same count destroy() checks. Both are looked up here and
+        // not in index(), which would be a query per row for a listing that
+        // never shows them.
         $owner = User::where('agency_id', $agency->id)
             ->where('role_slug', 'agency_owner')
             ->first();
 
         return ApiResponse::ok($agency->toPublic() + [
             'phone' => $owner->phone ?? null,
-            'candidates' => Candidate::withTrashed()->where('agency_id', $agency->id)->count(),
+            'candidates' => Candidate::where('agency_id', $agency->id)->count(),
         ]);
     }
 
@@ -199,12 +212,29 @@ class AgencyController extends Controller
             return $agency;
         });
 
+        // The owner gets the same details by email, so they need not be passed
+        // on by hand. A mail failure never undoes the agency: the screen still
+        // shows the credentials to copy, and says the email did not go out.
+        $email = strtolower(trim($data['email']));
+        $mail = EmailService::sendAgencyCredentials($email, [
+            'agency' => $agency->name,
+            'code' => $agency->code,
+            'contact' => $agency->contact,
+            'username' => $data['username'],
+            'password' => $plainPassword,
+            'loginUrl' => $this->loginUrl(),
+        ]);
+
         return ApiResponse::created(
             array_merge($agency->toPublic(), [
                 'credentials' => [
                     'username' => $data['username'],
                     'password' => $plainPassword,
                     'loginUrl' => $this->loginUrl(),
+                ],
+                'credentialsEmail' => [
+                    'to' => $email,
+                    'delivered' => (bool) $mail['delivered'],
                 ],
             ]),
             'Agency created successfully.'

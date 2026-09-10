@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\ApiException;
+use App\Models\Agency;
 use App\Models\User;
 use App\Services\EmailService;
 use App\Services\OtpService;
@@ -22,25 +23,39 @@ use Illuminate\Support\Facades\Validator;
  */
 class AuthController extends Controller
 {
-    /**
-     * The code is echoed to the UI only when the provider could not actually
-     * deliver it. Unlike the Node version this is not gated on APP_ENV, so a
-     * fresh deployment without SMTP/SMS still lets the admin sign in; set
-     * SHOW_DEV_OTP=false once real delivery is configured.
-     */
-    private function devCode(string $code, array $sent): ?string
-    {
-        if (! empty($sent['delivered'])) {
-            return null;
-        }
-        $show = filter_var(env('SHOW_DEV_OTP', true), FILTER_VALIDATE_BOOL);
-
-        return $show ? $code : null;
-    }
-
     private function nowSql(): string
     {
         return now()->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Codes opened for an agency's contact change or a password reset live in
+     * the same table, so every sign-in step refuses them before trying the code.
+     */
+    private function refuseOtherPurposes($challengeId): void
+    {
+        $pending = OtpService::getChallenge((string) $challengeId);
+        if ($pending && ! empty($pending->meta['purpose'])) {
+            throw new ApiException(400, 'Wrong verification step for this session.');
+        }
+    }
+
+    /** What the client keeps about the signed-in account. */
+    private function sessionUser(User $user): array
+    {
+        $public = $user->toPublic();
+        $agency = $user->agency_id ? Agency::find($user->agency_id) : null;
+
+        return [
+            'id' => $public['id'],
+            'username' => $public['username'],
+            'name' => $public['name'],
+            'email' => $public['email'],
+            'role' => $public['role'],
+            'roleSlug' => $public['roleSlug'],
+            // The sidebar brands an agency login with its agency's name.
+            'agency' => $agency ? ['id' => $agency->id, 'name' => $agency->name] : null,
+        ];
     }
 
     /*
@@ -67,15 +82,14 @@ class AuthController extends Controller
             throw new ApiException(401, 'Invalid username or password.');
         }
 
-        $user = $row->toPublic();
-        if ($user['status'] !== 'active') {
-            throw new ApiException(
-                403,
-                $user['status'] === 'pending'
-                    ? 'This account is awaiting approval.'
-                    : 'This account has been deactivated. Contact system support.'
-            );
+        // Only after the password matched, so a wrong guess never learns
+        // whether the account or its agency is approved.
+        $refusal = $row->signInRefusal();
+        if ($refusal) {
+            throw new ApiException(403, $refusal);
         }
+
+        $user = $row->toPublic();
 
         $challenge = OtpService::createChallenge($user['id'], $user['phone'], 'sms');
         $sent = SmsService::sendOtp($user['phone'], $challenge['code']);
@@ -86,7 +100,7 @@ class AuthController extends Controller
             'channel' => 'sms',
             'maskedPhone' => OtpService::maskPhone($user['phone']),
             'resendCooldown' => OtpService::resendCooldown(),
-            'devCode' => $this->devCode($challenge['code'], $sent),
+            'devCode' => OtpService::devCode($challenge['code'], $sent),
         ]);
     }
 
@@ -101,6 +115,8 @@ class AuthController extends Controller
             'challengeId.required' => 'Challenge id is required.',
             'code.size' => 'Enter the 6-digit code.',
         ])->validate();
+
+        $this->refuseOtherPurposes($data['challengeId']);
 
         $result = OtpService::verifyChallenge($data['challengeId'], $data['code'], 'sms');
         if (! $result['ok']) {
@@ -125,7 +141,7 @@ class AuthController extends Controller
             'channel' => 'email',
             'maskedEmail' => OtpService::maskEmail($user->email),
             'resendCooldown' => OtpService::resendCooldown(),
-            'devCode' => $this->devCode($emailChallenge['code'], $sent),
+            'devCode' => OtpService::devCode($emailChallenge['code'], $sent),
         ], 'Phone number verified. Now confirm your email address.');
     }
 
@@ -141,6 +157,8 @@ class AuthController extends Controller
             'code.size' => 'Enter the 6-digit code.',
         ])->validate();
 
+        $this->refuseOtherPurposes($data['challengeId']);
+
         $result = OtpService::verifyChallenge($data['challengeId'], $data['code'], 'email');
         if (! $result['ok']) {
             throw new ApiException(400, $result['reason']);
@@ -155,24 +173,21 @@ class AuthController extends Controller
             throw new ApiException(404, 'Account not found.');
         }
 
+        // The agency may have been deactivated while the codes were open.
+        $refusal = $user->signInRefusal();
+        if ($refusal) {
+            throw new ApiException(403, $refusal);
+        }
+
         $user->last_login_at = $this->nowSql();
         $user->email_verified_at = $this->nowSql();
         $user->save();
 
-        $public = $user->toPublic();
-
         return ApiResponse::ok([
             'verified' => 'email',
             'nextStep' => 'dashboard',
-            'token' => Jwt::sign($public),
-            'admin' => [
-                'id' => $public['id'],
-                'username' => $public['username'],
-                'name' => $public['name'],
-                'email' => $public['email'],
-                'role' => $public['role'],
-                'roleSlug' => $public['roleSlug'],
-            ],
+            'token' => Jwt::sign($user->toPublic()),
+            'admin' => $this->sessionUser($user),
         ], 'Verification complete.');
     }
 
@@ -183,6 +198,8 @@ class AuthController extends Controller
         Validator::make($data, ['challengeId' => 'required'], [
             'challengeId.required' => 'Challenge id is required.',
         ])->validate();
+
+        $this->refuseOtherPurposes($data['challengeId']);
 
         $result = OtpService::rotateCode($data['challengeId']);
         if (! $result['ok']) {
@@ -200,7 +217,7 @@ class AuthController extends Controller
             'resentAt' => now()->toIso8601String(),
             'channel' => $challenge->channel,
             'cooldown' => $result['cooldown'],
-            'devCode' => $this->devCode($result['code'], $sent),
+            'devCode' => OtpService::devCode($result['code'], $sent),
         ], 'A new code has been sent.');
     }
 
@@ -212,16 +229,8 @@ class AuthController extends Controller
         if (! $user) {
             throw new ApiException(404, 'Account not found.');
         }
-        $public = $user->toPublic();
 
-        return ApiResponse::ok([
-            'id' => $public['id'],
-            'username' => $public['username'],
-            'name' => $public['name'],
-            'email' => $public['email'],
-            'role' => $public['role'],
-            'roleSlug' => $public['roleSlug'],
-        ]);
+        return ApiResponse::ok($this->sessionUser($user));
     }
 
     /** POST /auth/logout - stateless JWT, so this only clears the cookie. */

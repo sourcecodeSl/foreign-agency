@@ -90,6 +90,37 @@ class User extends Model
         return self::whereRaw('REPLACE(REPLACE(phone, " ", ""), "+", "") = ?', [$digits])->exists();
     }
 
+    /**
+     * Why this account may not sign in right now, or null when it may.
+     *
+     * An agency login also needs its agency approved. The owner login is
+     * created active, but the agency itself starts pending, and until the
+     * administrator approves it - or once it is deactivated - nobody signs in
+     * under it.
+     */
+    public function signInRefusal(): ?string
+    {
+        if ($this->status === 'pending') {
+            return 'This account is awaiting approval.';
+        }
+        if ($this->status !== 'active') {
+            return 'This account has been deactivated. Contact system support.';
+        }
+
+        if ($this->agency_id) {
+            $agency = Agency::where('id', $this->agency_id)->value('status');
+
+            if ($agency === 'pending') {
+                return 'Your agency is awaiting approval by the administrator. You can sign in once it has been approved.';
+            }
+            if ($agency !== 'active') {
+                return 'Your agency has been deactivated. Contact system support.';
+            }
+        }
+
+        return null;
+    }
+
     public static function verifyPassword(string $plain, ?string $hash): bool
     {
         return $hash ? password_verify($plain, $hash) : false;

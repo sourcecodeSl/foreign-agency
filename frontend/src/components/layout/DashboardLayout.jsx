@@ -6,6 +6,7 @@ import Topbar from './Topbar';
 // Header copy per route, so the topbar always reflects the current screen.
 const PAGE_META = [
   { match: /^\/dashboard/, title: 'Dashboard', subtitle: 'Overview of agencies, users and activity' },
+  { match: /^\/agency\/profile/, title: 'Agency Details', subtitle: 'Your agency details and the phone and email used to sign in' },
   { match: /^\/agencies\/create/, title: 'Create Agency', subtitle: 'Register a new agency and issue login credentials' },
   { match: /^\/agencies/, title: 'Agency Management', subtitle: 'Review pending, active and deactivated agencies' },
   { match: /^\/candidates\/register/, title: 'Register Candidate', subtitle: 'Capture the candidate details, then attach the documents' },

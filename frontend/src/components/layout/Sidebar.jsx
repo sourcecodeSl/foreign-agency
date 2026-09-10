@@ -58,6 +58,15 @@ const AGENCY_NAV = [
   },
 ];
 
+// Only the owner edits the agency: its phone and email are the owner's sign-in.
+const AGENCY_OWNER_NAV = [
+  ...AGENCY_NAV,
+  {
+    section: 'Agency',
+    items: [{ to: '/agency/profile', label: 'Agency Details', icon: IconBuilding }],
+  },
+];
+
 function NavItem({ item, onNavigate }) {
   const Icon = item.icon;
   return (
@@ -86,7 +95,11 @@ export default function Sidebar({ open, onClose }) {
   const { admin } = useAuth();
 
   const isAgency = admin?.roleSlug && admin.roleSlug !== 'main_admin' && admin.roleSlug !== 'auditor';
-  const nav = isAgency ? AGENCY_NAV : ADMIN_NAV;
+  const nav = !isAgency
+    ? ADMIN_NAV
+    : admin.roleSlug === 'agency_owner'
+    ? AGENCY_OWNER_NAV
+    : AGENCY_NAV;
 
   return (
     <>

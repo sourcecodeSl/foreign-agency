@@ -54,5 +54,10 @@ describe('creating an agency', () => {
       { timeout: 4000 }
     );
     expect(screen.getByText('skyline.owner')).toBeTruthy();
+
+    // The offline adapter mails nothing, so the admin is told to share the
+    // details by hand - and to whom.
+    expect(screen.getByText(/was not sent/i)).toBeTruthy();
+    expect(screen.getByText('owner@skyline.lk')).toBeTruthy();
   });
 });

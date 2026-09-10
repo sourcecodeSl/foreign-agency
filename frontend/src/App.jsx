@@ -4,12 +4,14 @@ import { ToastProvider } from './components/ui/Toast';
 import DashboardLayout from './components/layout/DashboardLayout';
 
 import Login from './pages/auth/Login';
+import ForgotPassword from './pages/auth/ForgotPassword';
 import VerifyPhone from './pages/auth/VerifyPhone';
 import VerifyEmail from './pages/auth/VerifyEmail';
 import EmailVerification from './pages/auth/EmailVerification';
 import Dashboard from './pages/Dashboard';
 import CreateAgency from './pages/agency/CreateAgency';
 import AgencyList from './pages/agency/AgencyList';
+import AgencyProfile from './pages/agency/AgencyProfile';
 import UsersList from './pages/users/UsersList';
 import UserTypes from './pages/users/UserTypes';
 import UserPermissions from './pages/users/UserPermissions';
@@ -32,6 +34,7 @@ export default function App() {
           <Routes>
             {/* Public */}
             <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/verify-phone" element={<VerifyPhone />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
 
@@ -46,6 +49,7 @@ export default function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/agencies" element={<AgencyList />} />
               <Route path="/agencies/create" element={<CreateAgency />} />
+              <Route path="/agency/profile" element={<AgencyProfile />} />
               <Route path="/candidates" element={<CandidatesList />} />
               <Route path="/candidates/register" element={<RegisterCandidate />} />
               <Route path="/candidates/:id" element={<CandidateDetail />} />

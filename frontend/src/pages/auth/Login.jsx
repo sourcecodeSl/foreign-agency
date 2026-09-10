@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/layout/AuthLayout';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
@@ -16,8 +16,14 @@ function validate({ username, password }) {
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
-  const [values, setValues] = useState({ username: '', password: '', remember: true });
+  // Arriving from a password reset brings the username along.
+  const [values, setValues] = useState({
+    username: location.state?.username || '',
+    password: '',
+    remember: true,
+  });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -107,9 +113,12 @@ export default function Login() {
             />
             Remember this device
           </label>
-          <a href="#" className="text-sm font-medium text-primary-600 hover:text-primary-700">
+          <Link
+            to="/forgot-password"
+            className="text-sm font-medium text-primary-600 hover:text-primary-700"
+          >
             Forgot password?
-          </a>
+          </Link>
         </div>
 
         <Button type="submit" size="lg" className="w-full" loading={loading}>

@@ -115,6 +115,13 @@ export function AuthProvider({ children }) {
         return data;
       },
 
+      /** Re-reads the account, e.g. after the agency renamed itself. */
+      async refresh() {
+        const { data } = await authApi.me();
+        setAdmin(data);
+        return data;
+      },
+
       logout() {
         tokenStore.clear();
         setAdmin(null);

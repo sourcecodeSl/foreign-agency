@@ -4,7 +4,7 @@ import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import CopyButton from '../../components/ui/CopyButton';
 import { useToast } from '../../components/ui/Toast';
-import { IconBuilding, IconRefresh, IconCheck, IconUsers } from '../../components/ui/Icons';
+import { IconBuilding, IconRefresh, IconCheck, IconUsers, IconMail } from '../../components/ui/Icons';
 import { agencyApi } from '../../lib/api';
 
 const EMPTY = { name: '', contact: '', address: '', email: '', phone: '', username: '', password: '' };
@@ -112,10 +112,16 @@ export default function CreateAgency() {
         username: data.credentials.username,
         password: data.credentials.password,
         loginUrl: data.credentials.loginUrl,
+        // Whether the same details also went out by email, and to whom.
+        email: data.credentialsEmail || null,
       });
       setValues(EMPTY);
       setTouched({});
-      toast('Agency created successfully. Credentials are ready to share.');
+      toast(
+        data.credentialsEmail?.delivered
+          ? 'Agency created. Login details emailed to ' + data.credentialsEmail.to + '.'
+          : 'Agency created successfully. Credentials are ready to share.'
+      );
     } catch (err) {
       toast(err.message || 'Could not create the agency.', 'error');
     } finally {
@@ -297,9 +303,31 @@ export default function CreateAgency() {
                   <IconCheck className="mt-0.5 h-4 w-4 shrink-0" />
                   <p>
                     <span className="font-semibold">{created.agencyName}</span> was created and is
-                    now awaiting approval.
+                    now awaiting approval. These credentials work only once you approve it in the
+                    Agency List.
                   </p>
                 </div>
+
+                {created.email &&
+                  (created.email.delivered ? (
+                    <div className="flex items-start gap-2.5 rounded-lg bg-primary-50 px-3.5 py-3 text-sm text-primary-800 ring-1 ring-inset ring-primary-100">
+                      <IconMail className="mt-0.5 h-4 w-4 shrink-0" />
+                      <p>
+                        Login details emailed to{' '}
+                        <span className="break-all font-semibold">{created.email.to}</span>.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-sm text-amber-800 ring-1 ring-inset ring-amber-200">
+                      <IconMail className="mt-0.5 h-4 w-4 shrink-0" />
+                      <p>
+                        The email to{' '}
+                        <span className="break-all font-semibold">{created.email.to}</span> was not
+                        sent - email delivery is not set up yet. Copy the details below and share
+                        them yourself.
+                      </p>
+                    </div>
+                  ))}
 
                 <dl className="divide-y divide-gray-100 rounded-lg border border-gray-200">
                   {[

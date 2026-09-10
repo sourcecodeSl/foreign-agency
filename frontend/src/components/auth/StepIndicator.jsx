@@ -1,16 +1,19 @@
 import { IconCheck } from '../ui/Icons';
 
+const SIGN_IN_STEPS = [
+  { id: 'phone', label: 'Phone' },
+  { id: 'email', label: 'Email' },
+];
+
 /**
- * Two-factor progress rail shown above the OTP form, so it is obvious that
- * both the phone and the email must be confirmed before sign-in completes.
+ * Progress rail shown above a multi-step form. By default the two sign-in
+ * factors, so it is obvious that both the phone and the email must be
+ * confirmed before sign-in completes.
  *
- * @param {'phone'|'email'} current
+ * @param {string} current                           id of the active step
+ * @param {{ id: string, label: string }[]} [steps]  defaults to phone and email
  */
-export default function StepIndicator({ current }) {
-  const steps = [
-    { id: 'phone', label: 'Phone' },
-    { id: 'email', label: 'Email' },
-  ];
+export default function StepIndicator({ current, steps = SIGN_IN_STEPS }) {
   const activeIndex = steps.findIndex((s) => s.id === current);
 
   return (

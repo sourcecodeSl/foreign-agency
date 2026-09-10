@@ -177,6 +177,56 @@ export const authApi = {
     );
   },
 
+  /*
+   * Forgotten password: the username names the account, a code sent to its
+   * email proves the person holds it, and only then is a new password taken.
+   */
+  async forgotPassword({ username }) {
+    if (!USE_MOCK) return request('/auth/forgot-password', { method: 'POST', body: { username } });
+    await delay();
+    mockOtp = newCode();
+    return ok(
+      {
+        challengeId: 'rst_' + Date.now(),
+        username,
+        maskedEmail: 'ad***@example.com',
+        resendCooldown: 59,
+        devCode: mockOtp,
+      },
+      'A verification code has been sent.'
+    );
+  },
+
+  async resendResetCode({ challengeId }) {
+    if (!USE_MOCK) return request('/auth/forgot-password/resend', { method: 'POST', body: { challengeId } });
+    await delay(400);
+    mockOtp = newCode();
+    return ok({ cooldown: 59, devCode: mockOtp }, 'A new code has been sent.');
+  },
+
+  /** Code accepted -> a short-lived token that lets the new password be set. */
+  async verifyResetCode({ challengeId, code }) {
+    if (!USE_MOCK) return request('/auth/forgot-password/verify', { method: 'POST', body: { challengeId, code } });
+    await delay();
+    if (code !== mockOtp) {
+      const e = new Error('That code is incorrect.');
+      e.status = 400;
+      throw e;
+    }
+    return ok({ resetToken: 'rst_ok_' + Date.now() }, 'Code accepted. Choose a new password.');
+  },
+
+  async resetPassword({ resetToken, password, passwordConfirmation }) {
+    if (!USE_MOCK) {
+      return request('/auth/forgot-password/reset', {
+        method: 'POST',
+        body: { resetToken, password, passwordConfirmation },
+      });
+    }
+    await delay();
+    return ok(null, 'Your password has been updated. You can now sign in.');
+  },
+
   async me() {
     if (!USE_MOCK) return request('/auth/me');
     await delay(200);
@@ -242,6 +292,8 @@ export const agencyApi = {
         password: payload.password,
         loginUrl: window.location.origin + '/agency/login',
       },
+      // Nothing is mailed offline, so the screen asks for the details to be shared by hand.
+      credentialsEmail: { to: payload.email, delivered: false },
     });
   },
 
@@ -588,4 +640,38 @@ export const candidateApi = {
       '/candidates/' + candidateId + '/documents/download-all',
       (candidateName || 'candidate') + '-documents.zip'
     ),
+};
+
+// --- The signed-in agency's own details -------------------------------------
+/**
+ * Name, contact and address save straight away. The phone and email are where
+ * sign-in codes go, so a new one is saved only once the code sent to it is
+ * entered. Live API only, like candidates.
+ */
+export const agencyProfileApi = {
+  async get() {
+    requireLiveApi();
+    return request('/agency-profile');
+  },
+
+  async update(payload) {
+    requireLiveApi();
+    return request('/agency-profile', { method: 'PUT', body: payload });
+  },
+
+  /** Sends a code to the new value; nothing changes until it is entered. */
+  async requestContactChange(field, value) {
+    requireLiveApi();
+    return request('/agency-profile/contact', { method: 'POST', body: { field, value } });
+  },
+
+  async resendContactCode(challengeId) {
+    requireLiveApi();
+    return request('/agency-profile/contact/resend', { method: 'POST', body: { challengeId } });
+  },
+
+  async verifyContactChange(challengeId, code) {
+    requireLiveApi();
+    return request('/agency-profile/contact/verify', { method: 'POST', body: { challengeId, code } });
+  },
 };

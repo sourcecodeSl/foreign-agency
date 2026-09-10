@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from '../components/ui/Toast';
-import AgencyList from '../pages/agency/AgencyList';
+import AgencyList, { REFRESH_MS } from '../pages/agency/AgencyList';
+import { agencyApi } from '../lib/api';
 
 function renderList() {
   return render(
@@ -39,6 +40,36 @@ describe('agency listing', () => {
 
     await user.click(within(card).getByRole('button', { name: /^close$/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('keeps an open detail card current without a reload', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // The first read finds two candidates; by the next one the agency has
+    // removed one.
+    const get = vi
+      .spyOn(agencyApi, 'get')
+      .mockResolvedValueOnce({ data: { id: 'AG-1042', phone: '0770000000', users: 1, candidates: 2 } })
+      .mockResolvedValue({ data: { id: 'AG-1042', phone: '0770000000', users: 1, candidates: 1 } });
+
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderList();
+      await waitForRows();
+
+      await user.click(screen.getByRole('button', { name: /BlueWave Media/i }));
+      const card = await screen.findByRole('dialog');
+      const candidates = () => within(card).getByText('Candidates').parentElement;
+
+      await waitFor(() => expect(within(candidates()).getByText('2')).toBeTruthy());
+
+      await vi.advanceTimersByTimeAsync(REFRESH_MS);
+
+      await waitFor(() => expect(within(candidates()).getByText('1')).toBeTruthy());
+      expect(get).toHaveBeenCalledTimes(2);
+    } finally {
+      get.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('asks for confirmation before deleting and then drops the row', async () => {

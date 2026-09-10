@@ -1,10 +1,12 @@
 <?php
 
 use App\Http\Controllers\AgencyController;
+use App\Http\Controllers\AgencyProfileController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CandidateController;
 use App\Http\Controllers\CandidateDocumentController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VerificationController;
@@ -25,6 +27,12 @@ Route::prefix('auth')->group(function () {
     Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:12,15');
     Route::get('/me', [AuthController::class, 'me'])->middleware('auth.jwt');
     Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth.jwt');
+
+    // Forgotten password: username -> code emailed to the account -> new password.
+    Route::post('/forgot-password', [PasswordResetController::class, 'start'])->middleware('throttle:10,15');
+    Route::post('/forgot-password/resend', [PasswordResetController::class, 'resend'])->middleware('throttle:12,15');
+    Route::post('/forgot-password/verify', [PasswordResetController::class, 'verify'])->middleware('throttle:12,15');
+    Route::post('/forgot-password/reset', [PasswordResetController::class, 'reset'])->middleware('throttle:12,15');
 });
 
 // --- Verification: public confirmation link ---------------------------------
@@ -40,6 +48,18 @@ Route::prefix('agencies')->middleware('auth.jwt')->group(function () {
     Route::patch('/{id}/status', [AgencyController::class, 'updateStatus'])->middleware('can.perm:agencies,edit');
     Route::post('/{id}/credentials/reset', [AgencyController::class, 'resetCredentials'])->middleware('can.perm:agencies,edit');
     Route::delete('/{id}', [AgencyController::class, 'destroy'])->middleware('can.perm:agencies,delete');
+});
+
+// --- The signed-in agency's own details -------------------------------------
+// Outside the permission matrix: the controller lets only the agency owner in,
+// and only ever at its own agency.
+Route::prefix('agency-profile')->middleware('auth.jwt')->group(function () {
+    Route::get('/', [AgencyProfileController::class, 'show']);
+    Route::put('/', [AgencyProfileController::class, 'update']);
+    // A new phone or email is saved only once the code sent to it comes back.
+    Route::post('/contact', [AgencyProfileController::class, 'requestContactChange'])->middleware('throttle:10,15');
+    Route::post('/contact/resend', [AgencyProfileController::class, 'resendContactCode'])->middleware('throttle:12,15');
+    Route::post('/contact/verify', [AgencyProfileController::class, 'verifyContactChange'])->middleware('throttle:12,15');
 });
 
 // --- Candidates (registered by an agency; no OTP anywhere in this flow) -----

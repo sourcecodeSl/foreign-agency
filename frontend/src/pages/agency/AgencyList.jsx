@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardHeader } from '../../components/ui/Card';
 import Tabs from '../../components/ui/Tabs';
@@ -18,6 +18,9 @@ const TABS = [
   { id: 'all', label: 'All Agencies' },
 ];
 
+// How often the listing and an open detail card are re-read while in view.
+export const REFRESH_MS = 15000;
+
 export default function AgencyList() {
   const { toast } = useToast();
   const [tab, setTab] = useState('pending');
@@ -34,27 +37,67 @@ export default function AgencyList() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [list, countRes] = await Promise.all([
-        agencyApi.list({ status: tab, search }),
-        agencyApi.counts(),
-      ]);
-      setRows(list.data);
-      setCounts(countRes.data);
-    } catch (err) {
-      toast(err.message || 'Could not load agencies.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [tab, search, toast]);
+  // Only the newest request may write, so a slow answer for a tab or search
+  // that has since changed cannot overwrite the current one.
+  const latestLoad = useRef(0);
+
+  /** `silent` is a background refresh: no spinner, and no toast if it fails. */
+  const load = useCallback(
+    async ({ silent = false } = {}) => {
+      const seq = ++latestLoad.current;
+      if (!silent) setLoading(true);
+      try {
+        const [list, countRes] = await Promise.all([
+          agencyApi.list({ status: tab, search }),
+          agencyApi.counts(),
+        ]);
+        if (seq !== latestLoad.current) return;
+        setRows(list.data);
+        setCounts(countRes.data);
+      } catch (err) {
+        if (!silent) toast(err.message || 'Could not load agencies.', 'error');
+      } finally {
+        if (seq === latestLoad.current) setLoading(false);
+      }
+    },
+    [tab, search, toast]
+  );
 
   // Debounced so typing in the search box does not fire a request per keystroke.
   useEffect(() => {
-    const t = setTimeout(load, search ? 300 : 0);
+    const t = setTimeout(() => load(), search ? 300 : 0);
     return () => clearTimeout(t);
   }, [load, search]);
+
+  /** Fills in what only the single-agency endpoint carries: the phone and live counts. */
+  const fetchDetails = useCallback(
+    async (id, { silent = false } = {}) => {
+      try {
+        const { data } = await agencyApi.get(id);
+        setDetails((open) => (open && open.id === data.id ? { ...open, ...data } : open));
+      } catch (err) {
+        if (!silent) toast(err.message || 'Could not load the full record.', 'error');
+      }
+    },
+    [toast]
+  );
+
+  // Re-read while the page is in view, so the numbers follow what agencies do
+  // - a candidate registered or removed shows up without a reload.
+  const openId = details?.id;
+  useEffect(() => {
+    const refresh = () => {
+      if (document.hidden) return;
+      load({ silent: true });
+      if (openId) fetchDetails(openId, { silent: true });
+    };
+    const timer = setInterval(refresh, REFRESH_MS);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [load, fetchDetails, openId]);
 
   const changeStatus = async (agency, status, label) => {
     setBusyId(agency.id);
