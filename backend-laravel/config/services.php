@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    'ozonesender' => [
+        'endpoint' => env('OZONE_SMS_ENDPOINT', 'https://api.ozonesender.com/v1/send/'),
+        'user_id' => env('OZONE_SMS_USER_ID'),
+        'api_key' => env('OZONE_SMS_API_KEY'),
+        'sender_id' => env('OZONE_SMS_SENDER_ID'),
+    ],
+
 ];
