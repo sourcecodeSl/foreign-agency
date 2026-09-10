@@ -85,7 +85,7 @@ export default function RegisterCandidate() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-5xl">
       <Card>
         <CardHeader
           title="Register Candidate"
@@ -93,7 +93,7 @@ export default function RegisterCandidate() {
         />
 
         <form onSubmit={handleSubmit} noValidate>
-          <CardBody className="grid gap-5 sm:grid-cols-2">
+          <CardBody className="grid gap-x-8 gap-y-6 p-6 sm:grid-cols-2 sm:p-8">
             {formError && (
               <div
                 role="alert"
@@ -145,7 +145,7 @@ export default function RegisterCandidate() {
               <textarea
                 id="address"
                 name="address"
-                rows={3}
+                rows={4}
                 placeholder="Street, city and postal code"
                 value={values.address}
                 onChange={handleChange}
@@ -191,7 +191,7 @@ export default function RegisterCandidate() {
             </div>
           </CardBody>
 
-          <CardFooter className="flex items-center justify-end gap-3">
+          <CardFooter className="flex items-center justify-end gap-3 px-6 sm:px-8">
             <Button type="button" variant="secondary" onClick={() => navigate('/candidates')}>
               Cancel
             </Button>
