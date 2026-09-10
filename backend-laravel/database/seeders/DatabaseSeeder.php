@@ -110,14 +110,16 @@ class DatabaseSeeder extends Seeder
     /** Seeded Main Admin - change the password after signing in. */
     private function seedAdmin(): void
     {
-        $email = strtolower(trim((string) (env('SEED_ADMIN_EMAIL') ?: 'visaltheekshana555@gmail.com')));
+        // A placeholder, not anybody's real address: the account this creates
+        // is meant to be configured through .env before seeding.
+        $email = strtolower(trim((string) (env('SEED_ADMIN_EMAIL') ?: 'admin@example.com')));
 
         User::updateOrCreate(
             ['email' => $email],
             [
                 'name' => env('SEED_ADMIN_NAME') ?: 'Main Admin',
                 'username' => env('SEED_ADMIN_USERNAME') ?: 'mainadmin',
-                'phone' => env('SEED_ADMIN_PHONE') ?: '0781311850',
+                'phone' => env('SEED_ADMIN_PHONE') ?: '0770000000',
                 'password_hash' => password_hash(env('SEED_ADMIN_PASSWORD') ?: 'Admin@1234', PASSWORD_BCRYPT),
                 'role_slug' => 'main_admin',
                 'status' => 'active',

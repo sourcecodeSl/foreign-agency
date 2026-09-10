@@ -7,6 +7,28 @@ Admin console for managing agencies, users, roles and verification flows.
 
 ---
 
+## Secrets
+
+No credential belongs in this repository. Real values live in `.env` on the
+machine that runs the app; `.env` is gitignored and `.env.example` carries
+placeholders only.
+
+A pre-commit hook enforces that. Turn it on once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+It refuses a commit that stages a `.env`, an SMTP or database password, an API
+key, a private key or a provider token, and lets obvious placeholders through.
+For a genuine false positive: `git commit --no-verify`.
+
+Anything that does reach GitHub is public from that moment, and deleting it in
+a later commit does not remove it from the history - the only real fix is to
+rotate the credential at its source.
+
+---
+
 ## Running it
 
 **Backend**
@@ -182,30 +204,19 @@ All routes are prefixed with `/api/v1`. Every response uses the envelope
 
 ---
 
-## Sending real emails
+## OTP delivery — demo mode
 
-Email is sent through Laravel's mailer as soon as SMTP credentials exist in
-`backend-laravel/.env`; without them the code is logged to the console instead.
+No mail gateway and no SMS gateway are wired up. Verification codes are shown
+on the sign-in screen and written to the Laravel log; nothing leaves the
+server.
 
-Gmail needs an **App Password**, not your normal password:
+That is deliberate. A gateway means credentials - an SMTP password, an API
+key - and those belong in the `.env` file on the machine that runs the app,
+never in this repository. When a channel is connected, put its credentials in
+`.env` only: `.env` is gitignored and `.env.example` holds placeholders alone.
 
-1. Turn on 2-Step Verification: <https://myaccount.google.com/security>
-2. Create an App Password: <https://myaccount.google.com/apppasswords>
-3. Put the 16-character value in `backend-laravel/.env`:
-
-```ini
-MAIL_MAILER=smtp
-MAIL_HOST=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USERNAME=you@gmail.com
-MAIL_PASSWORD=abcdefghijklmnop     # the App Password, spaces removed
-MAIL_FROM_ADDRESS=you@gmail.com
-MAIL_FROM_NAME="Agency Admin"
-```
-
-Restart the API after editing `.env`. The on-screen "Demo mode" code panel
-disappears on its own once a channel actually delivers — it is shown only for
-channels that could not send (currently SMS), and never in production.
+The on-screen code panel is shown only for channels that could not deliver,
+and never in production.
 
 ---
 

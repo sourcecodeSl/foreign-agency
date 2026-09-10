@@ -2,14 +2,14 @@
 -- Foreign Agency Admin - database import for cPanel / phpMyAdmin
 -- ----------------------------------------------------------------------------
 -- HOW TO USE:
---   1. cPanel > MySQL Databases: create a database (e.g. festelsd_foreign_agency)
+--   1. cPanel > MySQL Databases: create a database (e.g. yourcpanel_foreign_agency)
 --      and a user, then add the user to the database with ALL PRIVILEGES.
 --   2. cPanel > phpMyAdmin: open that database, go to the "Import" tab,
 --      choose this file and click "Go".
 --   3. Put the same database name / user / password in backend .env.
 --
 -- Seeded Main Admin login (change the password after signing in):
---   email:    visaltheekshana555@gmail.com   (or phone 0781311850)
+--   email:    admin@example.com   (or phone 0770000000)
 --   password: Admin@1234
 -- ============================================================================
 
@@ -179,7 +179,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'Main Admin','visaltheekshana555@gmail.com','0781311850','$2y$10$J9rWau7JtXkiHtLsKZiNj.JrBGja7HVWINpREO67xVpmfNN2Yap3S','main_admin',NULL,'active','2026-09-08 14:11:19','2026-09-08 14:11:19',NULL,'2026-09-08 08:41:19','2026-09-08 08:41:19');
+INSERT INTO `users` VALUES (1,'Main Admin','admin@example.com','0770000000','$2y$10$J9rWau7JtXkiHtLsKZiNj.JrBGja7HVWINpREO67xVpmfNN2Yap3S','main_admin',NULL,'active','2026-09-08 14:11:19','2026-09-08 14:11:19',NULL,'2026-09-08 08:41:19','2026-09-08 08:41:19');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

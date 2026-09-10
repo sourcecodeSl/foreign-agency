@@ -258,7 +258,7 @@ INSERT IGNORE INTO `users`
   (`name`, `username`, `email`, `phone`, `password_hash`, `role_slug`, `status`,
    `email_verified_at`, `phone_verified_at`, `created_at`, `updated_at`)
 VALUES
-  ('Main Admin', 'mainadmin', 'visaltheekshana555@gmail.com', '0781311850',
+  ('Main Admin', 'mainadmin', 'admin@example.com', '0770000000',
    '$2y$10$YEuvnZtKuY0YfYzU5qgk1.5Z8krZScV5Iiz17j5pI7kdoxl3Q21X.', 'main_admin', 'active',
    NOW(), NOW(), NOW(), NOW());
 

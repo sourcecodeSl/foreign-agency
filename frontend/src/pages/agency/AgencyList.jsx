@@ -391,8 +391,9 @@ export default function AgencyList() {
         for reuse.
       </p>
       <p className="mt-3 text-sm text-gray-600">
-        An agency that already has candidates on file cannot be deleted — deleting it would take
-        their documents with it. Deactivate it instead to stop it signing in.
+        An agency that still has candidates on file cannot be deleted — deleting it would take
+        their documents with it. Remove the candidates first, or deactivate the agency instead to
+        stop it signing in.
       </p>
     </Modal>
     </>

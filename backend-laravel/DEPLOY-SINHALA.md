@@ -22,10 +22,10 @@ cPanel එකේ PHP version එක **8.2 හෝ ඊට වැඩි** එකක
 
 1. cPanel > **MySQL Databases**.
 2. **Create New Database** — නමක් දෙන්න. (cPanel එක prefix එකක් දානවා,
-   උදා: `festelsd_foreign_agency`). මේ **සම්පූර්ණ නම** මතක තියාගන්න.
-3. **Add New User** — ඔයා දැනටමත් හදලා තියෙනවා:
-   - User: `festelsd_foreign-agency`
-   - Password: `bSlY&%oN77[8o[3E`
+   උදා: `yourcpanel_foreign_agency`). මේ **සම්පූර්ණ නම** මතක තියාගන්න.
+3. **Add New User** — user එකක් හදලා **ශක්තිමත් password එකක්** දෙන්න.
+   ඒ password එක cPanel එකේ සහ server එකේ `.env` එකේ විතරයි තියෙන්නෙ —
+   කොහෙවත් ලියලා තියන්න එපා.
 4. **Add User To Database** — ඒ user එක උඩ database එකට add කරලා
    **ALL PRIVILEGES** දෙන්න.
 
@@ -39,7 +39,7 @@ cPanel එකේ PHP version එක **8.2 හෝ ඊට වැඩි** එකක
 ## Step 3 — Files upload කරන්න
 
 1. cPanel > **Subdomains** — `foreign-agency` subdomain එකේ *Document Root*
-   එක බලාගන්න (උදා: `/home/festelsd/foreign-agency.solidrow.lk`).
+   එක බලාගන්න (උදා: `/home/youraccount/foreign-agency.solidrow.lk`).
 2. cPanel > **File Manager** > ඒ document root එකට යන්න.
 3. මේ folder එකේ **හැම දෙයක්ම** (`.htaccess`, `.env`, `app`, `public`,
    `vendor`, `artisan` ... ඔක්කොම) ඒ document root එකට upload කරන්න.
@@ -58,10 +58,14 @@ cPanel එකේ PHP version එක **8.2 හෝ ඊට වැඩි** එකක
 (Step 1 එකේ database නම හරියටම):
 
 ```
-DB_DATABASE=festelsd_foreign_agency
-DB_USERNAME=festelsd_foreign-agency
-DB_PASSWORD="bSlY&%oN77[8o[3E"
+DB_DATABASE=<cPanel එකේ database නම>
+DB_USERNAME=<cPanel එකේ database user නම>
+DB_PASSWORD="<ඒ user ගේ password එක>"
 ```
+
+> **වැදගත්:** ඇත්ත password එක server එකේ `.env` එකේ විතරයි තියෙන්න ඕන.
+> `.env` එක git එකට යන්නෙ නෑ. Password එකක් කවදාවත් document එකකට හෝ
+> code එකට copy කරන්න එපා — GitHub එකට ගියොත් ඒක public.
 
 > Database නම cPanel එකේ දාපු එකට **හරියටම** සමාන විය යුතුයි.
 > HTTPS (SSL) දැම්මම `APP_URL` සහ `CLIENT_URL` දෙකම `https://...` කරන්න.
@@ -79,8 +83,8 @@ Login page එක එනවා. Sign in:
 
 | Field | Value |
 | --- | --- |
-| Email හෝ Phone | `visaltheekshana555@gmail.com` / `0781311850` |
-| Password | `Admin@1234` |
+| Email හෝ Phone | `.env` එකේ `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PHONE` |
+| Password | `.env` එකේ `SEED_ADMIN_PASSWORD` |
 
 2-step verification screen එකේ **code එක screen එකේම පෙන්නනවා** (Autofill
 button එක ඇති), මොකද තාම SMS/Email gateway එකක් සම්බන්ධ කරලා නෑ.
@@ -116,22 +120,16 @@ Shared hosting එකේ terminal එකක් නෑ, ඒ නිසා `php art
 
 ---
 
-## Email (OTP) නියම විදියට යවන්න (optional)
+## OTP codes — දැනට demo mode
 
-Codes screen එකේ පෙන්නීම නවත්තලා, ඇත්තටම email යවන්න ඕන නම් — `.env` එකේ:
+SMS gateway එකක් හෝ mail gateway එකක් **සම්බන්ධ කරලා නෑ**. ඒ නිසා 2-step
+verification codes **screen එකේම පෙන්නනවා** (Autofill button එකත් එක්ක),
+එළියට කිසිම message එකක් යන්නෙ නෑ.
 
-```
-MAIL_MAILER=smtp
-MAIL_HOST=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USERNAME=your@gmail.com
-MAIL_PASSWORD=<Gmail App Password>   # 16 අකුරු, spaces නැතුව
-MAIL_ENCRYPTION=tls
-SHOW_DEV_OTP=false
-```
-
-Gmail App Password එකක් හදන්නේ: https://myaccount.google.com/apppasswords
-(2-Step Verification ON වෙලා තියෙන්න ඕන).
+Gateway එකක් කියන්නෙ credentials — SMTP password එකක්, API key එකක්. ඒවා
+කවදාවත් code එකට හෝ මේ වගේ document එකකට යන්න හොඳ නෑ. Gateway එකක්
+සම්බන්ධ කරන වෙලාව ආවම, ඒ credentials **server එකේ `.env` එකේ විතරක්**
+තියෙන්න ඕන.
 
 ---
 

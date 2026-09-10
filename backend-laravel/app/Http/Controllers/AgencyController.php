@@ -11,6 +11,7 @@ use App\Support\ApiResponse;
 use App\Support\Credentials;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class AgencyController extends Controller
@@ -310,9 +311,10 @@ class AgencyController extends Controller
             throw new ApiException(404, 'Agency not found.');
         }
 
-        // withTrashed: a soft-deleted candidate is still a row the cascade
-        // would take, and its documents are still on disk.
-        $candidates = Candidate::withTrashed()->where('agency_id', $agency->id)->count();
+        // Only candidates still on file stand in the way. One the agency has
+        // already removed was removed on purpose, so it should not keep the
+        // agency alive - it goes with it.
+        $candidates = Candidate::where('agency_id', $agency->id)->count();
         if ($candidates > 0) {
             throw new ApiException(409, $agency->name.' has '.$candidates.' candidate'.($candidates === 1 ? '' : 's').' on file, so it cannot be deleted. Deactivate it instead.');
         }
@@ -320,6 +322,20 @@ class AgencyController extends Controller
         $name = $agency->name;
 
         DB::transaction(function () use ($agency) {
+            // Removed candidates still hold rows and uploaded files. The
+            // foreign key would cascade the rows away and leave the files
+            // orphaned on disk, so clear both here rather than relying on it.
+            foreach (Candidate::withTrashed()->where('agency_id', $agency->id)->get() as $candidate) {
+                foreach ($candidate->documents as $document) {
+                    Storage::disk($document->disk)->delete($document->path);
+                }
+                $candidate->forceDelete();
+            }
+
+            // Nothing should be left under the agency's own folder.
+            Storage::disk(config('documents.disk'))
+                ->deleteDirectory('candidates/'.$agency->id);
+
             // Hard delete, which is what frees the username, email and phone
             // for whoever is registered next.
             User::where('agency_id', $agency->id)->delete();

@@ -1,0 +1,108 @@
+#!/bin/sh
+#
+# Blocks a commit that carries a credential.
+#
+# A secret that reaches GitHub is public the moment it is pushed, and deleting
+# it later does not remove it from the history - the only real fix is rotating
+# the credential. So the cheapest place to stop one is here, before the commit
+# exists at all.
+#
+# Installed by pointing git at this directory:
+#
+#     git config core.hooksPath .githooks
+#
+# To commit anyway (a false positive, a fixture, a doc example):
+#
+#     git commit --no-verify
+#
+# Scans only what is staged, and only added lines.
+
+set -u
+
+RED=''
+YELLOW=''
+RESET=''
+if [ -t 2 ]; then
+    RED=$(printf '\033[31m')
+    YELLOW=$(printf '\033[33m')
+    RESET=$(printf '\033[0m')
+fi
+
+fail=0
+
+report() {
+    if [ "$fail" -eq 0 ]; then
+        printf '%s\n' "${RED}Commit blocked: this change looks like it carries a credential.${RESET}" >&2
+        printf '\n' >&2
+    fi
+    fail=1
+    printf '  %s\n' "$1" >&2
+}
+
+# --- 1. A real .env must never be staged -------------------------------------
+# .gitignore covers it, but `git add -f` and a stray copy both slip past that.
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+
+for file in $staged_files; do
+    case "$file" in
+        *.env.example|*.env.production|*.env.testing) ;;
+        .env|*/.env|*.env.local|*/.env.local|.env.*.local|*/.env.*.local)
+            report "${YELLOW}$file${RESET} is an environment file - it holds real values, keep it out of git."
+            ;;
+    esac
+done
+
+# --- 2. Credential-shaped values on added lines -------------------------------
+# Placeholders are what an example file is supposed to contain, so anything
+# that reads as one is allowed through.
+# Deliberately no entry for "sixteen lowercase letters": that is the exact
+# shape of a Gmail App Password, so it has to trip the check, not pass it.
+placeholder='null|""|''|<[^>]*>|change[-_]?me|your[-_a-z]*|example|placeholder|xxx+|\.\.\.|secret|password|token|key|here|todo|admin@example\.com'
+
+added=$(git diff --cached --diff-filter=ACMR -U0 -- $staged_files 2>/dev/null | grep '^+' | grep -v '^+++')
+
+check() {
+    label=$1
+    pattern=$2
+    # A placeholder is still a placeholder inside quotes: DB_PASSWORD="<...>".
+    hits=$(printf '%s\n' "$added" | grep -inE "$pattern" \
+        | grep -ivE "=[[:space:]]*[\"']?($placeholder)[\"']?[[:space:]]*$" || true)
+    if [ -n "$hits" ]; then
+        report "$label"
+        printf '%s\n' "$hits" | head -3 | sed 's/^/      /' >&2
+    fi
+}
+
+check "SMTP credentials (MAIL_USERNAME / MAIL_PASSWORD / MAIL_HOST)" \
+      '^\+[^#]*MAIL_(PASSWORD|USERNAME|HOST)[[:space:]]*=[[:space:]]*[^[:space:]]'
+
+check "A database password" \
+      '^\+[^#]*DB_PASSWORD[[:space:]]*=[[:space:]]*[^[:space:]]'
+
+check "An API key or provider secret" \
+      '^\+[^#]*(API_KEY|APIKEY|SECRET_KEY|ACCESS_KEY|PROVIDER_KEY|AUTH_TOKEN|CLIENT_SECRET|PRIVATE_KEY)[[:space:]]*=[[:space:]]*[^[:space:]]'
+
+check "An AWS access key id" \
+      '^\+.*AKIA[0-9A-Z]{16}'
+
+check "A Google / Firebase API key" \
+      '^\+.*AIza[0-9A-Za-z_-]{35}'
+
+check "A Slack, GitHub or Stripe token" \
+      '^\+.*(xox[baprs]-[0-9A-Za-z-]{10,}|gh[pousr]_[0-9A-Za-z]{36}|sk_live_[0-9A-Za-z]{24,})'
+
+check "A private key block" \
+      '^\+.*BEGIN [A-Z ]*PRIVATE KEY'
+
+check "A JWT signing secret" \
+      '^\+[^#]*JWT_SECRET[[:space:]]*=[[:space:]]*[^[:space:]]'
+
+if [ "$fail" -ne 0 ]; then
+    printf '\n' >&2
+    printf '%s\n' "Move the value into .env (which is gitignored) and leave a placeholder behind." >&2
+    printf '%s\n' "If this really is a placeholder or a test fixture: git commit --no-verify" >&2
+    printf '\n' >&2
+    exit 1
+fi
+
+exit 0

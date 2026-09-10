@@ -20,7 +20,7 @@ export const MOCK_ROLES = [
 ];
 
 export const MOCK_USERS = [
-  { id: 'US-2001', name: 'Ishara Bandara', email: 'visaltheekshana555@gmail.com', phone: '078 131 1850', role: 'Main Admin', agency: '—', status: 'active', lastLogin: '2026-09-07 09:12' },
+  { id: 'US-2001', name: 'Ishara Bandara', email: 'admin@example.com', phone: '078 131 1850', role: 'Main Admin', agency: '—', status: 'active', lastLogin: '2026-09-07 09:12' },
   { id: 'US-2002', name: 'Nadia Perera', email: 'nadia@skyline.lk', phone: '+94 71 998 2210', role: 'Agency Owner', agency: 'Skyline Marketing', status: 'active', lastLogin: '2026-09-06 17:45' },
   { id: 'US-2003', name: 'Rehan Silva', email: 'rehan@bluewave.lk', phone: '+94 76 445 1188', role: 'Agency Owner', agency: 'BlueWave Media', status: 'pending', lastLogin: '—' },
   { id: 'US-2004', name: 'Ayesha Fernando', email: 'ayesha@northstar.lk', phone: '+94 70 220 7781', role: 'Agency Manager', agency: 'Northstar Travels', status: 'active', lastLogin: '2026-09-07 08:02' },

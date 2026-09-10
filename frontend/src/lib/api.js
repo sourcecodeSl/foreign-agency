@@ -106,7 +106,7 @@ export const authApi = {
       nextStep: 'phone',
       challengeId: 'chg_' + Date.now(),
       channel: 'sms',
-      maskedPhone: '078 XXX 1850',
+      maskedPhone: '077 XXX 0000',
       resendCooldown: 59,
       devCode: mockOtp, // shown on screen while delivery is not wired up
     });
@@ -135,7 +135,7 @@ export const authApi = {
         nextStep: 'email',
         challengeId: 'chg_' + Date.now(),
         channel: 'email',
-        maskedEmail: 'vi******@gmail.com',
+        maskedEmail: 'ad***@example.com',
         resendCooldown: 59,
         devCode: mockOtp,
       },
@@ -163,7 +163,7 @@ export const authApi = {
       verified: 'email',
       nextStep: 'dashboard',
       token: 'mock.jwt.token',
-      admin: { id: 'US-2001', name: 'Ishara Bandara', email: 'visaltheekshana555@gmail.com', role: 'Main Admin' },
+      admin: { id: 'US-2001', name: 'Ishara Bandara', email: 'admin@example.com', role: 'Main Admin' },
     });
   },
 
@@ -180,7 +180,7 @@ export const authApi = {
   async me() {
     if (!USE_MOCK) return request('/auth/me');
     await delay(200);
-    return ok({ id: 'US-2001', name: 'Ishara Bandara', email: 'visaltheekshana555@gmail.com', role: 'Main Admin' });
+    return ok({ id: 'US-2001', name: 'Ishara Bandara', email: 'admin@example.com', role: 'Main Admin' });
   },
 };
 

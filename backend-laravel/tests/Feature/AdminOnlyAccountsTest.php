@@ -4,9 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\Agency;
 use App\Models\Candidate;
+use App\Models\CandidateDocument;
 use App\Models\User;
 use App\Support\Jwt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -293,6 +296,58 @@ class AdminOnlyAccountsTest extends TestCase
 
         $this->assertDatabaseHas('agencies', ['id' => $created['id']]);
         $this->assertDatabaseCount('candidates', 1);
+    }
+
+    /**
+     * The agency is emptied first, then removed. A candidate the agency has
+     * already deleted must not keep the agency alive - it was removed on
+     * purpose, and the listing shows none left.
+     */
+    public function test_an_agency_whose_candidates_were_removed_can_be_deleted(): void
+    {
+        Storage::fake('local');
+
+        $created = $this->createAgency();
+        $this->withToken($this->adminToken())
+            ->patchJson('/api/v1/agencies/'.$created['id'].'/status', ['status' => 'active'])
+            ->assertOk();
+
+        $owner = User::where('username', 'skyline.owner')->firstOrFail();
+        $this->app['auth']->forgetGuards();
+        $ownerToken = Jwt::sign($owner->toPublic());
+
+        $candidateId = $this->withToken($ownerToken)->postJson('/api/v1/candidates', [
+            'name' => 'Kamal Perera',
+            'passportNo' => 'N7788990',
+            'address' => '12 Temple Road, Negombo',
+            'mobile' => '0771234567',
+        ])->assertCreated()->json('data.candidate.id');
+
+        $this->withToken($ownerToken)->postJson('/api/v1/candidates/'.$candidateId.'/documents', [
+            'type' => 'medical',
+            'file' => UploadedFile::fake()->create('medical.pdf', 40, 'application/pdf'),
+        ])->assertCreated();
+
+        $path = CandidateDocument::firstOrFail()->path;
+        Storage::disk('local')->assertExists($path);
+
+        // The agency removes its candidate, exactly as the UI does.
+        $this->withToken($ownerToken)->deleteJson('/api/v1/candidates/'.$candidateId)->assertOk();
+        $this->assertSoftDeleted('candidates', ['id' => $candidateId]);
+
+        // The agency is now empty, so it goes.
+        $this->withToken($this->adminToken())
+            ->deleteJson('/api/v1/agencies/'.$created['id'])
+            ->assertOk()
+            ->assertJsonPath('message', 'Skyline Marketing has been deleted.');
+
+        $this->assertDatabaseMissing('agencies', ['id' => $created['id']]);
+
+        // Nothing is left behind: no rows, and no orphaned files on disk.
+        $this->assertDatabaseCount('candidates', 0);
+        $this->assertDatabaseCount('candidate_documents', 0);
+        Storage::disk('local')->assertMissing($path);
+        Storage::disk('local')->assertMissing('candidates/'.$created['id']);
     }
 
     public function test_only_the_administrator_can_delete_an_agency(): void

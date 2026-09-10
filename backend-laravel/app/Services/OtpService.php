@@ -122,7 +122,7 @@ class OtpService
         return ['ok' => true, 'code' => $challenge->code, 'channel' => $challenge->channel, 'cooldown' => $cooldown];
     }
 
-    /** Masks a phone for display: 0781311850 -> "078 XXX 1850". */
+    /** Masks a phone for display: 0770000000 -> "077 XXX 0000". */
     public static function maskPhone(string $phone): string
     {
         $digits = preg_replace('/\D/', '', $phone);
@@ -134,7 +134,7 @@ class OtpService
         return substr($digits, 0, 3).' '.$middle.' '.substr($digits, -4);
     }
 
-    /** Masks an email: visaltheekshana555@gmail.com -> "vi******@gmail.com". */
+    /** Masks an email: admin@example.com -> "ad***@example.com". */
     public static function maskEmail(string $email): string
     {
         $parts = explode('@', $email);

@@ -38,7 +38,8 @@ describe('two-factor sign-in flow', () => {
 
     const emailCode = (await screen.findByText(/^\d{6}$/)).textContent;
     expect(emailCode).not.toEqual(phoneCode); // a fresh code for the new channel
-    expect(screen.getByText(/vi\*+@gmail\.com/)).toBeTruthy();
+    // Masked, and masked from a placeholder address - no real one is baked in.
+    expect(screen.getByText(/ad\*+@example\.com/)).toBeTruthy();
   });
 
   it('signs in only after the email code is accepted', async () => {

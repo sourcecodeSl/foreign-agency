@@ -94,7 +94,7 @@ export default function Topbar({ onMenuClick, title, subtitle }) {
               <div className="border-b border-gray-100 px-4 py-3">
                 <p className="text-sm font-medium text-gray-900">{admin?.name || 'Main Admin'}</p>
                 <p className="truncate text-xs text-gray-500">
-                  {admin?.email || 'visaltheekshana555@gmail.com'}
+                  {admin?.email || 'admin@example.com'}
                 </p>
               </div>
               <button

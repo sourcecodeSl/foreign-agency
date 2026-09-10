@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Foreign Agency Admin - MISSING TABLES ONLY (keeps your existing `users`)
--- phpMyAdmin > festelsd_foreign-agency > SQL tab > paste > Go
+-- phpMyAdmin > yourcpanel_foreign_agency > SQL tab > paste > Go
 -- Creates: agencies, app_counters, email_verifications, migrations,
 --          otp_challenges, roles  (does NOT touch the users table)
 -- ============================================================================
