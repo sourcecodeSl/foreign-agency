@@ -32,6 +32,10 @@ export const MOCK_USERS = [
 // Permission matrix: modules x actions, assigned per role.
 export const PERMISSION_MODULES = [
   { key: 'agencies', label: 'Agency Management', description: 'Create, approve and deactivate agencies' },
+  // Must stay in step with Role::MODULES on the backend. A module missing here
+  // is not rendered, so it is absent from what Save sends - and the API rebuilds
+  // the whole matrix from that payload, which would silently revoke it.
+  { key: 'candidates', label: 'Candidates', description: 'Register candidates and attach their documents' },
   { key: 'users', label: 'User Management', description: 'Manage user accounts across the system' },
   { key: 'roles', label: 'Roles & Permissions', description: 'Define user types and access rights' },
   { key: 'reports', label: 'Reports & Analytics', description: 'View and export system reports' },
@@ -51,6 +55,7 @@ const allow = (view, create, edit, del) => ({ view, create, edit, delete: del })
 export const MOCK_PERMISSIONS = {
   main_admin: {
     agencies: allow(true, true, true, true),
+    candidates: allow(true, true, true, true),
     users: allow(true, true, true, true),
     roles: allow(true, true, true, true),
     reports: allow(true, true, true, true),
@@ -59,6 +64,7 @@ export const MOCK_PERMISSIONS = {
   },
   agency_owner: {
     agencies: allow(true, false, true, false),
+    candidates: allow(true, true, true, true),
     users: allow(true, true, true, false),
     roles: allow(true, false, false, false),
     reports: allow(true, false, false, false),
@@ -67,6 +73,7 @@ export const MOCK_PERMISSIONS = {
   },
   agency_manager: {
     agencies: allow(true, false, false, false),
+    candidates: allow(true, true, true, true),
     users: allow(true, true, false, false),
     roles: allow(false, false, false, false),
     reports: allow(true, false, false, false),
@@ -75,6 +82,7 @@ export const MOCK_PERMISSIONS = {
   },
   agent: {
     agencies: allow(false, false, false, false),
+    candidates: allow(true, true, true, false),
     users: allow(false, false, false, false),
     roles: allow(false, false, false, false),
     reports: allow(true, false, false, false),
@@ -83,6 +91,7 @@ export const MOCK_PERMISSIONS = {
   },
   auditor: {
     agencies: allow(true, false, false, false),
+    candidates: allow(true, false, false, false),
     users: allow(true, false, false, false),
     roles: allow(true, false, false, false),
     reports: allow(true, false, false, false),

@@ -119,7 +119,20 @@ class RoleController extends Controller
             throw new ApiException(400, 'The Main Admin role always holds full access.');
         }
 
-        $clean = Role::cleanMatrix($request->input('permissions'));
+        // cleanMatrix rebuilds the whole grid and reads a missing module as
+        // "no access", so a payload that leaves one out silently revokes it -
+        // which is how agency logins lost the candidates module. A save has to
+        // describe every module, or it is not a save of the whole matrix.
+        $incoming = (array) $request->input('permissions');
+        $absent = array_values(array_diff(Role::MODULES, array_keys($incoming)));
+
+        if ($absent !== []) {
+            throw new ApiException(422, 'This looks like an out-of-date screen: it did not include '.implode(', ', $absent).'. Reload the page and try again.', [
+                'permissions' => 'Missing module(s): '.implode(', ', $absent).'.',
+            ]);
+        }
+
+        $clean = Role::cleanMatrix($incoming);
         $role->permissions = $clean;
         $role->save();
 
