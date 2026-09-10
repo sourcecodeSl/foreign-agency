@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { IconMenu, IconSearch, IconBell, IconChevronDown, IconLogout } from '../ui/Icons';
+import NotificationBell from './NotificationBell';
+import { IconMenu, IconSearch, IconChevronDown, IconLogout } from '../ui/Icons';
 
 export default function Topbar({ onMenuClick, title, subtitle }) {
   const { admin, logout } = useAuth();
@@ -54,14 +55,7 @@ export default function Topbar({ onMenuClick, title, subtitle }) {
           />
         </div>
 
-        <button
-          type="button"
-          className="relative rounded-lg p-2 text-gray-600 hover:bg-gray-100"
-          aria-label="Notifications"
-        >
-          <IconBell className="h-5 w-5" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
-        </button>
+        <NotificationBell />
 
         {/* Profile menu */}
         <div className="relative" ref={menuRef}>

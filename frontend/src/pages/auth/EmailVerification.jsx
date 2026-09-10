@@ -8,6 +8,7 @@ import { StatusBadge } from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import { IconMail, IconSearch, IconCheck, IconRefresh, IconTrash } from '../../components/ui/Icons';
 import { verificationApi } from '../../lib/api';
+import AgencyVerification from './AgencyVerification';
 
 const TABS = [
   { id: 'all', label: 'All Requests' },
@@ -144,29 +145,15 @@ export default function EmailVerification() {
     },
   ];
 
-  const pending = rows.filter((r) => r.status !== 'verified').length;
-
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-3">
-        {[
-          ['Total requests', rows.length, 'text-gray-900'],
-          ['Awaiting confirmation', pending, 'text-amber-600'],
-          ['Verified', rows.filter((r) => r.status === 'verified').length, 'text-emerald-600'],
-        ].map(([label, value, tone]) => (
-          <Card key={label}>
-            <div className="p-5">
-              <p className="text-sm text-gray-500">{label}</p>
-              <p className={'mt-1 text-2xl font-bold ' + tone}>{value}</p>
-            </div>
-          </Card>
-        ))}
-      </div>
+      {/* Where each agency's own sign-in verification stands. */}
+      <AgencyVerification />
 
       <Card>
         <CardHeader
           title="Email Confirmations"
-          subtitle="Resend confirmation links or manually verify an address."
+          subtitle="Confirmation links sent from this module. Resend a link or verify an address by hand."
           action={
             <div className="relative">
               <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />

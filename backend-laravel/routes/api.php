@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CandidateController;
 use App\Http\Controllers\CandidateDocumentController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
@@ -108,6 +109,10 @@ Route::prefix('roles')->middleware('auth.jwt')->group(function () {
 
 // --- Verification (authenticated) -------------------------------------------
 Route::prefix('verification')->middleware('auth.jwt')->group(function () {
+    // How far each agency's owner login has got: approved, phone, email,
+    // first sign-in. Administrator and auditor only, checked in the controller.
+    Route::get('/agencies', [VerificationController::class, 'agencies']);
+
     Route::get('/emails', [VerificationController::class, 'listEmails']);
     Route::post('/emails', [VerificationController::class, 'requestEmail']);
     Route::post('/emails/{id}/resend', [VerificationController::class, 'resendEmail']);
@@ -122,3 +127,7 @@ Route::prefix('dashboard')->middleware('auth.jwt')->group(function () {
     Route::get('/stats', [DashboardController::class, 'stats']);
     Route::get('/activity', [DashboardController::class, 'activity']);
 });
+
+// --- Notifications (the bell in the top bar) --------------------------------
+// Every signed-in role has one; the controller scopes what each role sees.
+Route::get('/notifications', [NotificationController::class, 'index'])->middleware('auth.jwt');

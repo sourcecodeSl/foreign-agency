@@ -3,18 +3,116 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\ApiException;
+use App\Models\Agency;
 use App\Models\AppCounter;
 use App\Models\EmailVerification;
+use App\Models\User;
 use App\Services\EmailService;
 use App\Support\ApiResponse;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class VerificationController extends Controller
 {
+    /** Roles that look across every agency. */
+    private const GLOBAL_ROLES = ['main_admin', 'auditor'];
+
     private function newToken(): string
     {
         return bin2hex(random_bytes(24));
+    }
+
+    private function iso($value): ?string
+    {
+        return $value ? Carbon::parse($value)->toIso8601String() : null;
+    }
+
+    /**
+     * GET /verification/agencies - how far each agency's owner login has got.
+     *
+     * Read straight from the login itself: entering the phone code stamps
+     * phone_verified_at, the email code stamps email_verified_at, and a
+     * completed sign-in stamps last_login_at. So this is what actually
+     * happened, not a separate record that could drift from it.
+     */
+    public function agencies(Request $request)
+    {
+        $auth = $request->attributes->get('auth_user');
+        if (! in_array($auth['roleSlug'] ?? null, self::GLOBAL_ROLES, true)) {
+            throw new ApiException(403, "Only the administrator can see every agency's verification.");
+        }
+
+        $agencies = Agency::orderByDesc('created_at')->orderByDesc('id')->get();
+
+        $owners = User::whereIn('agency_id', $agencies->pluck('id'))
+            ->where('role_slug', 'agency_owner')
+            ->get()
+            ->keyBy('agency_id');
+
+        $rows = $agencies
+            ->map(fn (Agency $agency) => $this->verificationRow($agency, $owners->get($agency->id)))
+            ->values();
+
+        return ApiResponse::ok($rows);
+    }
+
+    /** One agency: each step, where it stands overall, and what is still left. */
+    private function verificationRow(Agency $agency, ?User $owner): array
+    {
+        $steps = [
+            'approved' => $agency->status === 'active',
+            'phoneVerifiedAt' => $this->iso($owner?->phone_verified_at),
+            'emailVerifiedAt' => $this->iso($owner?->email_verified_at),
+            'signedInAt' => $this->iso($owner?->last_login_at),
+        ];
+
+        $pending = [];
+        if (! $owner) {
+            $pending[] = 'No owner login is linked to this agency';
+        }
+        if ($agency->status === 'pending') {
+            $pending[] = 'Approve the agency';
+        }
+        if ($owner) {
+            if (! $steps['phoneVerifiedAt']) {
+                $pending[] = 'Verify the phone number';
+            }
+            if (! $steps['emailVerifiedAt']) {
+                $pending[] = 'Verify the email address';
+            }
+            if (! $steps['signedInAt']) {
+                $pending[] = 'Sign in for the first time';
+            }
+        }
+
+        $nothingDone = ! $steps['phoneVerifiedAt'] && ! $steps['emailVerifiedAt'] && ! $steps['signedInAt'];
+
+        $state = match (true) {
+            ! $owner => 'no_login',
+            $agency->status === 'deactivated' => 'deactivated',
+            $agency->status === 'pending' => 'awaiting_approval',
+            $pending === [] => 'verified',
+            $nothingDone => 'not_signed_in',
+            default => 'partial',
+        };
+
+        return [
+            'id' => $agency->id,
+            'name' => $agency->name,
+            'code' => $agency->code,
+            'status' => $agency->status,
+            'createdAt' => $agency->created_at,
+            'owner' => $owner ? [
+                'name' => $owner->name,
+                'username' => $owner->username,
+                'email' => $owner->email,
+                'phone' => $owner->phone,
+            ] : null,
+            'steps' => $steps,
+            'state' => $state,
+            'pending' => $pending,
+        ];
     }
 
     /** GET /verification/emails?status=&search= */

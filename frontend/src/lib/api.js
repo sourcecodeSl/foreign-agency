@@ -429,6 +429,46 @@ export const roleApi = {
 
 // --- Email verification -----------------------------------------------------
 export const verificationApi = {
+  /**
+   * How far each agency's owner login has got - approved, phone verified,
+   * email verified, first sign-in - and what is still left.
+   */
+  async agencies() {
+    if (!USE_MOCK) return request('/verification/agencies');
+    await delay(300);
+    return ok(
+      agencies.map((a) => {
+        const active = a.status === 'active';
+        const at = active ? new Date(a.createdAt).toISOString() : null;
+        const pending = active
+          ? []
+          : [
+              ...(a.status === 'pending' ? ['Approve the agency'] : []),
+              'Verify the phone number',
+              'Verify the email address',
+              'Sign in for the first time',
+            ];
+        return {
+          id: a.id,
+          name: a.name,
+          code: a.code,
+          status: a.status,
+          createdAt: a.createdAt,
+          owner: {
+            name: a.contact,
+            username: a.username,
+            // Kept apart from the confirmation-link rows, which use the agency address.
+            email: a.email.replace(/^[^@]+/, 'owner'),
+            phone: '0770000000',
+          },
+          steps: { approved: active, phoneVerifiedAt: at, emailVerifiedAt: at, signedInAt: at },
+          state: active ? 'verified' : a.status === 'pending' ? 'awaiting_approval' : 'deactivated',
+          pending,
+        };
+      })
+    );
+  },
+
   async listEmails({ status = 'all', search = '' } = {}) {
     if (!USE_MOCK) return request('/verification/emails?status=' + status + '&search=' + encodeURIComponent(search));
     await delay(350);
@@ -475,6 +515,27 @@ export const dashboardApi = {
       users: { total: users.length, delta: '+8%' },
       unverified: { total: emails.filter((e) => e.status !== 'verified').length, delta: '-3' },
     });
+  },
+};
+
+// --- Notifications ----------------------------------------------------------
+export const notificationsApi = {
+  /** What the bell lists for whoever is signed in, newest first. */
+  async list() {
+    if (!USE_MOCK) return request('/notifications');
+    await delay(200);
+    return ok(
+      agencies
+        .filter((a) => a.status === 'pending')
+        .map((a) => ({
+          id: 'agency-pending-' + a.id,
+          tone: 'warning',
+          title: a.name + ' is awaiting approval',
+          body: 'New agency registration. Contact: ' + a.contact + '.',
+          at: new Date(a.createdAt).toISOString(),
+          link: '/agencies',
+        }))
+    );
   },
 };
 
