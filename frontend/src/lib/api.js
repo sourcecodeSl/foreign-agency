@@ -539,6 +539,25 @@ export const notificationsApi = {
   },
 };
 
+// --- Email delivery check (administrator) ----------------------------------
+/** What this server reads for mail, a test email, and clearing cached settings. Live API only. */
+export const systemApi = {
+  async mailStatus() {
+    requireLiveApi();
+    return request('/system/mail');
+  },
+
+  async sendTestMail() {
+    requireLiveApi();
+    return request('/system/mail/test', { method: 'POST' });
+  },
+
+  async clearConfigCache() {
+    requireLiveApi();
+    return request('/system/mail/clear-cache', { method: 'POST' });
+  },
+};
+
 // --- Candidates -------------------------------------------------------------
 /**
  * Registered by an agency, never signing in themselves.

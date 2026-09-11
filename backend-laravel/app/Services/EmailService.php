@@ -168,6 +168,48 @@ class EmailService
         );
     }
 
+    /**
+     * A plain test message that reports the mail server's own error instead of
+     * hiding it - used by the administrator's email delivery check.
+     *
+     * @return array{delivered: bool, error: ?string}
+     */
+    public static function sendTest(string $to): array
+    {
+        if (! self::isConfigured()) {
+            return [
+                'delivered' => false,
+                'error' => 'Email is not set up: MAIL_MAILER is "'.config('mail.default').'", or MAIL_USERNAME / MAIL_PASSWORD is empty.',
+            ];
+        }
+
+        // A firewall that silently drops the connection would otherwise hold
+        // this request for a full minute.
+        $mailer = config('mail.default');
+        if (config("mail.mailers.{$mailer}.timeout") === null) {
+            config(["mail.mailers.{$mailer}.timeout" => 15]);
+        }
+
+        $html = self::layout(
+            'Email delivery works',
+            '<p style="margin:0;color:#4b5563;font-size:14px;line-height:1.6">'
+                .'This is a test from Agency Admin. Sign-in codes and agency login details '
+                .'will reach this inbox.</p>'
+        );
+
+        try {
+            Mail::html($html, function ($message) use ($to) {
+                $message->to($to)->subject('Agency Admin - email delivery test');
+            });
+
+            return ['delivered' => true, 'error' => null];
+        } catch (\Throwable $e) {
+            Log::error('[mail] test to '.$to.' failed: '.$e->getMessage());
+
+            return ['delivered' => false, 'error' => $e->getMessage()];
+        }
+    }
+
     /** Confirmation link used by the Email Verification module. */
     public static function sendVerification(string $email, string $token): array
     {
