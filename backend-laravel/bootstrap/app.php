@@ -5,6 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use App\Exceptions\ApiException;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -53,6 +54,24 @@ return Application::configure(basePath: dirname(__DIR__))
                 'message' => $e->getMessage(),
                 'errors' => $e->errors,
             ], $e->status);
+        });
+
+        // A rate limit was hit. Say how long to wait, and pass Retry-After on -
+        // the generic handler below builds a fresh response and would drop it.
+        $exceptions->render(function (ThrottleRequestsException $e, Request $request) use ($wantsApi) {
+            if (! $wantsApi($request)) {
+                return null;
+            }
+
+            $headers = $e->getHeaders();
+            $seconds = max(1, (int) ($headers['Retry-After'] ?? 60));
+            $minutes = (int) ceil($seconds / 60);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Too many attempts. Please wait '.$minutes.' minute'.($minutes === 1 ? '' : 's').' and try again.',
+                'retryAfter' => $seconds,
+            ], 429, $headers);
         });
 
         $exceptions->render(function (\Throwable $e, Request $request) use ($wantsApi) {

@@ -13,8 +13,8 @@ use Tests\TestCase;
  * it proves the person holds that address, and only then is a new password
  * accepted.
  *
- * The auth routes share one throttle counter per IP, so each test keeps its
- * requests well under it.
+ * Each sign-in and reset step has its own rate limit, so a test can walk the
+ * whole flow without tripping one.
  */
 class PasswordResetTest extends TestCase
 {

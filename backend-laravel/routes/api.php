@@ -22,19 +22,22 @@ use Illuminate\Support\Facades\Route;
 // --- Auth -------------------------------------------------------------------
 // There is deliberately no /auth/register: accounts are never self-created.
 // The Main Admin is seeded, and agency logins are issued from the admin panel.
+// Each throttled route keeps its own count (the third throttle argument),
+// so one sign-in - login, phone code, email code - never uses up another
+// step's limit.
 Route::prefix('auth')->group(function () {
-    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,15');
-    Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:12,15');
-    Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:12,15');
-    Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:12,15');
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,15,login');
+    Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:12,15,verify-otp');
+    Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:12,15,verify-email');
+    Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:12,15,resend-otp');
     Route::get('/me', [AuthController::class, 'me'])->middleware('auth.jwt');
     Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth.jwt');
 
     // Forgotten password: username -> code emailed to the account -> new password.
-    Route::post('/forgot-password', [PasswordResetController::class, 'start'])->middleware('throttle:10,15');
-    Route::post('/forgot-password/resend', [PasswordResetController::class, 'resend'])->middleware('throttle:12,15');
-    Route::post('/forgot-password/verify', [PasswordResetController::class, 'verify'])->middleware('throttle:12,15');
-    Route::post('/forgot-password/reset', [PasswordResetController::class, 'reset'])->middleware('throttle:12,15');
+    Route::post('/forgot-password', [PasswordResetController::class, 'start'])->middleware('throttle:10,15,forgot-password');
+    Route::post('/forgot-password/resend', [PasswordResetController::class, 'resend'])->middleware('throttle:12,15,forgot-resend');
+    Route::post('/forgot-password/verify', [PasswordResetController::class, 'verify'])->middleware('throttle:12,15,forgot-verify');
+    Route::post('/forgot-password/reset', [PasswordResetController::class, 'reset'])->middleware('throttle:12,15,forgot-reset');
 });
 
 // --- Verification: public confirmation link ---------------------------------
@@ -59,9 +62,9 @@ Route::prefix('agency-profile')->middleware('auth.jwt')->group(function () {
     Route::get('/', [AgencyProfileController::class, 'show']);
     Route::put('/', [AgencyProfileController::class, 'update']);
     // A new phone or email is saved only once the code sent to it comes back.
-    Route::post('/contact', [AgencyProfileController::class, 'requestContactChange'])->middleware('throttle:10,15');
-    Route::post('/contact/resend', [AgencyProfileController::class, 'resendContactCode'])->middleware('throttle:12,15');
-    Route::post('/contact/verify', [AgencyProfileController::class, 'verifyContactChange'])->middleware('throttle:12,15');
+    Route::post('/contact', [AgencyProfileController::class, 'requestContactChange'])->middleware('throttle:10,15,contact-change');
+    Route::post('/contact/resend', [AgencyProfileController::class, 'resendContactCode'])->middleware('throttle:12,15,contact-resend');
+    Route::post('/contact/verify', [AgencyProfileController::class, 'verifyContactChange'])->middleware('throttle:12,15,contact-verify');
 });
 
 // --- Candidates (registered by an agency; no OTP anywhere in this flow) -----
@@ -138,6 +141,6 @@ Route::get('/notifications', [NotificationController::class, 'index'])->middlewa
 // mail, a test email to the admin's own address, and clearing cached settings.
 Route::prefix('system/mail')->middleware('auth.jwt')->group(function () {
     Route::get('/', [MailDiagnosticsController::class, 'show']);
-    Route::post('/test', [MailDiagnosticsController::class, 'test'])->middleware('throttle:10,15');
+    Route::post('/test', [MailDiagnosticsController::class, 'test'])->middleware('throttle:10,15,mail-test');
     Route::post('/clear-cache', [MailDiagnosticsController::class, 'clearCache']);
 });
