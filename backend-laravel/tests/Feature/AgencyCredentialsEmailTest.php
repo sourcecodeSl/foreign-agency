@@ -18,9 +18,6 @@ class AgencyCredentialsEmailTest extends TestCase
 
     private string $admin;
 
-    /** Environment values changed by a test, restored afterwards. */
-    private array $original = [];
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -30,37 +27,23 @@ class AgencyCredentialsEmailTest extends TestCase
         $this->admin = Jwt::sign(User::where('role_slug', 'main_admin')->first()->toPublic());
     }
 
-    protected function tearDown(): void
-    {
-        foreach ($this->original as $key => $value) {
-            if ($value === null) {
-                unset($_SERVER[$key]);
-            } else {
-                $_SERVER[$key] = $value;
-            }
-        }
-
-        parent::tearDown();
-    }
-
-    private function setEnv(string $key, string $value): void
-    {
-        if (! array_key_exists($key, $this->original)) {
-            $this->original[$key] = $_SERVER[$key] ?? null;
-        }
-        $_SERVER[$key] = $value;
-    }
-
     /**
-     * Makes the service believe SMTP is set up, while the messages land in
-     * the array transport where the test can read them.
+     * SMTP with a username and password, exactly as the live .env sets it -
+     * except that the messages land in memory, where the test can read them.
      */
     private function configureMail(): void
     {
-        $this->setEnv('MAIL_MAILER', 'smtp');
-        $this->setEnv('MAIL_USERNAME', 'mailer@example.com');
-        $this->setEnv('MAIL_PASSWORD', 'not-a-real-password');
-        config(['mail.default' => 'array']);
+        config([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.username' => 'mailer@example.com',
+            'mail.mailers.smtp.password' => 'not-a-real-password',
+            'mail.mailers.smtp.transport' => 'array',
+        ]);
+    }
+
+    private function sent()
+    {
+        return Mail::mailer('smtp')->getSymfonyTransport()->messages();
     }
 
     private function createAgency(string $name = 'Skyline Marketing')
@@ -84,10 +67,9 @@ class AgencyCredentialsEmailTest extends TestCase
             ->assertJsonPath('data.credentialsEmail.to', 'owner@skyline.lk')
             ->assertJsonPath('data.credentialsEmail.delivered', true);
 
-        $messages = Mail::mailer('array')->getSymfonyTransport()->messages();
-        $this->assertCount(1, $messages);
+        $this->assertCount(1, $this->sent());
 
-        $email = $messages->first()->getOriginalMessage();
+        $email = $this->sent()->first()->getOriginalMessage();
         $this->assertSame('owner@skyline.lk', $email->getTo()[0]->getAddress());
 
         $html = $email->getHtmlBody();
@@ -103,11 +85,19 @@ class AgencyCredentialsEmailTest extends TestCase
 
         $this->createAgency('Skyline <b>Marketing</b>');
 
-        $html = Mail::mailer('array')->getSymfonyTransport()->messages()
-            ->first()->getOriginalMessage()->getHtmlBody();
+        $html = $this->sent()->first()->getOriginalMessage()->getHtmlBody();
 
         $this->assertStringContainsString('Skyline &lt;b&gt;Marketing&lt;/b&gt;', $html);
         $this->assertStringNotContainsString('<b>Marketing</b>', $html);
+    }
+
+    public function test_a_cached_config_still_counts_as_mail_being_set_up(): void
+    {
+        // A cached config is exactly this: config() filled in while env()
+        // returns nothing. Sign-in codes must still go by email, not on screen.
+        $this->configureMail();
+
+        $this->assertTrue(\App\Services\EmailService::isConfigured());
     }
 
     public function test_without_mail_set_up_the_agency_is_still_created_and_the_screen_is_told(): void

@@ -120,16 +120,54 @@ Shared hosting එකේ terminal එකක් නෑ, ඒ නිසා `php art
 
 ---
 
-## OTP codes — දැනට demo mode
+## OTP codes සහ Email — live server එකේ set කරන්න
 
-SMS gateway එකක් හෝ mail gateway එකක් **සම්බන්ධ කරලා නෑ**. ඒ නිසා 2-step
-verification codes **screen එකේම පෙන්නනවා** (Autofill button එකත් එක්ක),
-එළියට කිසිම message එකක් යන්නෙ නෑ.
+Sign-in එකේ **email code එකයි**, agency එකක් හදද්දි යවන **login details
+email එකයි** යන්නෙ server එකේ `.env` එකේ mail settings තියෙනවා නම් විතරයි.
+නැත්නම් code එක screen එකේම "Demo mode" box එකේ පෙන්නනවා.
 
-Gateway එකක් කියන්නෙ credentials — SMTP password එකක්, API key එකක්. ඒවා
-කවදාවත් code එකට හෝ මේ වගේ document එකකට යන්න හොඳ නෑ. Gateway එකක්
-සම්බන්ධ කරන වෙලාව ආවම, ඒ credentials **server එකේ `.env` එකේ විතරක්**
-තියෙන්න ඕන.
+`.env` එක git එකට හෝ GitHub deploy එකට **යන්නෙ නෑ** — ඒ නිසා local
+computer එකේ දාපු settings live එකට ඉබේ එන්නෙ නෑ. Server එකේ `.env` එකට
+වෙනම දාන්න ඕන:
+
+1. cPanel → **File Manager** → site folder එකේ `.env` → **Edit**
+2. `MAIL_` වලින් පටන් ගන්න පේළි ටික මේවායින් replace කරන්න. `< >` ඇතුළේ
+   තියෙන දේ ඔයාගේ value එකෙන් දාන්න (`< >` ලකුණු ඉවත් කරලා):
+
+   ```
+   MAIL_MAILER=smtp
+   MAIL_SCHEME=null
+   MAIL_HOST=<smtp.gmail.com>
+   MAIL_PORT=587
+   MAIL_USERNAME=<ඔයාගේ Gmail address එක>
+   MAIL_PASSWORD=<Gmail App Password එක, spaces නැතුව>
+   MAIL_FROM_ADDRESS="<ඔයාගේ Gmail address එක>"
+   MAIL_FROM_NAME="Agency Admin"
+   CLIENT_URL=https://foreign-agency.solidrow.lk
+   ```
+
+   `CLIENT_URL` තමයි agency email එකේ login link එකට යන්නෙ.
+3. **Save** කරන්න. `bootstrap/cache/config.php` කියලා file එකක් තියෙනවා
+   නම් ඒක **delete** කරන්න (පරණ settings cache වෙලා තියෙනවා නම් අලුත් ඒවා
+   ගන්නෙ නෑ).
+4. Site එකට ආයෙ log වෙලා බලන්න — email step එකේ demo box එක නැතුව code එක
+   inbox එකට එනවා නම් හරි.
+
+**Code එක තාම screen එකේ පේනවා නම්:** සමහර shared hosting වල Gmail SMTP
+(port 587) block කරලා තියෙනවා. එතකොට email එක fail වෙලා code එක screen එකේ
+පෙන්නනවා (login එක නවතින්නෙ නෑ), `storage/logs/laravel.log` එකේ
+`[mail] failed to ...` කියලා පේනවා. එහෙම නම් cPanel එකේ **Email Accounts**
+වලින් email account එකක් හදලා ඒකේ settings දාන්න: host එකට
+`mail.<ඔයාගේ domain එක>`, `MAIL_PORT=465`, `MAIL_SCHEME=smtps`, username එකට
+සම්පූර්ණ email address එක.
+
+**Phone (SMS) code එක:** SMS gateway එකක් තාම සම්බන්ධ කරලා නෑ, ඒ නිසා
+phone step එකේ code එක දිගටම screen එකේ පෙන්නනවා. **`SHOW_DEV_OTP=false`
+දාන්න එපා** — SMS gateway එකක් නැතුව ඒක දැම්මොත් phone code එක කොහේවත්
+පේන්නෙ නැති වෙලා කාටවත් log වෙන්න බැරි වෙනවා.
+
+Password, API key වගේ credentials **server එකේ `.env` එකේ විතරක්** තියෙන්න
+ඕන — කවදාවත් code එකට හෝ මේ වගේ document එකකට දාන්න එපා.
 
 ---
 

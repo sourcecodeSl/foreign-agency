@@ -157,9 +157,9 @@ export default function OtpForm({
       </div>
 
       {/*
-        Development helper: real delivery is not wired up yet, so the code is
-        shown here. The backend omits `devCode` when NODE_ENV=production,
-        which makes this whole block disappear on its own.
+        Shown only when the code could not actually be sent - the backend
+        leaves `devCode` out once email / SMS delivery works, which makes this
+        whole block disappear on its own.
       */}
       {devCode && (
         <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-4 py-3">
@@ -177,7 +177,8 @@ export default function OtpForm({
             </Button>
           </div>
           <p className="mt-2 text-xs text-amber-700">
-            Shown because delivery is not configured. Hidden automatically in production.
+            Shown because this code could not be sent. It disappears once email and SMS
+            delivery are set up.
           </p>
         </div>
       )}

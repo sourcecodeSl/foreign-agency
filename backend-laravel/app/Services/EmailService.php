@@ -16,14 +16,21 @@ class EmailService
 {
     public static function isConfigured(): bool
     {
+        // Read through config() rather than env(): once the config is cached,
+        // env() returns null outside the config files, and mail would look
+        // unconfigured on the live server even with .env filled in.
+        $mailer = config('mail.default');
+
         // The log and array mailers accept a message without sending it
         // anywhere, so they must not count as delivery.
-        if (in_array(env('MAIL_MAILER'), ['log', 'array'], true)) {
+        if (in_array($mailer, ['log', 'array'], true)) {
             return false;
         }
+        if ($mailer === 'sendmail') {
+            return true;
+        }
 
-        return (bool) (env('MAIL_USERNAME') && env('MAIL_PASSWORD'))
-            || env('MAIL_MAILER') === 'sendmail';
+        return (bool) (config("mail.mailers.{$mailer}.username") && config("mail.mailers.{$mailer}.password"));
     }
 
     private static function otpTtlMinutes(): int
