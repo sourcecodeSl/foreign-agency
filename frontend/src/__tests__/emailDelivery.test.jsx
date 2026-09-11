@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ToastProvider } from '../components/ui/Toast';
 import EmailDelivery, { hintFor } from '../pages/system/EmailDelivery';
@@ -28,6 +28,8 @@ const STATUS = {
   passwordSet: true,
   configured: true,
   testRecipient: 'admin@example.com',
+  envLines: [],
+  recentLog: [],
 };
 
 function renderPage() {
@@ -48,7 +50,8 @@ describe('email delivery check', () => {
   it('shows which settings file the server reads', async () => {
     renderPage();
 
-    expect(await screen.findByText('/home/solidrow/foreign-agency/.env')).toBeTruthy();
+    // Shown in the summary rows and again above the MAIL_ line table.
+    expect((await screen.findAllByText('/home/solidrow/foreign-agency/.env')).length).toBeGreaterThan(0);
     expect(screen.getByText(/email is set up/i)).toBeTruthy();
   });
 
@@ -60,6 +63,45 @@ describe('email delivery check', () => {
 
     expect(await screen.findByText(/MAIL_MAILER is "log"/)).toBeTruthy();
     expect(screen.getByText(/MAIL_PASSWORD is empty/)).toBeTruthy();
+  });
+
+  it('points at the lines that a later line overrides', async () => {
+    mailStatus.mockResolvedValue({
+      data: {
+        ...STATUS,
+        mailer: 'log',
+        configured: false,
+        envLines: [
+          { line: 12, key: 'MAIL_MAILER', value: 'smtp', status: 'overridden', overriddenBy: 58 },
+          { line: 13, key: 'MAIL_PASSWORD', value: '(set - hidden)', status: 'overridden', overriddenBy: 60 },
+          { line: 58, key: 'MAIL_MAILER', value: 'log', status: 'used', overriddenBy: null },
+          { line: 60, key: 'MAIL_PASSWORD', value: '(empty)', status: 'used', overriddenBy: null },
+        ],
+      },
+    });
+    renderPage();
+
+    expect(await screen.findByText(/lines 12, 13/)).toBeTruthy();
+
+    const table = screen.getByRole('region', { name: /MAIL_ lines/i });
+    const ignored = within(table).getByText('12').closest('tr');
+    expect(within(ignored).getByText(/ignored - line 58 wins/i)).toBeTruthy();
+    const used = within(table).getByText('58').closest('tr');
+    expect(within(used).getByText('Used')).toBeTruthy();
+    expect(within(used).getByText('log')).toBeTruthy();
+  });
+
+  it('shows the recent email log entries', async () => {
+    mailStatus.mockResolvedValue({
+      data: {
+        ...STATUS,
+        recentLog: ['[2026-09-11 10:00:02] production.ERROR: [mail] failed to admin@example.com: Connection refused'],
+      },
+    });
+    renderPage();
+
+    const log = await screen.findByRole('region', { name: /recent email and sms log/i });
+    expect(within(log).getByText(/connection refused/i)).toBeTruthy();
   });
 
   it('offers to clear cached settings, then checks again', async () => {

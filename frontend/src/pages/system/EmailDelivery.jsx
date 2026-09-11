@@ -32,6 +32,9 @@ export function hintFor(error = '') {
   return 'Check the MAIL_ settings in the .env file shown above.';
 }
 
+// Lines in .env that Laravel does not read the way they look.
+const PROBLEM_LINES = ['overridden', 'hidden_characters', 'invalid'];
+
 /** The one line that says what is wrong, most basic problem first. */
 function verdict(s) {
   if (!s.envFileExists) {
@@ -50,6 +53,19 @@ function verdict(s) {
     };
   }
   if (!s.configured) {
+    const problems = (s.envLines || []).filter((row) => PROBLEM_LINES.includes(row.status));
+    if (problems.length > 0) {
+      return {
+        tone: 'amber',
+        text:
+          'Some MAIL_ lines in ' +
+          s.envFile +
+          ' are not being used (lines ' +
+          problems.map((row) => row.line).join(', ') +
+          '). A setting that appears twice keeps the LAST line, so an old line further down wins over the one you added. Delete the extra lines below so each setting appears once.',
+      };
+    }
+
     const missing = [];
     if (s.mailer === 'log' || s.mailer === 'array') missing.push('MAIL_MAILER is "' + s.mailer + '" (it must be smtp)');
     if (!s.usernameSet) missing.push('MAIL_USERNAME is empty');
@@ -72,6 +88,24 @@ const TONES = {
   green: 'border-emerald-200 bg-emerald-50 text-emerald-800',
 };
 
+/** How each .env line is read, in words. */
+function lineStatus(row) {
+  switch (row.status) {
+    case 'used':
+      return { text: 'Used', className: 'text-emerald-700' };
+    case 'overridden':
+      return { text: 'Ignored - line ' + row.overriddenBy + ' wins', className: 'font-medium text-red-600' };
+    case 'commented':
+      return { text: 'Commented out (#)', className: 'text-gray-500' };
+    case 'hidden_characters':
+      return { text: 'Hidden characters in the name - retype it', className: 'font-medium text-red-600' };
+    case 'invalid':
+      return { text: 'No "=" - not a setting', className: 'font-medium text-red-600' };
+    default:
+      return { text: row.status, className: 'text-gray-500' };
+  }
+}
+
 function Row({ label, children }) {
   return (
     <div className="grid grid-cols-3 gap-3 px-3.5 py-2.5">
@@ -86,6 +120,78 @@ function YesNo({ value, good }) {
     <span className={value === good ? 'text-emerald-700' : 'font-medium text-red-600'}>
       {value ? 'Yes' : 'No'}
     </span>
+  );
+}
+
+/** Every MAIL_ line in the settings file, and whether Laravel reads it. */
+function EnvLines({ rows, file }) {
+  return (
+    <section aria-label="MAIL_ lines in the settings file">
+      <h4 className="text-sm font-semibold text-gray-900">MAIL_ lines in .env</h4>
+      <p className="mt-0.5 break-all text-xs text-gray-500">{file}</p>
+
+      {rows.length === 0 ? (
+        <p className="mt-2 text-sm text-gray-500">This file has no MAIL_ lines.</p>
+      ) : (
+        <div className="mt-2 overflow-x-auto rounded-lg border border-gray-200">
+          <table className="min-w-full divide-y divide-gray-100 text-sm">
+            <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="px-3 py-2">Line</th>
+                <th className="px-3 py-2">Setting</th>
+                <th className="px-3 py-2">Value</th>
+                <th className="px-3 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.map((row) => {
+                const status = lineStatus(row);
+                return (
+                  <tr key={row.line}>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-500">{row.line}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-900">{row.key}</td>
+                    <td className="break-all px-3 py-2 font-mono text-xs text-gray-700">
+                      {row.value === null || row.value === '' ? '-' : row.value}
+                    </td>
+                    <td className={'px-3 py-2 text-xs ' + status.className}>{status.text}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** The latest email / SMS entries from the server log, newest at the bottom. */
+function RecentLog({ entries }) {
+  return (
+    <section aria-label="Recent email and SMS log">
+      <h4 className="text-sm font-semibold text-gray-900">Recent email &amp; SMS log</h4>
+      <p className="mt-0.5 text-xs text-gray-500">
+        From storage/logs/laravel.log, newest at the bottom. One-time codes are blanked out.
+      </p>
+
+      {entries.length === 0 ? (
+        <p className="mt-2 text-sm text-gray-500">No email or SMS entries in the log yet.</p>
+      ) : (
+        <ol className="mt-2 max-h-72 space-y-1 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3">
+          {entries.map((entry, index) => (
+            <li
+              key={index}
+              className={
+                'break-all font-mono text-xs ' +
+                (/\.ERROR:|failed|rejected/i.test(entry) ? 'text-red-700' : 'text-gray-700')
+              }
+            >
+              {entry}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -125,6 +231,8 @@ export default function EmailDelivery() {
     try {
       const { data } = await systemApi.sendTestMail();
       setResult(data);
+      // The attempt is in the log now, so show it.
+      check();
     } catch (err) {
       setResult({ delivered: false, error: err.message || 'The test could not be run.' });
     } finally {
@@ -176,7 +284,7 @@ export default function EmailDelivery() {
           title="Email delivery"
           subtitle="What this server reads for email, and whether a sign-in code can reach an inbox."
         />
-        <CardBody className="space-y-5">
+        <CardBody className="space-y-6">
           <div role="status" className={'rounded-lg border px-4 py-3 text-sm font-medium ' + TONES[v.tone]}>
             {v.text}
           </div>
@@ -216,6 +324,9 @@ export default function EmailDelivery() {
               )}
             </div>
           )}
+
+          <EnvLines rows={status.envLines || []} file={status.envFile} />
+          <RecentLog entries={status.recentLog || []} />
         </CardBody>
 
         <CardFooter className="flex flex-wrap items-center justify-end gap-3">
