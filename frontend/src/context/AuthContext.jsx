@@ -22,6 +22,16 @@ export function homePathFor(roleSlug) {
   return ADMIN_ROLES.includes(roleSlug) ? '/dashboard' : '/candidates';
 }
 
+/**
+ * Where a sign-in step's answer sends the user: the next code to enter, or
+ * the role's home once the session has been issued.
+ */
+export function nextPathFor(data) {
+  if (data?.nextStep === 'phone') return '/verify-phone';
+  if (data?.nextStep === 'email') return '/verify-email';
+  return homePathFor(data?.admin?.roleSlug);
+}
+
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
@@ -48,8 +58,36 @@ export function AuthProvider({ children }) {
     })();
   }, []);
 
-  const value = useMemo(
-    () => ({
+  const value = useMemo(() => {
+    /**
+     * Applies one sign-in step's answer. The server asks only for the codes a
+     * login still owes - none for the Main Admin, none once an agency has
+     * confirmed both - so any step may be the last, and then it carries the
+     * token.
+     */
+    const advance = (data, earlier = null) => {
+      if (data.nextStep === 'dashboard') {
+        tokenStore.set(data.token);
+        setAdmin(data.admin);
+        setChallenge(null);
+        return;
+      }
+
+      setChallenge({
+        stage: data.nextStep,
+        id: data.challengeId, // rotated each step, so an earlier code cannot be replayed
+        // Every code this sign-in asks for, fixed at its first step.
+        steps: earlier?.steps || data.steps || [data.nextStep],
+        // Carried over only when the phone was confirmed during this sign-in.
+        maskedPhone: data.maskedPhone || earlier?.maskedPhone,
+        maskedEmail: data.maskedEmail,
+        // Present only outside production, so the OTP screen can display it
+        // while real delivery is not configured.
+        devCode: data.devCode,
+      });
+    };
+
+    return {
       admin,
       challenge,
       booting,
@@ -61,48 +99,31 @@ export function AuthProvider({ children }) {
        */
       homePath: homePathFor(admin?.roleSlug),
 
-      /** Step 1: credentials -> opens the phone challenge. */
+      /** Credentials -> the first code still owed, or straight to the session. */
       async login(credentials) {
         // A fresh sign-in supersedes any earlier session. Without this, a token
         // left in localStorage would make the verification screens think the
-        // user is already authenticated and let them skip the email step.
+        // user is already authenticated and let them skip a step.
         tokenStore.clear();
         setAdmin(null);
+        setChallenge(null);
 
         const { data } = await authApi.login(credentials);
-        setChallenge({
-          stage: 'phone',
-          id: data.challengeId,
-          maskedPhone: data.maskedPhone,
-          // Present only outside production, so the OTP screen can display it
-          // while real delivery is not configured.
-          devCode: data.devCode,
-        });
+        advance(data);
         return data;
       },
 
-      /**
-       * Step 2: phone code -> opens the email challenge.
-       * Deliberately issues no token; the session starts only after step 3.
-       */
+      /** Phone code -> the email code if that is still owed, else the session. */
       async verifyOtp(code) {
         const { data } = await authApi.verifyOtp({ challengeId: challenge?.id, code });
-        setChallenge((prev) => ({
-          ...prev,
-          stage: 'email',
-          id: data.challengeId, // rotated, so the phone code cannot be replayed
-          maskedEmail: data.maskedEmail,
-          devCode: data.devCode,
-        }));
+        advance(data, challenge);
         return data;
       },
 
-      /** Step 3: email code -> both factors confirmed, session token issued. */
+      /** Email code -> the session. */
       async verifyEmail(code) {
         const { data } = await authApi.verifyEmail({ challengeId: challenge?.id, code });
-        tokenStore.set(data.token);
-        setAdmin(data.admin);
-        setChallenge(null);
+        advance(data, challenge);
         return data;
       },
 
@@ -127,9 +148,8 @@ export function AuthProvider({ children }) {
         setAdmin(null);
         setChallenge(null);
       },
-    }),
-    [admin, challenge, booting]
-  );
+    };
+  }, [admin, challenge, booting]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -6,6 +6,14 @@ const SIGN_IN_STEPS = [
 ];
 
 /**
+ * The sign-in steps this sign-in actually asks for, e.g. just the email once
+ * the phone has been confirmed. Without ids, both.
+ */
+export function signInSteps(ids) {
+  return SIGN_IN_STEPS.filter((step) => !ids || ids.includes(step.id));
+}
+
+/**
  * Progress rail shown above a multi-step form. By default the two sign-in
  * factors, so it is obvious that both the phone and the email must be
  * confirmed before sign-in completes.

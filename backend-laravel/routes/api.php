@@ -6,7 +6,6 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CandidateController;
 use App\Http\Controllers\CandidateDocumentController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\MailDiagnosticsController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\RoleController;
@@ -135,12 +134,3 @@ Route::prefix('dashboard')->middleware('auth.jwt')->group(function () {
 // --- Notifications (the bell in the top bar) --------------------------------
 // Every signed-in role has one; the controller scopes what each role sees.
 Route::get('/notifications', [NotificationController::class, 'index'])->middleware('auth.jwt');
-
-// --- Email delivery check ---------------------------------------------------
-// Administrator only, checked in the controller: what this server reads for
-// mail, a test email to the admin's own address, and clearing cached settings.
-Route::prefix('system/mail')->middleware('auth.jwt')->group(function () {
-    Route::get('/', [MailDiagnosticsController::class, 'show']);
-    Route::post('/test', [MailDiagnosticsController::class, 'test'])->middleware('throttle:10,15,mail-test');
-    Route::post('/clear-cache', [MailDiagnosticsController::class, 'clearCache']);
-});

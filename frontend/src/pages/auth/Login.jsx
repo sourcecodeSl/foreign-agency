@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/layout/AuthLayout';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, nextPathFor } from '../../context/AuthContext';
 import { IconUsers } from '../../components/ui/Icons';
 
 function validate({ username, password }) {
@@ -43,8 +43,10 @@ export default function Login() {
 
     setLoading(true);
     try {
-      await login(values);
-      navigate('/verify-phone');
+      // The admin, and an agency that has confirmed its phone and email,
+      // are signed in right here; anyone else goes on to the code still owed.
+      const data = await login(values);
+      navigate(nextPathFor(data));
     } catch (err) {
       setFormError(err.message || 'Sign in failed. Please try again.');
     } finally {
@@ -126,7 +128,8 @@ export default function Login() {
         </Button>
 
         <p className="text-center text-xs text-gray-500">
-          Protected by two-factor authentication. A code will be sent to your registered phone.
+          On an agency's first sign-in, its phone number and email address are confirmed with a
+          one-time code. After that, the password is enough.
         </p>
       </form>
     </AuthLayout>

@@ -109,11 +109,21 @@ class UserController extends Controller
         if ($request->has('name')) {
             $user->name = $request->input('name');
         }
+        // A changed email or phone has not been confirmed, so the next sign-in
+        // asks for that one again. An unchanged value keeps its date.
         if ($request->has('email')) {
-            $user->email = strtolower(trim($request->input('email')));
+            $email = strtolower(trim((string) $request->input('email')));
+            if ($email !== $user->email) {
+                $user->email = $email;
+                $user->email_verified_at = null;
+            }
         }
         if ($request->has('phone')) {
-            $user->phone = $request->input('phone');
+            $phone = (string) $request->input('phone');
+            if (preg_replace('/\D/', '', $phone) !== preg_replace('/\D/', '', (string) $user->phone)) {
+                $user->phone_verified_at = null;
+            }
+            $user->phone = $phone;
         }
         if ($request->has('agency')) {
             $user->agency_name = $request->input('agency');

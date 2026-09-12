@@ -104,6 +104,7 @@ export const authApi = {
     mockStage = 'phone';
     return ok({
       nextStep: 'phone',
+      steps: ['phone', 'email'],
       challengeId: 'chg_' + Date.now(),
       channel: 'sms',
       maskedPhone: '077 XXX 0000',
@@ -464,6 +465,7 @@ export const verificationApi = {
           steps: { approved: active, phoneVerifiedAt: at, emailVerifiedAt: at, signedInAt: at },
           state: active ? 'verified' : a.status === 'pending' ? 'awaiting_approval' : 'deactivated',
           pending,
+          nextSignInAsks: active ? [] : ['phone', 'email'],
         };
       })
     );
@@ -536,25 +538,6 @@ export const notificationsApi = {
           link: '/agencies',
         }))
     );
-  },
-};
-
-// --- Email delivery check (administrator) ----------------------------------
-/** What this server reads for mail, a test email, and clearing cached settings. Live API only. */
-export const systemApi = {
-  async mailStatus() {
-    requireLiveApi();
-    return request('/system/mail');
-  },
-
-  async sendTestMail() {
-    requireLiveApi();
-    return request('/system/mail/test', { method: 'POST' });
-  },
-
-  async clearConfigCache() {
-    requireLiveApi();
-    return request('/system/mail/clear-cache', { method: 'POST' });
   },
 };
 

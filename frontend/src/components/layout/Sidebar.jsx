@@ -44,10 +44,7 @@ const ADMIN_NAV = [
   },
   {
     section: 'Verification',
-    items: [
-      { to: '/verification/emails', label: 'Email Verification', icon: IconMail },
-      { to: '/verification/email-delivery', label: 'Email Delivery', icon: IconShield },
-    ],
+    items: [{ to: '/verification/emails', label: 'Email Verification', icon: IconMail }],
   },
 ];
 

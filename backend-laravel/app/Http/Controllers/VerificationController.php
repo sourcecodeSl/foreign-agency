@@ -112,6 +112,9 @@ class VerificationController extends Controller
             'steps' => $steps,
             'state' => $state,
             'pending' => $pending,
+            // The codes the owner's next sign-in will still ask for: empty
+            // once the phone and email are both confirmed.
+            'nextSignInAsks' => $owner?->unconfirmedContacts(),
         ];
     }
 

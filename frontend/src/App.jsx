@@ -8,7 +8,6 @@ import ForgotPassword from './pages/auth/ForgotPassword';
 import VerifyPhone from './pages/auth/VerifyPhone';
 import VerifyEmail from './pages/auth/VerifyEmail';
 import EmailVerification from './pages/auth/EmailVerification';
-import EmailDelivery from './pages/system/EmailDelivery';
 import Dashboard from './pages/Dashboard';
 import CreateAgency from './pages/agency/CreateAgency';
 import AgencyList from './pages/agency/AgencyList';
@@ -58,7 +57,6 @@ export default function App() {
               <Route path="/users/types" element={<UserTypes />} />
               <Route path="/users/permissions" element={<UserPermissions />} />
               <Route path="/verification/emails" element={<EmailVerification />} />
-              <Route path="/verification/email-delivery" element={<EmailDelivery />} />
             </Route>
 
             <Route path="/" element={<HomeRedirect />} />

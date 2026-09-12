@@ -24,16 +24,19 @@ const ROWS = [
     name: 'evoo',
     code: 'EVO-1048',
     status: 'active',
+    createdAt: '2026-09-09',
     owner: { name: 'hirusha perera', username: 'evoo', email: 'evoo@gmail.com', phone: '0781311808' },
     steps: { approved: true, phoneVerifiedAt: at, emailVerifiedAt: null, signedInAt: null },
     state: 'partial',
     pending: ['Verify the email address', 'Sign in for the first time'],
+    nextSignInAsks: ['email'],
   },
   {
     id: 'AG-1049',
     name: 'cleo',
     code: 'CLE-1049',
     status: 'pending',
+    createdAt: '2026-09-10',
     owner: { name: 'nadil perera', username: 'cleo', email: 'viruleksan@gmail.com', phone: '0773306100' },
     steps: { approved: false, phoneVerifiedAt: null, emailVerifiedAt: null, signedInAt: null },
     state: 'awaiting_approval',
@@ -43,16 +46,19 @@ const ROWS = [
       'Verify the email address',
       'Sign in for the first time',
     ],
+    nextSignInAsks: ['phone', 'email'],
   },
   {
     id: 'AG-1050',
     name: 'skyline',
     code: 'SKY-1050',
     status: 'active',
+    createdAt: '2026-09-01',
     owner: { name: 'Nadia Perera', username: 'skyline', email: 'owner@skyline.lk', phone: '0771234567' },
     steps: { approved: true, phoneVerifiedAt: at, emailVerifiedAt: at, signedInAt: at },
     state: 'verified',
     pending: [],
+    nextSignInAsks: [],
   },
 ];
 
@@ -75,20 +81,31 @@ describe('agency sign-in verification', () => {
     agencies.mockReset().mockResolvedValue({ data: ROWS });
   });
 
-  it('shows how far each agency has got and what is still left', async () => {
+  it('shows which contact details each agency has confirmed and what is still left', async () => {
     renderPage();
     const region = await panel();
 
-    // Phone confirmed, then it stopped.
+    // Phone confirmed, then it stopped before the email.
     const evoo = within(region).getByText('evoo').closest('tr');
     expect(within(evoo).getByText('Partly verified')).toBeTruthy();
-    expect(within(evoo).getByTitle(/^email: not yet$/i)).toBeTruthy();
+    expect(within(evoo).getByText('0781311808')).toBeTruthy();
+    expect(within(evoo).getByTitle(/^phone: verified /i)).toBeTruthy();
+    expect(within(evoo).getByText('evoo@gmail.com')).toBeTruthy();
+    expect(within(evoo).getByTitle(/^email: not verified yet$/i)).toBeTruthy();
     expect(within(evoo).getByText(/verify the email address/i)).toBeTruthy();
+    expect(within(evoo).getByText('Next sign-in: email code')).toBeTruthy();
     expect(within(evoo).getByText('Never')).toBeTruthy();
 
     const cleo = within(region).getByText('cleo').closest('tr');
     expect(within(cleo).getByText('Awaiting approval')).toBeTruthy();
     expect(within(cleo).getByText(/approve the agency/i)).toBeTruthy();
+    expect(within(cleo).getByText('Next sign-in: phone and email codes')).toBeTruthy();
+
+    // Both confirmed: never asked again.
+    const skyline = within(region).getByText('skyline').closest('tr');
+    expect(within(skyline).getByTitle(/^phone: verified /i)).toBeTruthy();
+    expect(within(skyline).getByTitle(/^email: verified /i)).toBeTruthy();
+    expect(within(skyline).getByText('Next sign-in: password only')).toBeTruthy();
 
     // The summary cards count the same rows.
     await waitFor(() =>
@@ -111,14 +128,21 @@ describe('agency sign-in verification', () => {
     expect(within(region).queryByText('skyline')).toBeNull();
   });
 
-  it('finds an agency by its owner email', async () => {
+  it('finds an agency by its owner email or phone', async () => {
     const user = userEvent.setup();
     renderPage();
     const region = await panel();
 
-    await user.type(within(region).getByLabelText(/search agencies/i), 'viruleksan');
+    const search = within(region).getByLabelText(/search agencies/i);
+    await user.type(search, 'viruleksan');
 
     expect(within(region).getByText('cleo')).toBeTruthy();
     expect(within(region).queryByText('evoo')).toBeNull();
+
+    await user.clear(search);
+    await user.type(search, '0781311808');
+
+    expect(within(region).getByText('evoo')).toBeTruthy();
+    expect(within(region).queryByText('cleo')).toBeNull();
   });
 });

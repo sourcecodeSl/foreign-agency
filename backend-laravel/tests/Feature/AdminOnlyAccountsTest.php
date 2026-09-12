@@ -33,21 +33,22 @@ class AdminOnlyAccountsTest extends TestCase
         return Jwt::sign(User::where('role_slug', 'main_admin')->firstOrFail()->toPublic());
     }
 
-    /** Walks the two OTP steps and returns the issued token. */
+    /** Signs in, entering whichever codes the login still owes, and returns the token. */
     private function signIn(string $username, string $password): string
     {
-        $login = $this->postJson('/api/v1/auth/login', compact('username', 'password'))
+        $step = $this->postJson('/api/v1/auth/login', compact('username', 'password'))
             ->assertOk()->json('data');
 
-        $phone = $this->postJson('/api/v1/auth/verify-otp', [
-            'challengeId' => $login['challengeId'],
-            'code' => $login['devCode'],
-        ])->assertOk()->json('data');
+        while ($step['nextStep'] !== 'dashboard') {
+            $route = $step['nextStep'] === 'phone' ? 'verify-otp' : 'verify-email';
 
-        return $this->postJson('/api/v1/auth/verify-email', [
-            'challengeId' => $phone['challengeId'],
-            'code' => $phone['devCode'],
-        ])->assertOk()->json('data.token');
+            $step = $this->postJson('/api/v1/auth/'.$route, [
+                'challengeId' => $step['challengeId'],
+                'code' => $step['devCode'],
+            ])->assertOk()->json('data');
+        }
+
+        return $step['token'];
     }
 
     public function test_the_registration_endpoint_does_not_exist(): void
@@ -87,7 +88,7 @@ class AdminOnlyAccountsTest extends TestCase
             $this->postJson('/api/v1/auth/login', [
                 'username' => $identifier,
                 'password' => 'Admin@1234',
-            ])->assertOk()->assertJsonPath('data.nextStep', 'phone');
+            ])->assertOk()->assertJsonPath('data.nextStep', 'dashboard');
         }
     }
 

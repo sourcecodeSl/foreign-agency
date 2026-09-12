@@ -31,14 +31,6 @@ const TABS = [
   { id: 'verified', label: 'Verified' },
 ];
 
-// The four things that have to happen before an agency is fully set up.
-const STEPS = [
-  ['approved', 'Approved'],
-  ['phoneVerifiedAt', 'Phone'],
-  ['emailVerifiedAt', 'Email'],
-  ['signedInAt', 'Signed in'],
-];
-
 function formatDate(iso) {
   if (!iso) return '';
   return new Date(iso).toLocaleString(undefined, {
@@ -50,43 +42,51 @@ function formatDate(iso) {
   });
 }
 
-function StepList({ steps }) {
-  return (
-    <ul className="flex flex-wrap gap-1.5">
-      {STEPS.map(([key, label]) => {
-        const value = steps?.[key];
-        const done = Boolean(value);
-        const when = typeof value === 'string' ? ' ' + formatDate(value) : '';
+function formatDay(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return value || '';
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
-        return (
-          <li
-            key={key}
-            title={done ? label + when : label + ': not yet'}
-            className={
-              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ' +
-              (done
-                ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-                : 'bg-gray-50 text-gray-400 ring-gray-200')
-            }
-          >
-            {done ? (
-              <IconCheck className="h-3 w-3" />
-            ) : (
-              <span className="h-1.5 w-1.5 rounded-full bg-current" />
-            )}
-            {label}
-            <span className="sr-only">{done ? '(done)' : '(not done)'}</span>
-          </li>
-        );
-      })}
-    </ul>
+/** What the owner's next sign-in asks for, given what is already confirmed. */
+function nextSignInText(asks) {
+  if (!Array.isArray(asks)) return '';
+  if (asks.length === 0) return 'Next sign-in: password only';
+  return 'Next sign-in: ' + asks.join(' and ') + (asks.length > 1 ? ' codes' : ' code');
+}
+
+/** One of the owner's contact details, and whether and when it was confirmed. */
+function ContactCheck({ icon: Icon, label, value, verifiedAt }) {
+  const done = Boolean(verifiedAt);
+
+  return (
+    <div className="space-y-1">
+      <p className="flex items-center gap-1.5 text-sm text-gray-900">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+        {value}
+      </p>
+      <p
+        title={done ? label + ': verified ' + formatDate(verifiedAt) : label + ': not verified yet'}
+        className={
+          'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ' +
+          (done
+            ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+            : 'bg-gray-50 text-gray-500 ring-gray-200')
+        }
+      >
+        {done ? <IconCheck className="h-3 w-3" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+        {done ? 'Verified' : 'Not verified'}
+      </p>
+      {done && <p className="text-xs text-gray-500">{formatDate(verifiedAt)}</p>}
+    </div>
   );
 }
 
 /**
- * For every agency: has its owner signed in and confirmed the phone and
- * email, and what is still left. Read from the login itself, so it reflects
- * what actually happened.
+ * For every agency: whether its owner has confirmed the phone number and the
+ * email address, when, and what is still left. Each is confirmed once, on the
+ * first sign-in, and is not asked for again. Read from the login itself, so
+ * it reflects what actually happened.
  */
 export default function AgencyVerification() {
   const { toast } = useToast();
@@ -135,7 +135,7 @@ export default function AgencyVerification() {
       (row) =>
         (tab === 'all' || row.state === tab) &&
         (!term ||
-          [row.name, row.code, row.owner?.email, row.owner?.username]
+          [row.name, row.code, row.owner?.name, row.owner?.email, row.owner?.username, row.owner?.phone]
             .filter(Boolean)
             .some((value) => value.toLowerCase().includes(term)))
     );
@@ -146,39 +146,50 @@ export default function AgencyVerification() {
       key: 'name',
       header: 'Agency',
       render: (row) => (
-        <div>
+        <div className="space-y-0.5">
           <p className="font-medium text-gray-900">{row.name}</p>
           <p className="text-xs text-gray-500">
             {row.code}
             {row.owner?.username ? ' · ' + row.owner.username : ''}
           </p>
+          {row.owner ? (
+            <p className="text-xs text-gray-500">Owner: {row.owner.name}</p>
+          ) : (
+            <p className="text-xs text-red-600">No owner login</p>
+          )}
+          {row.createdAt && <p className="text-xs text-gray-400">Created {formatDay(row.createdAt)}</p>}
         </div>
       ),
     },
     {
-      key: 'owner',
-      header: 'Owner Contact',
+      key: 'phone',
+      header: 'Phone Number',
       render: (row) =>
         row.owner ? (
-          <div className="space-y-0.5 text-xs text-gray-600">
-            <p className="text-sm text-gray-900">{row.owner.name}</p>
-            <p className="flex items-center gap-1.5">
-              <IconMail className="h-3.5 w-3.5 text-gray-400" />
-              {row.owner.email}
-            </p>
-            <p className="flex items-center gap-1.5">
-              <IconPhone className="h-3.5 w-3.5 text-gray-400" />
-              {row.owner.phone}
-            </p>
-          </div>
+          <ContactCheck
+            icon={IconPhone}
+            label="Phone"
+            value={row.owner.phone}
+            verifiedAt={row.steps?.phoneVerifiedAt}
+          />
         ) : (
-          <span className="text-xs text-red-600">No owner login</span>
+          <span className="text-gray-400">—</span>
         ),
     },
     {
-      key: 'steps',
-      header: 'Progress',
-      render: (row) => <StepList steps={row.steps} />,
+      key: 'email',
+      header: 'Email Address',
+      render: (row) =>
+        row.owner ? (
+          <ContactCheck
+            icon={IconMail}
+            label="Email"
+            value={row.owner.email}
+            verifiedAt={row.steps?.emailVerifiedAt}
+          />
+        ) : (
+          <span className="text-gray-400">—</span>
+        ),
     },
     {
       key: 'signedInAt',
@@ -195,6 +206,8 @@ export default function AgencyVerification() {
       header: 'Status',
       render: (row) => {
         const state = STATES[row.state] || { label: row.state, tone: 'gray' };
+        const next = row.owner ? nextSignInText(row.nextSignInAsks) : '';
+
         return (
           <div className="max-w-[16rem] whitespace-normal">
             <Badge tone={state.tone} dot>
@@ -206,6 +219,16 @@ export default function AgencyVerification() {
                   <li key={item}>• {item}</li>
                 ))}
               </ul>
+            )}
+            {next && (
+              <p
+                className={
+                  'mt-1.5 text-xs font-medium ' +
+                  (row.nextSignInAsks.length === 0 ? 'text-emerald-700' : 'text-gray-600')
+                }
+              >
+                {next}
+              </p>
             )}
           </div>
         );
@@ -236,7 +259,7 @@ export default function AgencyVerification() {
         <Card>
           <CardHeader
             title="Agency Sign-in Verification"
-            subtitle="Whether each agency has signed in and confirmed its phone and email - and what is still left."
+            subtitle="Each agency confirms its phone number and email address once, on its first sign-in. Anything already confirmed is not asked for again."
             action={
               <div className="relative">
                 <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -244,7 +267,7 @@ export default function AgencyVerification() {
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search agency or email"
+                  placeholder="Search agency, email or phone"
                   aria-label="Search agencies"
                   className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm
                              placeholder:text-gray-400 focus:border-primary-500 focus:outline-none

@@ -95,6 +95,11 @@ class AgencyVerificationStatusTest extends TestCase
 
         $this->assertSame('deactivated', $rows['AG-9005']['state']);
 
+        // What each owner's next sign-in will still ask for.
+        $this->assertSame(['phone', 'email'], $rows['AG-9001']['nextSignInAsks']);
+        $this->assertSame(['email'], $rows['AG-9002']['nextSignInAsks']);
+        $this->assertSame([], $rows['AG-9003']['nextSignInAsks']);
+
         // The seeded demo agencies have no owner login at all.
         $this->assertSame('no_login', $rows['AG-1041']['state']);
         $this->assertNull($rows['AG-1041']['owner']);

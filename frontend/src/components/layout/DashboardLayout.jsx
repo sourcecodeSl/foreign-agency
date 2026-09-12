@@ -17,7 +17,6 @@ const PAGE_META = [
   { match: /^\/users\/types/, title: 'User Types & Roles', subtitle: 'Define the roles available across the system' },
   { match: /^\/users\/permissions/, title: 'User Permissions', subtitle: 'Assign access rights to each user type' },
   { match: /^\/users/, title: 'Users List', subtitle: 'Manage every user account in the system' },
-  { match: /^\/verification\/email-delivery/, title: 'Email Delivery', subtitle: 'Check that sign-in codes can reach an inbox' },
   { match: /^\/verification\/emails/, title: 'Email Verification', subtitle: 'Track and manage email confirmations' },
 ];
 

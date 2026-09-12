@@ -121,6 +121,26 @@ class User extends Model
         return null;
     }
 
+    /**
+     * The contact details this login still has to confirm with a code when it
+     * signs in - 'phone' first, then 'email'.
+     *
+     * The Main Admin is never asked. Every other login confirms each one once,
+     * on its first sign-in, and is not asked for it again; only a change to
+     * that detail (see UserController::update) clears it.
+     */
+    public function unconfirmedContacts(): array
+    {
+        if ($this->role_slug === 'main_admin') {
+            return [];
+        }
+
+        return array_keys(array_filter([
+            'phone' => ! $this->phone_verified_at,
+            'email' => ! $this->email_verified_at,
+        ]));
+    }
+
     public static function verifyPassword(string $plain, ?string $hash): bool
     {
         return $hash ? password_verify($plain, $hash) : false;

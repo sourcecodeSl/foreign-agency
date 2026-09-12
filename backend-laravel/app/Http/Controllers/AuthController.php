@@ -14,12 +14,16 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 /**
- * Sign-in is a three-step flow. A session token is issued only after BOTH
- * factors are confirmed:
+ * Sign-in asks for a code only where one is still owed:
  *
- *   1. POST /auth/login         -> credentials  -> SMS code   (phone challenge)
- *   2. POST /auth/verify-otp    -> phone code   -> email code (email challenge)
- *   3. POST /auth/verify-email  -> email code   -> JWT token
+ *   1. POST /auth/login         -> credentials
+ *   2. POST /auth/verify-otp    -> phone code   (while the phone is unconfirmed)
+ *   3. POST /auth/verify-email  -> email code   (while the email is unconfirmed)
+ *
+ * The Main Admin is never asked for a code. Every other login confirms its
+ * phone and email once, on its first sign-in, and from then on the password
+ * alone opens the session. Each step answers with the nextStep - 'phone',
+ * 'email', or 'dashboard' carrying the token.
  */
 class AuthController extends Controller
 {
@@ -58,6 +62,65 @@ class AuthController extends Controller
         ];
     }
 
+    /**
+     * Opens the next code this login still owes or, once none is left, the
+     * session. `$done` names the step just completed, for the message.
+     */
+    private function continueSignIn(User $user, array $extra = [], string $done = '')
+    {
+        $left = $user->unconfirmedContacts();
+        $lead = $done === '' ? '' : $done.' ';
+
+        if (in_array('phone', $left, true)) {
+            $challenge = OtpService::createChallenge($user->id, $user->phone, 'sms');
+            $sent = SmsService::sendOtp($user->phone, $challenge['code']);
+
+            return ApiResponse::ok($extra + [
+                'nextStep' => 'phone',
+                // Every code this sign-in still asks for, this one first.
+                'steps' => $left,
+                'challengeId' => $challenge['id'],
+                'channel' => 'sms',
+                'maskedPhone' => OtpService::maskPhone($user->phone),
+                'resendCooldown' => OtpService::resendCooldown(),
+                'devCode' => OtpService::devCode($challenge['code'], $sent),
+            ], $lead.'Enter the code sent to your phone.');
+        }
+
+        if (in_array('email', $left, true)) {
+            // The phone is confirmed on record, whether just now or on an
+            // earlier sign-in, so verify-email accepts this challenge.
+            $challenge = OtpService::createChallenge($user->id, $user->email, 'email', ['phoneVerified' => true]);
+            $sent = EmailService::sendOtp($user->email, $challenge['code']);
+
+            return ApiResponse::ok($extra + [
+                'nextStep' => 'email',
+                'steps' => $left,
+                'challengeId' => $challenge['id'],
+                'channel' => 'email',
+                'maskedEmail' => OtpService::maskEmail($user->email),
+                'resendCooldown' => OtpService::resendCooldown(),
+                'devCode' => OtpService::devCode($challenge['code'], $sent),
+            ], $lead.'Now confirm your email address.');
+        }
+
+        // The agency may have been deactivated while a code was open.
+        $refusal = $user->signInRefusal();
+        if ($refusal) {
+            throw new ApiException(403, $refusal);
+        }
+
+        $user->last_login_at = $this->nowSql();
+        $user->save();
+
+        return ApiResponse::ok($extra + [
+            'nextStep' => 'dashboard',
+            'steps' => [],
+            'token' => Jwt::sign($user->toPublic()),
+            'admin' => $this->sessionUser($user),
+        ], $lead.'Signed in.');
+    }
+
     /*
      * There is deliberately no register() action. Accounts are never
      * self-created: the Main Admin is seeded and agency logins are issued
@@ -89,22 +152,10 @@ class AuthController extends Controller
             throw new ApiException(403, $refusal);
         }
 
-        $user = $row->toPublic();
-
-        $challenge = OtpService::createChallenge($user['id'], $user['phone'], 'sms');
-        $sent = SmsService::sendOtp($user['phone'], $challenge['code']);
-
-        return ApiResponse::ok([
-            'nextStep' => 'phone',
-            'challengeId' => $challenge['id'],
-            'channel' => 'sms',
-            'maskedPhone' => OtpService::maskPhone($user['phone']),
-            'resendCooldown' => OtpService::resendCooldown(),
-            'devCode' => OtpService::devCode($challenge['code'], $sent),
-        ]);
+        return $this->continueSignIn($row);
     }
 
-    /** POST /auth/verify-otp - step 2. */
+    /** POST /auth/verify-otp - the phone code. */
     public function verifyOtp(Request $request)
     {
         $data = $request->all();
@@ -131,21 +182,10 @@ class AuthController extends Controller
         $user->phone_verified_at = $this->nowSql();
         $user->save();
 
-        $emailChallenge = OtpService::createChallenge($user->id, $user->email, 'email', ['phoneVerified' => true]);
-        $sent = EmailService::sendOtp($user->email, $emailChallenge['code']);
-
-        return ApiResponse::ok([
-            'verified' => 'phone',
-            'nextStep' => 'email',
-            'challengeId' => $emailChallenge['id'],
-            'channel' => 'email',
-            'maskedEmail' => OtpService::maskEmail($user->email),
-            'resendCooldown' => OtpService::resendCooldown(),
-            'devCode' => OtpService::devCode($emailChallenge['code'], $sent),
-        ], 'Phone number verified. Now confirm your email address.');
+        return $this->continueSignIn($user, ['verified' => 'phone'], 'Phone number verified.');
     }
 
-    /** POST /auth/verify-email - step 3. */
+    /** POST /auth/verify-email - the email code. */
     public function verifyEmail(Request $request)
     {
         $data = $request->all();
@@ -173,22 +213,10 @@ class AuthController extends Controller
             throw new ApiException(404, 'Account not found.');
         }
 
-        // The agency may have been deactivated while the codes were open.
-        $refusal = $user->signInRefusal();
-        if ($refusal) {
-            throw new ApiException(403, $refusal);
-        }
-
-        $user->last_login_at = $this->nowSql();
         $user->email_verified_at = $this->nowSql();
         $user->save();
 
-        return ApiResponse::ok([
-            'verified' => 'email',
-            'nextStep' => 'dashboard',
-            'token' => Jwt::sign($user->toPublic()),
-            'admin' => $this->sessionUser($user),
-        ], 'Verification complete.');
+        return $this->continueSignIn($user, ['verified' => 'email'], 'Email address verified.');
     }
 
     /** POST /auth/resend-otp - honours the 59-second cooldown. */
