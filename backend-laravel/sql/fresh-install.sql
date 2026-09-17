@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS `agencies` (
   `contact` varchar(120) NOT NULL DEFAULT '-',
   `email` varchar(190) NOT NULL DEFAULT '-',
   `users` int(10) unsigned NOT NULL DEFAULT 0,
+  `type` varchar(10) NOT NULL DEFAULT 'local',
+  `country` varchar(80) DEFAULT NULL,
   `status` enum('pending','active','deactivated') NOT NULL DEFAULT 'pending',
   `created_at` varchar(30) DEFAULT NULL,
   `created_by` varchar(30) DEFAULT NULL,
@@ -161,6 +163,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `role_slug` varchar(50) NOT NULL DEFAULT 'agent',
   `agency_name` varchar(150) DEFAULT NULL,
   `agency_id` varchar(20) DEFAULT NULL,
+  `page_access` json DEFAULT NULL,
   `status` enum('pending','active','deactivated') NOT NULL DEFAULT 'pending',
   `email_verified_at` datetime DEFAULT NULL,
   `phone_verified_at` datetime DEFAULT NULL,
@@ -195,6 +198,17 @@ CREATE TABLE IF NOT EXISTS `users` (
 -- ALTER TABLE `users` ADD INDEX  `users_agency_id_index` (`agency_id`);
 -- ALTER TABLE `users` ADD UNIQUE `users_username_unique` (`username`);
 
+-- Coordinators: the pages the Main Admin opens to each one. Needed on any
+-- database created before coordinators existed.
+-- Check first:   SHOW COLUMNS FROM `users` LIKE 'page_access';
+-- ALTER TABLE `users` ADD COLUMN `page_access` json DEFAULT NULL AFTER `agency_id`;
+
+-- Local and foreign agencies. Needed on any database created before them.
+-- Check first:   SHOW COLUMNS FROM `agencies` LIKE 'type';
+-- ALTER TABLE `agencies` ADD COLUMN `type` varchar(10) NOT NULL DEFAULT 'local' AFTER `code`, ADD INDEX `agencies_type_index` (`type`);
+-- ALTER TABLE `agencies` ADD COLUMN `country` varchar(80) DEFAULT NULL AFTER `address`;
+-- UPDATE `agencies` SET `country` = 'Sri Lanka' WHERE `type` = 'local' AND `country` IS NULL;
+
 
 -- -----------------------------------------------------------------------------
 -- SECTION 3 - Document history
@@ -228,6 +242,7 @@ INSERT IGNORE INTO `roles` (`id`, `name`, `slug`, `description`, `is_system`, `p
 INSERT IGNORE INTO `roles` (`id`, `name`, `slug`, `description`, `is_system`, `permissions`) VALUES ('RL-03','Agency Manager','agency_manager','Day-to-day operations inside an agency, no billing access.',0,'{\"agencies\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"candidates\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":true},\"users\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"roles\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"reports\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"billing\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"settings\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false}}');
 INSERT IGNORE INTO `roles` (`id`, `name`, `slug`, `description`, `is_system`, `permissions`) VALUES ('RL-04','Agent','agent','Handles assigned records only.',0,'{\"agencies\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"candidates\":{\"view\":true,\"create\":true,\"edit\":true,\"delete\":false},\"users\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"roles\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"reports\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"billing\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"settings\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false}}');
 INSERT IGNORE INTO `roles` (`id`, `name`, `slug`, `description`, `is_system`, `permissions`) VALUES ('RL-05','Auditor','auditor','Read-only access across all agencies for compliance review.',0,'{\"agencies\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"candidates\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"users\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"roles\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"reports\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"billing\":{\"view\":true,\"create\":false,\"edit\":false,\"delete\":false},\"settings\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false}}');
+INSERT IGNORE INTO `roles` (`id`, `name`, `slug`, `description`, `is_system`, `permissions`) VALUES ('RL-CO','Coordinator','coordinator','Helps run the system; the Main Admin chooses which pages each coordinator can open.',1,'{\"agencies\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"candidates\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"users\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"roles\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"reports\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"billing\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false},\"settings\":{\"view\":false,\"create\":false,\"edit\":false,\"delete\":false}}');
 INSERT IGNORE INTO `app_counters` (`name`, `value`) VALUES ('agency',1047);
 INSERT IGNORE INTO `app_counters` (`name`, `value`) VALUES ('role',5);
 INSERT IGNORE INTO `app_counters` (`name`, `value`) VALUES ('verification',504);
@@ -245,6 +260,8 @@ INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (11,'0001_01
 INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (12,'0001_01_01_001100_make_nic_optional_on_candidates',3);
 INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (13,'0001_01_01_001200_allow_agency_roles_to_delete_candidates',3);
 INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (14,'0001_01_01_001300_ensure_agency_roles_can_work_with_candidates',3);
+INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (15,'0001_01_01_001400_add_coordinator_page_access',4);
+INSERT IGNORE INTO `migrations` (`id`, `migration`, `batch`) VALUES (16,'0001_01_01_001500_add_type_and_country_to_agencies',5);
 
 -- -----------------------------------------------------------------------------
 -- SECTION 5 - Main Admin account

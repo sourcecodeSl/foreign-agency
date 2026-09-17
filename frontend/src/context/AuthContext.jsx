@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { authApi, tokenStore } from '../lib/api';
+import { COORDINATOR, coordinatorHome } from '../lib/access';
 
 const AuthContext = createContext(null);
 
-const ADMIN_ROLES = ['main_admin', 'auditor'];
+// A coordinator also works across agencies, on the pages opened to them.
+const ADMIN_ROLES = ['main_admin', 'auditor', COORDINATOR];
 
 /**
  * Whether a role works across agencies rather than inside one.
@@ -16,9 +18,10 @@ export function isGlobalRole(roleSlug) {
   return ADMIN_ROLES.includes(roleSlug);
 }
 
-/** Landing route for a role. */
-export function homePathFor(roleSlug) {
+/** Landing route for a role; a coordinator's depends on the pages opened to them. */
+export function homePathFor(roleSlug, pages) {
   if (!roleSlug) return '/dashboard';
+  if (roleSlug === COORDINATOR) return coordinatorHome(pages);
   return ADMIN_ROLES.includes(roleSlug) ? '/dashboard' : '/candidates';
 }
 
@@ -29,7 +32,7 @@ export function homePathFor(roleSlug) {
 export function nextPathFor(data) {
   if (data?.nextStep === 'phone') return '/verify-phone';
   if (data?.nextStep === 'email') return '/verify-email';
-  return homePathFor(data?.admin?.roleSlug);
+  return homePathFor(data?.admin?.roleSlug, data?.admin?.pages);
 }
 
 export function useAuth() {
@@ -97,7 +100,7 @@ export function AuthProvider({ children }) {
        * Where this role belongs after signing in. An agency account exists to
        * register candidates, so the admin dashboard is not its home.
        */
-      homePath: homePathFor(admin?.roleSlug),
+      homePath: homePathFor(admin?.roleSlug, admin?.pages),
 
       /** Credentials -> the first code still owed, or straight to the session. */
       async login(credentials) {

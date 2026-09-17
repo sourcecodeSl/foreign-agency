@@ -6,6 +6,7 @@ use App\Exceptions\ApiException;
 use App\Models\Candidate;
 use App\Support\ApiResponse;
 use App\Support\DocumentType;
+use App\Support\PageAccess;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -19,7 +20,7 @@ use Illuminate\Validation\Rule;
 class CandidateController extends Controller
 {
     /** Roles that are not tied to a single agency. */
-    private const GLOBAL_ROLES = ['main_admin', 'auditor'];
+    private const GLOBAL_ROLES = PageAccess::CROSS_AGENCY_ROLES;
 
     /**
      * GET /candidates?agencyId=

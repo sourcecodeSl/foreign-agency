@@ -10,6 +10,7 @@ use App\Services\OtpService;
 use App\Services\SmsService;
 use App\Support\ApiResponse;
 use App\Support\Jwt;
+use App\Support\PageAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -57,8 +58,10 @@ class AuthController extends Controller
             'email' => $public['email'],
             'role' => $public['role'],
             'roleSlug' => $public['roleSlug'],
-            // The sidebar brands an agency login with its agency's name.
-            'agency' => $agency ? ['id' => $agency->id, 'name' => $agency->name] : null,
+            // The sidebar brands an agency login with its agency's name and kind.
+            'agency' => $agency ? ['id' => $agency->id, 'name' => $agency->name, 'type' => $agency->type ?? 'local'] : null,
+            // A coordinator's menu is exactly the pages the Main Admin opened.
+            'pages' => $user->role_slug === PageAccess::ROLE ? $user->pageAccess() : null,
         ];
     }
 

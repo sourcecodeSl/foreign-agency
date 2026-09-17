@@ -7,7 +7,23 @@ import { useToast } from '../../components/ui/Toast';
 import { IconBuilding, IconRefresh, IconCheck, IconUsers, IconMail } from '../../components/ui/Icons';
 import { agencyApi } from '../../lib/api';
 
-const EMPTY = { name: '', contact: '', address: '', email: '', phone: '', username: '', password: '' };
+const EMPTY = {
+  type: 'local',
+  country: '',
+  name: '',
+  contact: '',
+  address: '',
+  email: '',
+  phone: '',
+  username: '',
+  password: '',
+};
+
+// Both kinds are approved, sign in and register candidates the same way.
+const AGENCY_TYPES = [
+  { id: 'local', label: 'Local agency', description: 'A recruitment agency in Sri Lanka.' },
+  { id: 'foreign', label: 'Foreign agency', description: 'An agency based overseas, such as in Israel.' },
+];
 
 /** Field-level rules. Returns a { field: message } map; empty means valid. */
 function validate(values) {
@@ -19,6 +35,9 @@ function validate(values) {
   if (!values.contact.trim()) errors.contact = 'Contact person is required.';
   else if (values.contact.trim().length < 3)
     errors.contact = 'Contact name must be at least 3 characters.';
+
+  if (values.type === 'foreign' && !values.country.trim())
+    errors.country = 'Enter the country this agency is based in.';
 
   if (!values.address.trim()) errors.address = 'Address is required.';
   else if (values.address.trim().length < 8) errors.address = 'Please enter the full address.';
@@ -93,6 +112,7 @@ export default function CreateAgency() {
     const found = validate(values);
     setErrors(found);
     setTouched({
+      country: true,
       name: true,
       contact: true,
       address: true,
@@ -109,6 +129,7 @@ export default function CreateAgency() {
       setCreated({
         agencyName: data.name,
         agencyCode: data.code,
+        agencyType: data.type || values.type,
         username: data.credentials.username,
         password: data.credentials.password,
         loginUrl: data.credentials.loginUrl,
@@ -151,6 +172,58 @@ export default function CreateAgency() {
           />
           <form onSubmit={handleSubmit} noValidate>
             <CardBody className="grid gap-5 sm:grid-cols-2">
+              <fieldset className="sm:col-span-2">
+                <legend className="field-label">
+                  Agency type <span className="text-red-500">*</span>
+                </legend>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {AGENCY_TYPES.map((type) => {
+                    const checked = values.type === type.id;
+                    return (
+                      <label
+                        key={type.id}
+                        htmlFor={'type-' + type.id}
+                        className={
+                          'flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition ' +
+                          (checked
+                            ? 'border-primary-400 bg-primary-50/60 ring-1 ring-primary-200'
+                            : 'border-gray-200 hover:bg-gray-50')
+                        }
+                      >
+                        <input
+                          id={'type-' + type.id}
+                          type="radio"
+                          name="type"
+                          value={type.id}
+                          checked={checked}
+                          onChange={handleChange}
+                          className="mt-1 h-4 w-4 border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold text-gray-900">{type.label}</span>
+                          <span className="block text-xs text-gray-500">{type.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              {values.type === 'foreign' && (
+                <Input
+                  label="Country"
+                  name="country"
+                  required
+                  placeholder="e.g. Israel"
+                  value={values.country}
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  error={errors.country}
+                  className="sm:col-span-2"
+                  hint={!errors.country ? 'Where the agency is based.' : undefined}
+                />
+              )}
+
               <Input
                 label="Name"
                 name="name"
@@ -302,7 +375,8 @@ export default function CreateAgency() {
                 <div className="flex items-start gap-2.5 rounded-lg bg-emerald-50 px-3.5 py-3 text-sm text-emerald-800 ring-1 ring-inset ring-emerald-200">
                   <IconCheck className="mt-0.5 h-4 w-4 shrink-0" />
                   <p>
-                    <span className="font-semibold">{created.agencyName}</span> was created and is
+                    <span className="font-semibold">{created.agencyName}</span>
+                    {created.agencyType === 'foreign' ? ' (foreign agency)' : ' (local agency)'} was created and is
                     now awaiting approval. These credentials work only once you approve it in the
                     Agency List.
                   </p>

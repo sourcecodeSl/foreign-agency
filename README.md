@@ -39,11 +39,12 @@ composer install
 cp .env.example .env
 php artisan key:generate
 php artisan migrate --seed   # creates the tables and seeds the admin
-php artisan serve            # http://localhost:8000
 ```
 
-Start **MySQL** in the XAMPP control panel first, and make sure a database named
-`agency` exists (phpMyAdmin > New > `agency`).
+Start **Apache** and **MySQL** in the XAMPP control panel first, and make sure a database
+named `agency` exists (phpMyAdmin > New > `agency`). Apache serves the API straight from
+`htdocs` at `http://localhost/agency/backend-laravel/public/api/v1`, so there is no
+`php artisan serve` to keep running.
 
 **Frontend**
 
@@ -53,9 +54,10 @@ npm install
 npm run dev            # http://localhost:5173
 ```
 
-`frontend/.env` ships with `VITE_USE_MOCK=false`, so the app talks to the live Laravel API
-(Vite proxies `/api` to `http://localhost:8000`). Set it to `true` to browse the UI offline on
-the built-in mock adapter — registration and login need the real API, since they use the database.
+`frontend/.env` ships with `VITE_USE_MOCK=false`, so the app talks to the live Laravel API.
+Vite proxies `/api` to XAMPP's Apache (see `frontend/vite.config.js`); set `API_PROXY_TARGET`
+in `frontend/.env` to use `php artisan serve` on port 8000 instead. Set `VITE_USE_MOCK` to
+`true` to browse the UI offline on the built-in mock adapter — registration and login need the real API, since they use the database.
 
 ### Database
 

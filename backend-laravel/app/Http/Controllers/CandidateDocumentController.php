@@ -7,6 +7,7 @@ use App\Models\Candidate;
 use App\Models\CandidateDocument;
 use App\Support\ApiResponse;
 use App\Support\DocumentType;
+use App\Support\PageAccess;
 use App\Support\ZipStream;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -27,7 +28,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class CandidateDocumentController extends Controller
 {
-    private const GLOBAL_ROLES = ['main_admin', 'auditor'];
+    private const GLOBAL_ROLES = PageAccess::CROSS_AGENCY_ROLES;
 
     /** GET /candidates/{id}/documents */
     public function index(Request $request, $candidateId)

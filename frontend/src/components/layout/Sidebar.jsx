@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, isGlobalRole } from '../../context/AuthContext';
+import { canOpen, COORDINATOR } from '../../lib/access';
 import {
   IconDashboard,
   IconBuilding,
@@ -14,25 +15,29 @@ import {
  *
  * An agency account exists to register candidates, so it never sees the admin
  * sections - the API refuses them anyway, and showing links that 403 is worse
- * than not showing them.
+ * than not showing them. A coordinator sees only the pages the Main Admin
+ * opened to them, for the same reason: `page` names what an item needs, and
+ * an item without one is never shown to a coordinator.
  */
 const ADMIN_NAV = [
   {
     section: 'Overview',
-    items: [{ to: '/dashboard', label: 'Dashboard', icon: IconDashboard, end: true }],
+    items: [{ to: '/dashboard', label: 'Dashboard', icon: IconDashboard, end: true, page: 'dashboard' }],
   },
   {
     section: 'Agency Management',
     items: [
-      { to: '/agencies/create', label: 'Create Agency', icon: IconBuilding },
-      { to: '/agencies', label: 'Agency List', icon: IconBuilding, end: true },
+      { to: '/agencies/create', label: 'Create Agency', icon: IconBuilding, page: 'agencies.create' },
+      { to: '/agencies', label: 'Agency List', icon: IconBuilding, end: true, page: 'agencies' },
     ],
   },
   {
     section: 'Candidates',
     // Read one agency at a time, so the label says so rather than promising
     // a single list of everybody.
-    items: [{ to: '/candidates', label: 'Candidates by Agency', icon: IconUsers, end: true }],
+    items: [
+      { to: '/candidates', label: 'Candidates by Agency', icon: IconUsers, end: true, page: 'candidates' },
+    ],
   },
   {
     section: 'User Management',
@@ -40,11 +45,12 @@ const ADMIN_NAV = [
       { to: '/users', label: 'Users List', icon: IconUsers, end: true },
       { to: '/users/types', label: 'User Types / Roles', icon: IconShield },
       { to: '/users/permissions', label: 'User Permissions', icon: IconShield },
+      { to: '/users/coordinators', label: 'Coordinators & Access', icon: IconShield, mainAdminOnly: true },
     ],
   },
   {
     section: 'Verification',
-    items: [{ to: '/verification/emails', label: 'Email Verification', icon: IconMail }],
+    items: [{ to: '/verification/emails', label: 'Email Verification', icon: IconMail, page: 'verification' }],
   },
 ];
 
@@ -66,6 +72,20 @@ const AGENCY_OWNER_NAV = [
     items: [{ to: '/agency/profile', label: 'Agency Details', icon: IconBuilding }],
   },
 ];
+
+/**
+ * The admin menu for whoever is reading it: the Main Admin sees all of it, an
+ * auditor all but the coordinator list, and a coordinator only the pages
+ * opened to them - with any section left empty dropped.
+ */
+function adminNavFor(admin) {
+  return ADMIN_NAV.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => (!item.mainAdminOnly || admin?.roleSlug === 'main_admin') && canOpen(admin, item.page)
+    ),
+  })).filter((group) => group.items.length > 0);
+}
 
 function NavItem({ item, onNavigate }) {
   const Icon = item.icon;
@@ -94,9 +114,9 @@ function NavItem({ item, onNavigate }) {
 export default function Sidebar({ open, onClose }) {
   const { admin } = useAuth();
 
-  const isAgency = admin?.roleSlug && admin.roleSlug !== 'main_admin' && admin.roleSlug !== 'auditor';
+  const isAgency = Boolean(admin?.roleSlug) && !isGlobalRole(admin.roleSlug);
   const nav = !isAgency
-    ? ADMIN_NAV
+    ? adminNavFor(admin)
     : admin.roleSlug === 'agency_owner'
     ? AGENCY_OWNER_NAV
     : AGENCY_NAV;
@@ -131,7 +151,13 @@ export default function Sidebar({ open, onClose }) {
                 {isAgency ? admin?.agency?.name || 'Agency' : 'Agency Admin'}
               </p>
               <p className="text-xs text-gray-500">
-                {isAgency ? 'Candidate Portal' : 'Main Admin System'}
+                {isAgency
+                  ? admin?.agency?.type === 'foreign'
+                    ? 'Foreign Agency Portal'
+                    : 'Candidate Portal'
+                  : admin?.roleSlug === COORDINATOR
+                  ? 'Coordinator'
+                  : 'Main Admin System'}
               </p>
             </div>
           </div>

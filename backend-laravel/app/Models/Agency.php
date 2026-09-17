@@ -22,6 +22,9 @@ class Agency extends Model
         'users' => 'integer',
     ];
 
+    /** A local agency recruits in Sri Lanka; a foreign one is based overseas. */
+    public const TYPES = ['local', 'foreign'];
+
     /**
      * Client-safe view: the password hash is dropped via $hidden on toArray().
      *
@@ -36,7 +39,10 @@ class Agency extends Model
             'id' => $this->id,
             'name' => $this->name,
             'code' => $this->code,
+            'type' => $this->type ?? 'local',
             'address' => $this->address,
+            // Agencies from before foreign agencies existed are all Sri Lankan.
+            'country' => $this->country ?? (($this->type ?? 'local') === 'local' ? 'Sri Lanka' : null),
             'username' => $this->username,
             'contact' => $this->contact,
             'email' => $this->email,

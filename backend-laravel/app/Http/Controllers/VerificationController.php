@@ -9,6 +9,7 @@ use App\Models\EmailVerification;
 use App\Models\User;
 use App\Services\EmailService;
 use App\Support\ApiResponse;
+use App\Support\PageAccess;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -16,7 +17,7 @@ use Illuminate\Support\Facades\Validator;
 class VerificationController extends Controller
 {
     /** Roles that look across every agency. */
-    private const GLOBAL_ROLES = ['main_admin', 'auditor'];
+    private const GLOBAL_ROLES = PageAccess::CROSS_AGENCY_ROLES;
 
     private function newToken(): string
     {
@@ -101,6 +102,7 @@ class VerificationController extends Controller
             'id' => $agency->id,
             'name' => $agency->name,
             'code' => $agency->code,
+            'type' => $agency->type ?? 'local',
             'status' => $agency->status,
             'createdAt' => $agency->created_at,
             'owner' => $owner ? [

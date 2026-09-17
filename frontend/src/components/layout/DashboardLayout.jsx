@@ -7,7 +7,7 @@ import Topbar from './Topbar';
 const PAGE_META = [
   { match: /^\/dashboard/, title: 'Dashboard', subtitle: 'Overview of agencies, users and activity' },
   { match: /^\/agency\/profile/, title: 'Agency Details', subtitle: 'Your agency details and the phone and email used to sign in' },
-  { match: /^\/agencies\/create/, title: 'Create Agency', subtitle: 'Register a new agency and issue login credentials' },
+  { match: /^\/agencies\/create/, title: 'Create Agency', subtitle: 'Register a local or foreign agency and issue its login' },
   { match: /^\/agencies/, title: 'Agency Management', subtitle: 'Review pending, active and deactivated agencies' },
   { match: /^\/candidates\/register/, title: 'Register Candidate', subtitle: 'Capture the candidate details, then attach the documents' },
   { match: /^\/candidates\/\d+/, title: 'Candidate File', subtitle: 'Details and attached documents' },
@@ -16,8 +16,10 @@ const PAGE_META = [
   { match: /^\/candidates/, title: 'Candidates', subtitle: 'Registered candidate files' },
   { match: /^\/users\/types/, title: 'User Types & Roles', subtitle: 'Define the roles available across the system' },
   { match: /^\/users\/permissions/, title: 'User Permissions', subtitle: 'Assign access rights to each user type' },
+  { match: /^\/users\/coordinators/, title: 'Coordinators & Access', subtitle: 'Add people to help run the system and choose the pages each one can open' },
   { match: /^\/users/, title: 'Users List', subtitle: 'Manage every user account in the system' },
   { match: /^\/verification\/emails/, title: 'Email Verification', subtitle: 'Track and manage email confirmations' },
+  { match: /^\/no-access/, title: 'No Access Yet', subtitle: 'Waiting for the Main Admin to open pages to you' },
 ];
 
 export default function DashboardLayout() {

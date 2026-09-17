@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Agency;
 use App\Models\Candidate;
+use App\Models\User;
 use App\Support\ApiResponse;
+use App\Support\PageAccess;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -18,7 +20,7 @@ use Illuminate\Http\Request;
 class NotificationController extends Controller
 {
     /** Roles that are not tied to a single agency. */
-    private const GLOBAL_ROLES = ['main_admin', 'auditor'];
+    private const GLOBAL_ROLES = PageAccess::CROSS_AGENCY_ROLES;
 
     private const LIMIT = 15;
 
@@ -27,7 +29,7 @@ class NotificationController extends Controller
         $auth = $request->attributes->get('auth_user');
 
         $items = in_array($auth['roleSlug'] ?? null, self::GLOBAL_ROLES, true)
-            ? $this->forAdministrator()
+            ? $this->forAdministrator($request->attributes->get('auth_account'))
             : $this->forAgency((string) ($auth['agencyId'] ?? ''));
 
         // Newest first, whichever kind of record each item came from.
@@ -41,12 +43,21 @@ class NotificationController extends Controller
         return $value ? Carbon::parse($value)->toIso8601String() : null;
     }
 
-    /** Agencies to approve, and candidate files arriving from every agency. */
-    private function forAdministrator(): array
+    /**
+     * Agencies to approve, and candidate files arriving from every agency. A
+     * coordinator hears only about what the pages opened to them can act on.
+     */
+    private function forAdministrator(?User $account): array
     {
+        $limited = $account?->role_slug === PageAccess::ROLE;
+        $pages = $limited ? $account->pageAccess() : [];
         $items = [];
 
-        foreach (Agency::where('status', 'pending')->orderByDesc('id')->limit(self::LIMIT)->get() as $agency) {
+        $pending = ! $limited || in_array('agencies', $pages, true)
+            ? Agency::where('status', 'pending')->orderByDesc('id')->limit(self::LIMIT)->get()
+            : collect();
+
+        foreach ($pending as $agency) {
             $items[] = [
                 'id' => 'agency-pending-'.$agency->id,
                 'tone' => 'warning',
@@ -57,12 +68,14 @@ class NotificationController extends Controller
             ];
         }
 
-        $candidates = Candidate::query()
-            ->where(fn ($q) => $q->where('status', 'submitted')
-                ->orWhere('created_at', '>=', now()->subDays(7)))
-            ->orderByDesc('updated_at')
-            ->limit(self::LIMIT)
-            ->get();
+        $candidates = ! $limited || in_array('candidates', $pages, true)
+            ? Candidate::query()
+                ->where(fn ($q) => $q->where('status', 'submitted')
+                    ->orWhere('created_at', '>=', now()->subDays(7)))
+                ->orderByDesc('updated_at')
+                ->limit(self::LIMIT)
+                ->get()
+            : collect();
 
         $agencies = Agency::whereIn('id', $candidates->pluck('agency_id')->unique())->pluck('name', 'id');
 

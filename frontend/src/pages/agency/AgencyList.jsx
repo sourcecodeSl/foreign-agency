@@ -21,10 +21,27 @@ const TABS = [
 // How often the listing and an open detail card are re-read while in view.
 export const REFRESH_MS = 15000;
 
+/** Which kind of agency a row is, and where a foreign one is based. */
+function TypeLabel({ agency }) {
+  const foreign = agency.type === 'foreign';
+
+  return (
+    <span
+      className={
+        'mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ' +
+        (foreign ? 'bg-primary-50 text-primary-700 ring-primary-200' : 'bg-gray-50 text-gray-600 ring-gray-200')
+      }
+    >
+      {foreign ? 'Foreign' + (agency.country ? ' · ' + agency.country : '') : 'Local'}
+    </span>
+  );
+}
+
 export default function AgencyList() {
   const { toast } = useToast();
   const [tab, setTab] = useState('pending');
   const [search, setSearch] = useState('');
+  const [type, setType] = useState('all');
   const [rows, setRows] = useState([]);
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
@@ -48,8 +65,8 @@ export default function AgencyList() {
       if (!silent) setLoading(true);
       try {
         const [list, countRes] = await Promise.all([
-          agencyApi.list({ status: tab, search }),
-          agencyApi.counts(),
+          agencyApi.list({ status: tab, search, type }),
+          agencyApi.counts({ type }),
         ]);
         if (seq !== latestLoad.current) return;
         setRows(list.data);
@@ -60,7 +77,7 @@ export default function AgencyList() {
         if (seq === latestLoad.current) setLoading(false);
       }
     },
-    [tab, search, toast]
+    [tab, search, type, toast]
   );
 
   // Debounced so typing in the search box does not fire a request per keystroke.
@@ -179,6 +196,7 @@ export default function AgencyList() {
           <p className="text-xs text-gray-500">
             {row.code} · {row.username}
           </p>
+          <TypeLabel agency={row} />
         </button>
       ),
     },
@@ -284,6 +302,8 @@ export default function AgencyList() {
   // the fuller record is still on its way.
   const detailRows = (agency) => [
     ['Agency Code', agency.code],
+    ['Type', agency.type === 'foreign' ? 'Foreign agency' : 'Local agency'],
+    ['Country', agency.country || '—'],
     ['Contact Person', agency.contact || '—'],
     ['Email', agency.email || '—'],
     ['Phone', agency.phone || '—'],
@@ -301,7 +321,19 @@ export default function AgencyList() {
         title="Agencies"
         subtitle="Approve new registrations and manage the status of every agency."
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              id="agency-type-filter"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              aria-label="Agency type"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700
+                         focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+            >
+              <option value="all">All types</option>
+              <option value="local">Local agencies</option>
+              <option value="foreign">Foreign agencies</option>
+            </select>
             <div className="relative">
               <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input

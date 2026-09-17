@@ -63,6 +63,11 @@ class DatabaseSeeder extends Seeder
             ['id' => 'RL-05', 'name' => 'Auditor', 'slug' => 'auditor', 'is_system' => false,
                 'description' => 'Read-only access across all agencies for compliance review.',
                 'permissions' => $auditor],
+            // Access is picked page by page for each coordinator, so the
+            // matrix stays empty and the role cannot be edited.
+            ['id' => 'RL-CO', 'name' => 'Coordinator', 'slug' => 'coordinator', 'is_system' => true,
+                'description' => 'Helps run the system; the Main Admin chooses which pages each coordinator can open.',
+                'permissions' => Role::emptyMatrix()],
         ];
 
         foreach ($roles as $role) {

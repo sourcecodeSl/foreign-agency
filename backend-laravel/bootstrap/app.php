@@ -21,6 +21,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'auth.jwt' => \App\Http\Middleware\RequireAuth::class,
             'can.perm' => \App\Http\Middleware\RequirePermission::class,
+            'can.page' => \App\Http\Middleware\RequirePage::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

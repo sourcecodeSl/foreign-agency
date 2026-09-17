@@ -6,6 +6,8 @@ import { StatusBadge } from '../components/ui/Badge';
 import Table from '../components/ui/Table';
 import { IconBuilding, IconUsers, IconMail, IconShield, IconPlus } from '../components/ui/Icons';
 import { dashboardApi, agencyApi } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+import { canOpen } from '../lib/access';
 
 function StatCard({ label, value, delta, icon: Icon, tone }) {
   const positive = typeof delta === 'string' && delta.startsWith('+');
@@ -37,6 +39,9 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { admin } = useAuth();
+  // A coordinator is only linked to pages that were opened to them.
+  const canReview = canOpen(admin, 'agencies');
 
   useEffect(() => {
     Promise.all([dashboardApi.stats(), agencyApi.list({ status: 'pending' })])
@@ -64,11 +69,12 @@ export default function Dashboard() {
       key: 'actions',
       header: '',
       className: 'text-right',
-      render: () => (
-        <Link to="/agencies" className="text-sm font-medium text-primary-600 hover:text-primary-700">
-          Review
-        </Link>
-      ),
+      render: () =>
+        canReview ? (
+          <Link to="/agencies" className="text-sm font-medium text-primary-600 hover:text-primary-700">
+            Review
+          </Link>
+        ) : null,
     },
   ];
 
@@ -112,11 +118,13 @@ export default function Dashboard() {
               title="Agencies Awaiting Approval"
               subtitle="New registrations that need a decision."
               action={
-                <Link to="/agencies">
-                  <Button variant="secondary" size="sm">
-                    View all
-                  </Button>
-                </Link>
+                canReview ? (
+                  <Link to="/agencies">
+                    <Button variant="secondary" size="sm">
+                      View all
+                    </Button>
+                  </Link>
+                ) : undefined
               }
             />
             <Table columns={columns} rows={pending} loading={loading} empty="Nothing awaiting approval." />
@@ -127,11 +135,13 @@ export default function Dashboard() {
           <CardHeader title="Quick Actions" />
           <CardBody className="space-y-2">
             {[
-              ['Create a new agency', '/agencies/create', IconPlus],
-              ['Manage user types', '/users/types', IconShield],
-              ['Assign permissions', '/users/permissions', IconShield],
-              ['Review email verifications', '/verification/emails', IconMail],
-            ].map(([label, to, Icon]) => (
+              ['Create a new agency', '/agencies/create', IconPlus, 'agencies.create'],
+              ['Manage user types', '/users/types', IconShield, null],
+              ['Assign permissions', '/users/permissions', IconShield, null],
+              ['Review email verifications', '/verification/emails', IconMail, 'verification'],
+            ]
+              .filter(([, , , page]) => canOpen(admin, page))
+              .map(([label, to, Icon]) => (
               <Link
                 key={to}
                 to={to}

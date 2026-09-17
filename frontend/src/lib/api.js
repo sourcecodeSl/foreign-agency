@@ -25,11 +25,12 @@ export const tokenStore = {
 
 /**
  * Shown when the API cannot be reached at all, which in development almost
- * always means the backend was never started. A bare "500" here is the Vite
- * proxy failing to connect, not an error the server actually returned.
+ * always means XAMPP's Apache, which serves the Laravel API, is stopped. A
+ * bare "500" here is the Vite proxy failing to connect, not an error the
+ * server actually returned.
  */
 const OFFLINE_MESSAGE =
-  'Cannot reach the API server. Start it with: cd backend-laravel && php artisan serve';
+  'Cannot reach the API server. Start Apache and MySQL in the XAMPP Control Panel.';
 
 /** Thin fetch wrapper: attaches the bearer token and unwraps { success, data }. */
 async function request(path, { method = 'GET', body, headers } = {}) {
@@ -237,13 +238,16 @@ export const authApi = {
 
 // --- Agencies ---------------------------------------------------------------
 export const agencyApi = {
-  async list({ status = 'all', search = '' } = {}) {
-    if (!USE_MOCK) return request('/agencies?status=' + status + '&search=' + encodeURIComponent(search));
+  async list({ status = 'all', search = '', type = 'all' } = {}) {
+    if (!USE_MOCK) {
+      return request('/agencies?status=' + status + '&type=' + type + '&search=' + encodeURIComponent(search));
+    }
     await delay(350);
     const term = search.trim().toLowerCase();
     const rows = agencies.filter(
       (a) =>
         (status === 'all' || a.status === status) &&
+        (type === 'all' || (a.type || 'local') === type) &&
         (!term ||
           a.name.toLowerCase().includes(term) ||
           a.username.toLowerCase().includes(term) ||
@@ -252,8 +256,8 @@ export const agencyApi = {
     return ok(rows);
   },
 
-  async counts() {
-    if (!USE_MOCK) return request('/agencies/counts');
+  async counts({ type = 'all' } = {}) {
+    if (!USE_MOCK) return request('/agencies/counts?type=' + type);
     await delay(200);
     return ok({
       all: agencies.length,
@@ -278,6 +282,8 @@ export const agencyApi = {
       name: payload.name,
       code,
       address: payload.address,
+      type: payload.type || 'local',
+      country: payload.type === 'foreign' ? payload.country : 'Sri Lanka',
       username: payload.username,
       contact: '—',
       email: '—',
@@ -425,6 +431,40 @@ export const roleApi = {
     await delay(600);
     permissions = { ...permissions, [slug]: clone(matrix) };
     return ok(permissions[slug], 'Permissions updated.');
+  },
+};
+
+// --- Coordinators (Main Admin) ----------------------------------------------
+/** People added to help run the system, each opened to the pages they need. Live API only. */
+export const coordinatorApi = {
+  async list() {
+    requireLiveApi();
+    return request('/coordinators');
+  },
+
+  async create(payload) {
+    requireLiveApi();
+    return request('/coordinators', { method: 'POST', body: payload });
+  },
+
+  async update(id, payload) {
+    requireLiveApi();
+    return request('/coordinators/' + id, { method: 'PUT', body: payload });
+  },
+
+  async setStatus(id, status) {
+    requireLiveApi();
+    return request('/coordinators/' + id + '/status', { method: 'PATCH', body: { status } });
+  },
+
+  async resetPassword(id) {
+    requireLiveApi();
+    return request('/coordinators/' + id + '/password', { method: 'POST' });
+  },
+
+  async remove(id) {
+    requireLiveApi();
+    return request('/coordinators/' + id, { method: 'DELETE' });
   },
 };
 

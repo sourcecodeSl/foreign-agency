@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Support\ApiResponse;
 use App\Support\Credentials;
+use App\Support\PageAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -117,6 +118,9 @@ class RoleController extends Controller
         }
         if ($role->slug === 'main_admin') {
             throw new ApiException(400, 'The Main Admin role always holds full access.');
+        }
+        if ($role->slug === PageAccess::ROLE) {
+            throw new ApiException(400, "A coordinator's access is set person by person on the Coordinators page.");
         }
 
         // cleanMatrix rebuilds the whole grid and reads a missing module as

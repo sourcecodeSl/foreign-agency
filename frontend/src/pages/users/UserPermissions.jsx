@@ -83,7 +83,9 @@ export default function UserPermissions() {
   );
 
   const role = roles.find((r) => r.slug === activeRole);
-  const isSystemRole = role?.slug === 'main_admin';
+  // Neither matrix can be edited: the Main Admin holds everything, and a
+  // coordinator's access is chosen person by person on the Coordinators page.
+  const isSystemRole = role?.slug === 'main_admin' || role?.slug === 'coordinator';
 
   const grantedCount = useMemo(
     () =>
@@ -205,7 +207,9 @@ export default function UserPermissions() {
 
           {isSystemRole && (
             <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
-              The Main Admin role always holds full access. These toggles are locked.
+              {role?.slug === 'coordinator'
+                ? "A coordinator's access is chosen person by person on the Coordinators & Access page. These toggles are locked."
+                : 'The Main Admin role always holds full access. These toggles are locked.'}
             </div>
           )}
 
@@ -265,7 +269,7 @@ export default function UserPermissions() {
                         {PERMISSION_ACTIONS.map((action) => (
                           <td key={action.key} className="px-4 py-4 text-center">
                             <Toggle
-                              checked={isSystemRole ? true : !!mod[action.key]}
+                              checked={role?.slug === 'main_admin' ? true : !!mod[action.key]}
                               disabled={isSystemRole}
                               onChange={(v) => setCell(module.key, action.key, v)}
                               label={action.label + ' ' + module.label}

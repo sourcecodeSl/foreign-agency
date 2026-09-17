@@ -44,6 +44,9 @@ class RequireAuth
         }
 
         $request->attributes->set('auth_user', $payload);
+        // The account itself, for guards that need more than the token
+        // carries, such as the pages opened to a coordinator.
+        $request->attributes->set('auth_account', $user);
 
         return $next($request);
     }

@@ -5,6 +5,7 @@ use App\Http\Controllers\AgencyProfileController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CandidateController;
 use App\Http\Controllers\CandidateDocumentController;
+use App\Http\Controllers\CoordinatorController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
@@ -110,8 +111,20 @@ Route::prefix('roles')->middleware('auth.jwt')->group(function () {
     Route::put('/{slug}/permissions', [RoleController::class, 'savePermissions'])->middleware('can.perm:roles,edit');
 });
 
+// --- Coordinators -----------------------------------------------------------
+// People the Main Admin adds to help run the system, each opened to the pages
+// they need. Main Admin only, checked in the controller.
+Route::prefix('coordinators')->middleware('auth.jwt')->group(function () {
+    Route::get('/', [CoordinatorController::class, 'index']);
+    Route::post('/', [CoordinatorController::class, 'store']);
+    Route::put('/{id}', [CoordinatorController::class, 'update']);
+    Route::patch('/{id}/status', [CoordinatorController::class, 'updateStatus']);
+    Route::post('/{id}/password', [CoordinatorController::class, 'resetPassword']);
+    Route::delete('/{id}', [CoordinatorController::class, 'destroy']);
+});
+
 // --- Verification (authenticated) -------------------------------------------
-Route::prefix('verification')->middleware('auth.jwt')->group(function () {
+Route::prefix('verification')->middleware(['auth.jwt', 'can.page:verification'])->group(function () {
     // How far each agency's owner login has got: approved, phone, email,
     // first sign-in. Administrator and auditor only, checked in the controller.
     Route::get('/agencies', [VerificationController::class, 'agencies']);
@@ -126,7 +139,7 @@ Route::prefix('verification')->middleware('auth.jwt')->group(function () {
 });
 
 // --- Dashboard --------------------------------------------------------------
-Route::prefix('dashboard')->middleware('auth.jwt')->group(function () {
+Route::prefix('dashboard')->middleware(['auth.jwt', 'can.page:dashboard'])->group(function () {
     Route::get('/stats', [DashboardController::class, 'stats']);
     Route::get('/activity', [DashboardController::class, 'activity']);
 });

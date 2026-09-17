@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PageAccess;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -19,6 +20,11 @@ class User extends Model
     protected $guarded = [];
 
     protected $hidden = ['password_hash'];
+
+    protected $casts = [
+        // Pages the Main Admin has opened to a coordinator; unused by other roles.
+        'page_access' => 'array',
+    ];
 
     private const ROLE_LABELS = [
         'main_admin' => 'Main Admin',
@@ -127,7 +133,7 @@ class User extends Model
      *
      * The Main Admin is never asked. Every other login confirms each one once,
      * on its first sign-in, and is not asked for it again; only a change to
-     * that detail (see UserController::update) clears it.
+     * that detail (see assignEmail and assignPhone) clears it.
      */
     public function unconfirmedContacts(): array
     {
@@ -139,6 +145,37 @@ class User extends Model
             'phone' => ! $this->phone_verified_at,
             'email' => ! $this->email_verified_at,
         ]));
+    }
+
+    /** The pages opened to this login - only ever a coordinator's. */
+    public function pageAccess(): array
+    {
+        if ($this->role_slug !== PageAccess::ROLE) {
+            return [];
+        }
+
+        return PageAccess::clean((array) $this->page_access);
+    }
+
+    /** Sets the email, clearing its confirmation when the address really changes. */
+    public function assignEmail(string $email): void
+    {
+        $email = strtolower(trim($email));
+
+        if ($email !== $this->email) {
+            $this->email = $email;
+            $this->email_verified_at = null;
+        }
+    }
+
+    /** Sets the phone, clearing its confirmation when the number really changes. */
+    public function assignPhone(string $phone): void
+    {
+        if (preg_replace('/\D/', '', $phone) !== preg_replace('/\D/', '', (string) $this->phone)) {
+            $this->phone_verified_at = null;
+        }
+
+        $this->phone = $phone;
     }
 
     public static function verifyPassword(string $plain, ?string $hash): bool

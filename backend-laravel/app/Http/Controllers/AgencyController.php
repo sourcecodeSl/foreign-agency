@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\EmailService;
 use App\Support\ApiResponse;
 use App\Support\Credentials;
+use App\Support\PageAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -24,7 +25,7 @@ class AgencyController extends Controller
 
     /** GET /agencies?status=&search= */
     /** Roles that legitimately see every agency. */
-    private const GLOBAL_ROLES = ['main_admin', 'auditor'];
+    private const GLOBAL_ROLES = PageAccess::CROSS_AGENCY_ROLES;
 
     /** Approving, resetting credentials and deleting stay with the admin. */
     private function requireGlobalRole(Request $request): void
@@ -65,6 +66,9 @@ class AgencyController extends Controller
         if ($status !== 'all') {
             $query->where('status', $status);
         }
+        if (in_array($request->query('type'), Agency::TYPES, true)) {
+            $query->where('type', $request->query('type'));
+        }
         if ($search !== '') {
             $term = '%'.$search.'%';
             $query->where(function ($q) use ($term) {
@@ -93,7 +97,9 @@ class AgencyController extends Controller
     public function counts(Request $request)
     {
         $scope = $this->scopeAgencyId($request);
-        $base = fn () => $scope === null ? Agency::query() : Agency::where('id', $scope);
+        $type = $request->query('type');
+        $base = fn () => ($scope === null ? Agency::query() : Agency::where('id', $scope))
+            ->when(in_array($type, Agency::TYPES, true), fn ($q) => $q->where('type', $type));
 
         return ApiResponse::ok([
             'all' => $base()->count(),
@@ -142,6 +148,9 @@ class AgencyController extends Controller
             // login is created under.
             'contact' => 'required|string|min:3|max:120',
             'address' => 'required|string|min:8',
+            // A local agency is in Sri Lanka; a foreign one names its country.
+            'type' => 'nullable|in:local,foreign',
+            'country' => 'required_if:type,foreign|nullable|string|max:80',
             'username' => ['required', 'regex:/^[a-zA-Z0-9._-]{4,20}$/'],
             'password' => ['required', 'string', 'min:8', 'regex:/[A-Z]/', 'regex:/[0-9]/'],
             // Sign-in sends a code to the phone and then to the email, so an
@@ -156,6 +165,8 @@ class AgencyController extends Controller
             'contact.required' => 'A contact person is required.',
             'contact.min' => 'Contact name must be at least 3 characters.',
             'address.min' => 'Please provide the full address.',
+            'type.in' => 'Choose a local or a foreign agency.',
+            'country.required_if' => 'Enter the country a foreign agency is based in.',
             'username.regex' => 'Username must be 4-20 characters (letters, numbers, . _ -).',
             'password.min' => 'Password must be at least 8 characters.',
             'password.regex' => 'Password must include an uppercase letter and a number.',
@@ -177,15 +188,20 @@ class AgencyController extends Controller
         }
 
         $auth = $request->attributes->get('auth_user');
+        $type = ($data['type'] ?? null) ?: 'local';
+        $country = $type === 'foreign' ? trim((string) $data['country']) : 'Sri Lanka';
+
         $sequence = AppCounter::next('agency');
         $plainPassword = $data['password'] ?: Credentials::generatePassword();
 
-        $agency = DB::transaction(function () use ($data, $sequence, $plainPassword, $auth) {
+        $agency = DB::transaction(function () use ($data, $sequence, $plainPassword, $auth, $type, $country) {
             $agency = Agency::create([
                 'id' => 'AG-'.$sequence,
                 'name' => $data['name'],
                 'code' => Credentials::generateAgencyCode($data['name'], $sequence),
                 'address' => $data['address'],
+                'type' => $type,
+                'country' => $country,
                 'username' => $data['username'],
                 'password_hash' => password_hash($plainPassword, PASSWORD_BCRYPT),
                 'contact' => $data['contact'],
@@ -254,7 +270,7 @@ class AgencyController extends Controller
             throw new ApiException(404, 'Agency not found.');
         }
 
-        foreach (['name', 'address', 'contact', 'email'] as $field) {
+        foreach (['name', 'address', 'country', 'contact', 'email'] as $field) {
             if ($request->has($field)) {
                 $agency->{$field} = $request->input($field);
             }
