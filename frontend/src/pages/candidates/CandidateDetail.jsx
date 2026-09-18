@@ -292,6 +292,9 @@ export default function CandidateDetail() {
   const complete = missing.length === 0;
 
   const passed = candidate.poolStatus === 'passed';
+  // Valid when registered, but a passport can run out while the file is open.
+  const passportExpired =
+    Boolean(candidate.passportExpiry) && candidate.passportExpiry < new Date().toISOString().slice(0, 10);
   const settled = isSettled(candidate);
   // Only the agency attaches, and only while the file is open: passed, and
   // not yet submitted by the coordinator.
@@ -405,6 +408,29 @@ export default function CandidateDetail() {
         <CardBody>
           <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
+              ['First name', candidate.firstName || '—'],
+              ['Last name', candidate.lastName || '—'],
+              ["Father's name", candidate.fatherName || '—'],
+              [
+                'Date of birth',
+                candidate.dateOfBirth
+                  ? formatDate(candidate.dateOfBirth) +
+                    (candidate.age != null ? ' · ' + candidate.age + ' years' : '')
+                  : '—',
+              ],
+              [
+                'Passport validity',
+                candidate.passportExpiry ? (
+                  <span className={passportExpired ? 'font-medium text-red-600' : undefined}>
+                    {formatDate(candidate.passportExpiry)}
+                    {passportExpired ? ' · expired' : ''}
+                  </span>
+                ) : (
+                  '—'
+                ),
+              ],
+              ['Profession', candidate.profession || '—'],
+              ['Test results', candidate.testResults || '—'],
               ['Mobile', candidate.mobile],
               ['Email', candidate.email || '—'],
               ['Registered', formatDate(candidate.createdAt)],

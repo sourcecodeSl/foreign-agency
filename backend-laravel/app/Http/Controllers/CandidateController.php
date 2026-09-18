@@ -195,7 +195,13 @@ class CandidateController extends Controller
         $roleIds = $this->roleIds($data);
 
         $fields = [
-            'name' => $data['name'],
+            'name' => $this->fullName($data),
+            'first_name' => $data['firstName'] ?? null,
+            'last_name' => $data['lastName'] ?? null,
+            'father_name' => $data['fatherName'] ?? null,
+            'passport_expiry' => $data['passportExpiry'] ?? null,
+            'profession' => $data['profession'] ?? null,
+            'test_results' => $data['testResults'] ?? null,
             'passport_no' => $data['passportNo'],
             'nic_no' => strtoupper($data['nicNo']),
             'address' => $data['address'],
@@ -266,8 +272,23 @@ class CandidateController extends Controller
             $this->refusePassedElsewhere($request, $candidate->agency_id, $newNic);
         }
 
+        // A new first or last name rebuilds the full name from both halves.
+        $fullName = isset($data['firstName']) || isset($data['lastName'])
+            ? $this->fullName([
+                'firstName' => $data['firstName'] ?? $candidate->first_name,
+                'lastName' => $data['lastName'] ?? $candidate->last_name,
+                'name' => $data['name'] ?? $candidate->name,
+            ])
+            : ($data['name'] ?? null);
+
         $candidate->update(array_filter([
-            'name' => $data['name'] ?? null,
+            'name' => $fullName,
+            'first_name' => $data['firstName'] ?? null,
+            'last_name' => $data['lastName'] ?? null,
+            'father_name' => $data['fatherName'] ?? null,
+            'passport_expiry' => $data['passportExpiry'] ?? null,
+            'profession' => $data['profession'] ?? null,
+            'test_results' => $data['testResults'] ?? null,
             'passport_no' => $data['passportNo'] ?? null,
             'nic_no' => $newNic !== null ? strtoupper($newNic) : null,
             'address' => $data['address'] ?? null,
@@ -426,6 +447,14 @@ class CandidateController extends Controller
 
     // ---------------------------------------------------------------------
 
+    /** "First Last", or the single full name an older client sends. */
+    private function fullName(array $data): string
+    {
+        $parts = array_filter([trim($data['firstName'] ?? ''), trim($data['lastName'] ?? '')]);
+
+        return $parts ? implode(' ', $parts) : trim($data['name'] ?? '');
+    }
+
     /**
      * The trades asked for: the list if one was sent, else the single trade
      * an older client sends. Duplicates dropped, order kept.
@@ -482,7 +511,17 @@ class CandidateController extends Controller
         };
 
         return $request->validate([
-            'name' => [$required, 'string', 'min:3', 'max:150'],
+            // First and last name make up the full name; an older client
+            // still sends the full name on its own.
+            // Registering needs both halves; an edit may change one of them.
+            'firstName' => ['nullable', 'string', 'max:75', ...($request->isMethod('POST') ? ['required_with:lastName'] : [])],
+            'lastName' => ['nullable', 'string', 'max:75', ...($request->isMethod('POST') ? ['required_with:firstName'] : [])],
+            'name' => [$request->isMethod('POST') ? 'required_without:firstName' : 'sometimes', 'string', 'min:3', 'max:150'],
+            'fatherName' => ['nullable', 'string', 'max:150'],
+            // The passport has to be valid on the day it is entered.
+            'passportExpiry' => ['nullable', 'date', 'after:today'],
+            'profession' => ['nullable', 'string', 'max:120'],
+            'testResults' => ['nullable', 'string', 'max:255'],
             'passportNo' => [$required, 'string', 'max:30', 'regex:/^[A-Za-z0-9]+$/', $scoped('passport_no')],
             'nicNo' => [$required, 'string', 'max:20', 'regex:'.Nic::PATTERN, $nicFree],
             'address' => [$required, 'string', 'min:5', 'max:255'],
@@ -502,6 +541,10 @@ class CandidateController extends Controller
             'jobRoleIds.*.distinct' => 'Each job category is listed once.',
             'testIndexNo.regex' => 'The test index number may contain letters, numbers, / and - only.',
             'passportNo.regex' => 'Passport number may contain letters and numbers only.',
+            'name.required_without' => 'Enter the first and last name.',
+            'firstName.required_with' => 'Enter the first name.',
+            'lastName.required_with' => 'Enter the last name.',
+            'passportExpiry.after' => 'The passport has expired. Enter a passport that is still valid.',
             'nicNo.required' => 'NIC number is required.',
             'nicNo.regex' => 'Enter a valid NIC (9 digits plus V/X, or 12 digits).',
             'passportNo.unique' => 'A candidate with this passport number already exists.',

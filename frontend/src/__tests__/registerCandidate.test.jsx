@@ -39,9 +39,13 @@ function renderForm(entry = '/candidates/register') {
 
 /** Everything except the job category and the test index. */
 async function fillBasics(user, { nic = '901234567V' } = {}) {
-  await user.type(screen.getByLabelText(/full name/i), 'Kamal Perera');
+  await user.type(screen.getByLabelText(/first name/i), 'Kamal');
+  await user.type(screen.getByLabelText(/last name/i), 'Perera');
+  await user.type(screen.getByLabelText(/father's name/i), 'Sunil Perera');
   await user.type(screen.getByLabelText(/passport number/i), 'N7788990');
+  await user.type(screen.getByLabelText(/passport validity/i), '2031-05-01');
   if (nic) await user.type(screen.getByLabelText(/nic number/i), nic);
+  await user.type(screen.getByLabelText(/profession/i), 'Tile layer');
   await user.type(screen.getByLabelText(/address/i), '12 Temple Road, Negombo');
   await user.type(screen.getByLabelText(/mobile number/i), '0771234567');
 }
@@ -79,7 +83,11 @@ describe('registering a candidate', () => {
 
     await waitFor(() => expect(createCandidate).toHaveBeenCalledTimes(1));
     expect(createCandidate.mock.calls[0][0]).toMatchObject({
-      name: 'Kamal Perera',
+      firstName: 'Kamal',
+      lastName: 'Perera',
+      fatherName: 'Sunil Perera',
+      passportExpiry: '2031-05-01',
+      profession: 'Tile layer',
       passportNo: 'N7788990',
       nicNo: '901234567V',
       jobRoleIds: [1, 2],
@@ -107,7 +115,7 @@ describe('registering a candidate', () => {
     await user.click(screen.getByRole('button', { name: /^register candidate$/i }));
 
     await waitFor(() => expect(createCandidate).toHaveBeenCalledTimes(1));
-    expect(createCandidate.mock.calls[0][0]).toMatchObject({ agencyId: 'AG-1042', name: 'Kamal Perera' });
+    expect(createCandidate.mock.calls[0][0]).toMatchObject({ agencyId: 'AG-1042', firstName: 'Kamal' });
   });
 
   it('asks a coordinator which agency the candidate belongs to', async () => {
@@ -227,5 +235,18 @@ describe('registering a candidate', () => {
     expect(screen.queryByRole('option', { name: 'Skyline Marketing' })).toBeNull();
     // The local agency picked before is cleared.
     expect(screen.getByLabelText(/^agency\s*\*?$/i).value).toBe('');
+  });
+
+  it('fills in the date of birth from the NIC', async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    await screen.findByRole('checkbox', { name: 'Tiler' });
+    expect(screen.getByTestId('date-of-birth').textContent).toContain('Filled in from the NIC');
+
+    // Day 522: a woman born on 22 January 1990.
+    await user.type(screen.getByLabelText(/nic number/i), '905223456V');
+    expect(screen.getByTestId('date-of-birth').textContent).toMatch(/1990/);
+    expect(screen.getByTestId('date-of-birth').textContent).toMatch(/22/);
   });
 });

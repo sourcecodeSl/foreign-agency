@@ -43,6 +43,8 @@ class Candidate extends Model
     protected $casts = [
         'passed_at' => 'datetime',
         'submitted_at' => 'datetime',
+        'date_of_birth' => 'date:Y-m-d',
+        'passport_expiry' => 'date:Y-m-d',
     ];
 
     /** Whether the pass held elsewhere has been looked up, and what was found. */
@@ -55,6 +57,8 @@ class Candidate extends Model
         // The person's key follows the NIC, whichever format it is written in.
         static::saving(function (Candidate $candidate) {
             $candidate->nic_key = Nic::key($candidate->nic_no);
+            // Read from the NIC, never typed in.
+            $candidate->date_of_birth = Nic::birthDate($candidate->nic_no);
         });
     }
 
@@ -295,7 +299,15 @@ class Candidate extends Model
             'id' => $this->id,
             'agencyId' => $this->agency_id,
             'name' => $this->name,
+            'firstName' => $this->first_name,
+            'lastName' => $this->last_name,
+            'fatherName' => $this->father_name,
+            'dateOfBirth' => $this->date_of_birth?->toDateString(),
+            'age' => $this->date_of_birth?->age,
             'passportNo' => $this->passport_no,
+            'passportExpiry' => $this->passport_expiry?->toDateString(),
+            'profession' => $this->profession,
+            'testResults' => $this->test_results,
             'nicNo' => $this->nic_no,
             'address' => $this->address,
             'mobile' => $this->mobile,

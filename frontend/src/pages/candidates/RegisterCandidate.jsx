@@ -15,13 +15,27 @@ import {
 import { candidateApi, jobRoleApi, agencyApi } from '../../lib/api';
 import { alertError, confirmAction, escapeHtml } from '../../lib/alert';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
+import { nicBirthDate, ageOn } from '../../lib/nic';
+import { formatDate } from './shared';
+
+/** Tomorrow as YYYY-MM-DD: a passport has to be valid past today. */
+const tomorrow = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
 
 const EMPTY = {
   agencyType: '',
   agencyId: '',
-  name: '',
+  firstName: '',
+  lastName: '',
+  fatherName: '',
   passportNo: '',
+  passportExpiry: '',
   nicNo: '',
+  profession: '',
+  testResults: '',
   jobRoleIds: [],
   testIndexNo: '',
   address: '',
@@ -41,17 +55,27 @@ function validate(values, forAgency) {
   if (forAgency && !values.agencyId)
     errors.agencyId = 'Choose the agency this candidate is registered with.';
 
-  if (!values.name.trim()) errors.name = 'Full name is required.';
-  else if (values.name.trim().length < 3) errors.name = 'Name must be at least 3 characters.';
+  if (!values.firstName.trim()) errors.firstName = 'First name is required.';
+  if (!values.lastName.trim()) errors.lastName = 'Last name is required.';
+  if (!values.fatherName.trim()) errors.fatherName = "Father's name is required.";
 
   if (!values.passportNo.trim()) errors.passportNo = 'Passport number is required.';
   else if (!/^[A-Za-z0-9]+$/.test(values.passportNo.trim()))
     errors.passportNo = 'Letters and numbers only.';
 
+  if (!values.passportExpiry) errors.passportExpiry = 'Passport validity is required.';
+  else if (values.passportExpiry < tomorrow())
+    errors.passportExpiry = 'The passport has expired. Enter a passport that is still valid.';
+
   // Required: the NIC is how a person is known across agencies.
   if (!values.nicNo.trim()) errors.nicNo = 'NIC number is required.';
   else if (!/^([0-9]{9}[VvXx]|[0-9]{12})$/.test(values.nicNo.trim()))
     errors.nicNo = 'Enter a valid NIC (9 digits plus V/X, or 12 digits).';
+  // The date of birth is read from it, so it has to hold a real day.
+  else if (!nicBirthDate(values.nicNo))
+    errors.nicNo = 'This NIC does not hold a valid date of birth. Check the number.';
+
+  if (!values.profession.trim()) errors.profession = 'Profession is required.';
 
   if (values.jobRoleIds.length === 0) errors.jobRoleIds = 'Choose at least one job category.';
 
@@ -114,11 +138,15 @@ export default function RegisterCandidate() {
         // An agency picked on the list arrives chosen, and so does its type.
         setValues((prev) => {
           const picked = list.find((a) => a.id === prev.agencyId);
-          return picked && !prev.agencyType ? { ...prev, agencyType: picked.type || 'local' } : prev;
+          return picked && !prev.agencyType
+            ? { ...prev, agencyType: picked.type || 'local' }
+            : prev;
         });
       })
       .catch((err) => toast(err.message || 'Could not load the agency list.', 'error'));
   }, [forAgency, toast]);
+
+  const birthDate = nicBirthDate(values.nicNo);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -340,15 +368,37 @@ export default function RegisterCandidate() {
             )}
 
             <Input
-              label="Full name"
-              name="name"
+              label="First name"
+              name="firstName"
               required
-              placeholder="Kamal Perera"
-              value={values.name}
+              placeholder="Kamal"
+              value={values.firstName}
               onChange={handleChange}
               onBlur={handleBlur}
-              error={errors.name}
+              error={errors.firstName}
               icon={IconUsers}
+            />
+
+            <Input
+              label="Last name"
+              name="lastName"
+              required
+              placeholder="Perera"
+              value={values.lastName}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              error={errors.lastName}
+            />
+
+            <Input
+              label="Father's name"
+              name="fatherName"
+              required
+              placeholder="Sunil Perera"
+              value={values.fatherName}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              error={errors.fatherName}
               className="sm:col-span-2"
             />
 
@@ -361,6 +411,19 @@ export default function RegisterCandidate() {
               onChange={handleChange}
               onBlur={handleBlur}
               error={errors.passportNo}
+            />
+
+            <Input
+              label="Passport validity"
+              name="passportExpiry"
+              type="date"
+              required
+              min={tomorrow()}
+              value={values.passportExpiry}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              error={errors.passportExpiry}
+              hint={!errors.passportExpiry ? 'The date the passport expires.' : undefined}
             />
 
             <Input
@@ -378,6 +441,24 @@ export default function RegisterCandidate() {
                   : undefined
               }
             />
+
+            {/* Worked out from the NIC as it is typed; the server does the same. */}
+            <div>
+              <p className="field-label">Date of birth</p>
+              <p
+                data-testid="date-of-birth"
+                className="flex min-h-[2.625rem] items-center rounded-lg border border-gray-200 bg-gray-50 px-3.5 text-sm text-gray-900"
+              >
+                {birthDate ? (
+                  formatDate(birthDate) + ' · ' + ageOn(birthDate) + ' years'
+                ) : (
+                  <span className="text-gray-400">Filled in from the NIC</span>
+                )}
+              </p>
+              <p className="mt-1.5 text-xs text-gray-500">
+                Calculated automatically from the NIC number.
+              </p>
+            </div>
 
             <fieldset
               className="sm:col-span-2"
@@ -486,6 +567,18 @@ export default function RegisterCandidate() {
             </fieldset>
 
             <Input
+              label="Profession"
+              name="profession"
+              required
+              placeholder="Tile layer"
+              value={values.profession}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              error={errors.profession}
+              hint={!errors.profession ? 'What the candidate works as today.' : undefined}
+            />
+
+            <Input
               label="Test index No"
               name="testIndexNo"
               placeholder="TI-2026-0148"
@@ -494,6 +587,23 @@ export default function RegisterCandidate() {
               onBlur={handleBlur}
               error={errors.testIndexNo}
               hint={!errors.testIndexNo ? 'Optional. The number on the test sheet.' : undefined}
+            />
+
+            <Input
+              label="Test results"
+              name="testResults"
+              placeholder="NVQ Level 3 - Pass"
+              maxLength={255}
+              value={values.testResults}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              error={errors.testResults}
+              hint={
+                !errors.testResults
+                  ? 'Optional. Trade test or certificate results already held.'
+                  : undefined
+              }
+              className="sm:col-span-2"
             />
 
             <div className="sm:col-span-2">

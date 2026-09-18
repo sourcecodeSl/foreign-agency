@@ -7,6 +7,7 @@ use App\Models\Candidate;
 use App\Models\JobRole;
 use App\Models\User;
 use App\Support\Jwt;
+use App\Support\Nic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -111,6 +112,57 @@ class CandidateJobCategoryTest extends TestCase
             ->assertJsonCount(2, 'data.jobRoles');
 
         $this->register(['jobRoleIds' => [$tiler, $tiler]], 'N5550001')->assertStatus(422);
+    }
+
+    public function test_personal_details_are_kept_and_the_birthday_is_read_from_the_nic(): void
+    {
+        $expiry = now()->addYears(3)->toDateString();
+
+        $candidate = $this->postJson('/api/v1/candidates', [
+            'firstName' => 'Kamal',
+            'lastName' => 'Perera',
+            'fatherName' => 'Sunil Perera',
+            'passportNo' => 'N7788990',
+            'passportExpiry' => $expiry,
+            // Old format, a woman: day 522 is day 22, 22 January 1990.
+            'nicNo' => '905223456V',
+            'profession' => 'Tile layer',
+            'testResults' => 'NVQ Level 3 - Pass',
+            'address' => '12 Temple Road, Negombo',
+            'mobile' => '0771234567',
+        ])->assertCreated()->json('data.candidate');
+
+        $this->assertSame('Kamal Perera', $candidate['name']);
+        $this->assertSame('Kamal', $candidate['firstName']);
+        $this->assertSame('Perera', $candidate['lastName']);
+        $this->assertSame('Sunil Perera', $candidate['fatherName']);
+        $this->assertSame('1990-01-22', $candidate['dateOfBirth']);
+        $this->assertSame($expiry, $candidate['passportExpiry']);
+        $this->assertSame('Tile layer', $candidate['profession']);
+        $this->assertSame('NVQ Level 3 - Pass', $candidate['testResults']);
+
+        // A new NIC moves the birthday with it; a new last name, the full name.
+        $this->putJson('/api/v1/candidates/'.$candidate['id'], ['nicNo' => '199206001234', 'lastName' => 'Silva'])
+            ->assertOk()
+            ->assertJsonPath('data.dateOfBirth', '1992-02-29')
+            ->assertJsonPath('data.name', 'Kamal Silva');
+    }
+
+    public function test_an_expired_passport_is_refused(): void
+    {
+        $this->register(['passportExpiry' => now()->subDay()->toDateString()])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['passportExpiry']);
+    }
+
+    public function test_the_nic_gives_the_date_of_birth(): void
+    {
+        $this->assertSame('1990-01-22', Nic::birthDate('900223456V'));
+        $this->assertSame('1990-01-22', Nic::birthDate('199052203456'));
+        $this->assertSame('1990-03-01', Nic::birthDate('900613456V'));
+        $this->assertNull(Nic::birthDate('900603456V'));   // 29 Feb 1990 never happened
+        $this->assertNull(Nic::birthDate('909993456V'));
+        $this->assertNull(Nic::birthDate(null));
     }
 
     public function test_the_job_category_must_be_one_that_is_on_offer(): void
