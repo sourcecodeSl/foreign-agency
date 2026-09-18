@@ -11,6 +11,22 @@ import { useToast } from '../../components/ui/Toast';
 import { IconPlus, IconSearch, IconTrash } from '../../components/ui/Icons';
 import { agencyApi } from '../../lib/api';
 
+// The heading follows the type filter, so it always names what is listed.
+const TYPE_TITLES = {
+  all: {
+    title: 'Agencies',
+    subtitle: 'Approve new registrations and manage the status of every agency.',
+  },
+  local: {
+    title: 'Local Agencies',
+    subtitle: 'Recruitment agencies in Sri Lanka: approve new ones and manage their status.',
+  },
+  foreign: {
+    title: 'Foreign Agencies',
+    subtitle: 'Agencies based overseas: approve new ones and manage their status.',
+  },
+};
+
 const TABS = [
   { id: 'pending', label: 'Pending' },
   { id: 'active', label: 'Active' },
@@ -318,8 +334,8 @@ export default function AgencyList() {
     <>
     <Card>
       <CardHeader
-        title="Agencies"
-        subtitle="Approve new registrations and manage the status of every agency."
+        title={TYPE_TITLES[type].title}
+        subtitle={TYPE_TITLES[type].subtitle}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -359,7 +375,9 @@ export default function AgencyList() {
         columns={columns}
         rows={rows}
         loading={loading}
-        empty={'No ' + (tab === 'all' ? '' : tab + ' ') + 'agencies found.'}
+        empty={
+          'No ' + (tab === 'all' ? '' : tab + ' ') + (type === 'all' ? '' : type + ' ') + 'agencies found.'
+        }
       />
 
       <div className="flex items-center justify-between border-t border-gray-200 px-5 py-3 text-sm text-gray-500">
