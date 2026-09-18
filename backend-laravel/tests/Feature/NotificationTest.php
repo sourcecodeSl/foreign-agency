@@ -72,6 +72,7 @@ class NotificationTest extends TestCase
         return $this->withToken($token)->postJson('/api/v1/candidates', [
             'name' => $name,
             'passportNo' => $passport,
+            'nicNo' => substr(preg_replace('/\D/', '', $passport).'000000000', 0, 9).'V',
             'address' => '12 Temple Road, Negombo',
             'mobile' => '0771234567',
         ])->assertCreated()->json('data.candidate.id');

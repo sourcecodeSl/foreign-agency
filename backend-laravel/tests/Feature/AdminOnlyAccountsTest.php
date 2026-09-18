@@ -320,9 +320,15 @@ class AdminOnlyAccountsTest extends TestCase
         $candidateId = $this->withToken($ownerToken)->postJson('/api/v1/candidates', [
             'name' => 'Kamal Perera',
             'passportNo' => 'N7788990',
+            'nicNo' => '901234567V',
             'address' => '12 Temple Road, Negombo',
             'mobile' => '0771234567',
         ])->assertCreated()->json('data.candidate.id');
+
+        // Documents are attached once the candidate has passed.
+        $this->withToken($ownerToken)
+            ->patchJson('/api/v1/candidates/'.$candidateId.'/pass', ['passed' => true])
+            ->assertOk();
 
         $this->withToken($ownerToken)->postJson('/api/v1/candidates/'.$candidateId.'/documents', [
             'type' => 'medical',

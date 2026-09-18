@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardBody, CardFooter } from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
+import { PageLoader } from '../../components/ui/Spinner';
 import OtpForm from '../../components/auth/OtpForm';
 import { useToast } from '../../components/ui/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { IconBuilding, IconUsers, IconMail, IconPhone, IconEdit } from '../../components/ui/Icons';
 import { agencyProfileApi } from '../../lib/api';
+import { alertError } from '../../lib/alert';
 
 const PHONE_RE = /^[0-9+\s-]{9,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -49,6 +51,11 @@ function DetailsCard({ profile, onSaved }) {
   const [values, setValues] = useState(() => detailsFrom(profile));
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
+
+  // A form-wide error is shown through SweetAlert, like every other message.
+  useEffect(() => {
+    if (formError) alertError(formError);
+  }, [formError]);
   const [saving, setSaving] = useState(false);
 
   const saved = detailsFrom(profile);
@@ -95,15 +102,6 @@ function DetailsCard({ profile, onSaved }) {
 
       <form onSubmit={handleSubmit} noValidate>
         <CardBody className="grid gap-x-8 gap-y-6 p-6 sm:grid-cols-2 sm:p-8">
-          {formError && (
-            <div
-              role="alert"
-              className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 sm:col-span-2"
-            >
-              {formError}
-            </div>
-          )}
-
           <div className="rounded-lg bg-gray-50 px-4 py-3 sm:col-span-2">
             <dl className="grid gap-4 text-sm sm:grid-cols-3">
               <Fact label="Agency code" value={profile.code} />
@@ -346,8 +344,8 @@ export default function AgencyProfile() {
 
   if (!profile) {
     return (
-      <div className="mx-auto max-w-5xl py-12 text-center text-sm text-gray-500">
-        Loading agency details...
+      <div className="mx-auto max-w-5xl">
+        <PageLoader label="Loading agency details..." />
       </div>
     );
   }

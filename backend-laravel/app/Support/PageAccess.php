@@ -45,8 +45,17 @@ final class PageAccess
         'candidates' => [
             'label' => 'Candidates by Agency',
             'section' => 'Candidates',
-            'description' => "Read any agency's candidate files and download their documents.",
+            'description' => "Read any agency's candidate files, register candidates for an agency, "
+                ."and check a passed candidate's documents and submit the profile.",
             // The page picks an agency first, so it reads the agency list too.
+            // Submitting a profile is guarded by can.page, not by a matrix cell.
+            'grants' => ['agencies' => ['view'], 'candidates' => ['view', 'create']],
+        ],
+        'companies' => [
+            'label' => 'Foreign Agencies',
+            'section' => 'Foreign Agent Management',
+            'description' => 'The overseas agencies this coordinator manages, their skill tests and passed candidates.',
+            // Booking a test reads the candidate pool and the agency names.
             'grants' => ['agencies' => ['view'], 'candidates' => ['view']],
         ],
         'verification' => [

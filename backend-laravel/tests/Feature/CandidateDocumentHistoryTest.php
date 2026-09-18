@@ -57,13 +57,21 @@ class CandidateDocumentHistoryTest extends TestCase
     /** Registers a candidate with only the fields the agency actually fills. */
     private function candidateId(string $name = 'Kamal Perera'): int
     {
-        return $this->withToken($this->token)->postJson('/api/v1/candidates', [
+        $id = $this->withToken($this->token)->postJson('/api/v1/candidates', [
             'name' => $name,
             'passportNo' => 'N'.random_int(1000000, 9999999),
+            'nicNo' => random_int(100000000, 999999999).'V',
             'address' => '12 Temple Road, Negombo',
             'mobile' => '0771234567',
             'email' => 'kamal@example.com',
         ])->assertCreated()->json('data.candidate.id');
+
+        // Documents are attached once the candidate has passed.
+        $this->withToken($this->token)
+            ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
+            ->assertOk();
+
+        return $id;
     }
 
     private function upload(int $id, string $type, string $filename)
@@ -100,11 +108,15 @@ class CandidateDocumentHistoryTest extends TestCase
         return $entries;
     }
 
-    public function test_a_candidate_registers_without_an_nic(): void
+    public function test_a_candidate_cannot_register_without_an_nic(): void
     {
-        $id = $this->candidateId();
-
-        $this->assertDatabaseHas('candidates', ['id' => $id, 'nic_no' => null]);
+        // The NIC is how a person is known across agencies, so it is required.
+        $this->withToken($this->token)->postJson('/api/v1/candidates', [
+            'name' => 'Kamal Perera',
+            'passportNo' => 'N7788990',
+            'address' => '12 Temple Road, Negombo',
+            'mobile' => '0771234567',
+        ])->assertStatus(422)->assertJsonPath('errors.nicNo', 'NIC number is required.');
     }
 
     public function test_uploading_the_same_type_three_times_keeps_all_three(): void

@@ -77,7 +77,7 @@ class DatabaseSeeder extends Seeder
 
     private function seedCounters(): void
     {
-        foreach (['agency' => 1047, 'role' => 5, 'verification' => 504] as $name => $value) {
+        foreach (['agency' => 1047, 'role' => 5, 'verification' => 504, 'company' => 1000, 'test' => 1000] as $name => $value) {
             AppCounter::updateOrCreate(['name' => $name], ['value' => $value]);
         }
     }

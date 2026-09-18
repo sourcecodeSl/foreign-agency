@@ -20,3 +20,18 @@ Object.defineProperty(globalThis, 'localStorage', { value: store, writable: true
 if (typeof window !== 'undefined') {
   Object.defineProperty(window, 'localStorage', { value: store, writable: true, configurable: true });
 }
+
+// jsdom has no matchMedia, and SweetAlert2 asks it about the colour scheme
+// before drawing a dialog. Answer "no preference" as a plain browser would.
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  window.matchMedia = (query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  });
+}

@@ -59,6 +59,14 @@ class CandidateFlowTest extends TestCase
         return Jwt::sign($user->toPublic());
     }
 
+    /** The agency's own switch; documents are attached only after it. */
+    private function markPassed(string $token, int $id): void
+    {
+        $this->withToken($token)
+            ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
+            ->assertOk();
+    }
+
     private function payload(array $overrides = []): array
     {
         return array_merge([
@@ -104,6 +112,8 @@ class CandidateFlowTest extends TestCase
         $this->assertSame('draft', $candidate['status']);
         $this->assertCount(8, $candidate['missingDocuments']);
 
+        $this->markPassed($token, $candidate['id']);
+
         foreach (DocumentType::cases() as $type) {
             $this->withToken($token)->postJson(
                 '/api/v1/candidates/'.$candidate['id'].'/documents',
@@ -121,8 +131,13 @@ class CandidateFlowTest extends TestCase
         $this->assertCount(8, $documents['documents']);
         $this->assertSame([], $documents['missing']);
 
-        // Complete set, so it can go forward for review.
+        // Complete set, so it can go forward - but a coordinator (or the Main
+        // Admin) checks it and submits, never the agency.
         $this->withToken($token)
+            ->patchJson('/api/v1/candidates/'.$candidate['id'].'/status', ['status' => 'submitted'])
+            ->assertStatus(403);
+
+        $this->withToken($this->tokenFor('main_admin', null, 'admin@example.com'))
             ->patchJson('/api/v1/candidates/'.$candidate['id'].'/status', ['status' => 'submitted'])
             ->assertOk()
             ->assertJsonPath('data.status', 'submitted');
@@ -136,6 +151,7 @@ class CandidateFlowTest extends TestCase
 
         $id = $this->withToken($token)->postJson('/api/v1/candidates', $this->payload())
             ->assertCreated()->json('data.candidate.id');
+        $this->markPassed($token, $id);
 
         $response = $this->withToken($token)->postJson('/api/v1/candidates/'.$id.'/documents/bulk', [
             'documents' => [
@@ -157,8 +173,9 @@ class CandidateFlowTest extends TestCase
 
         $id = $this->withToken($token)->postJson('/api/v1/candidates', $this->payload())
             ->assertCreated()->json('data.candidate.id');
+        $this->markPassed($token, $id);
 
-        $this->withToken($token)
+        $this->withToken($this->tokenFor('main_admin', null, 'admin@example.com'))
             ->patchJson('/api/v1/candidates/'.$id.'/status', ['status' => 'submitted'])
             ->assertStatus(422)
             ->assertJsonPath('message', 'Upload every required document before submitting.');
@@ -288,6 +305,7 @@ class CandidateFlowTest extends TestCase
 
         $id = $this->withToken($token)->postJson('/api/v1/candidates', $this->payload())
             ->assertCreated()->json('data.candidate.id');
+        $this->markPassed($token, $id);
 
         $this->withToken($token)->postJson('/api/v1/candidates/'.$id.'/documents', [
             'type' => 'passport_copy',

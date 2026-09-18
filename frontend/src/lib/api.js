@@ -12,6 +12,8 @@ import {
   MOCK_PERMISSIONS,
   MOCK_EMAIL_VERIFICATIONS,
 } from '../data/mock';
+import { trackRequest } from './loading';
+import { showLoading, hideLoading } from './alert';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
@@ -32,8 +34,45 @@ export const tokenStore = {
 const OFFLINE_MESSAGE =
   'Cannot reach the API server. Start Apache and MySQL in the XAMPP Control Panel.';
 
-/** Thin fetch wrapper: attaches the bearer token and unwraps { success, data }. */
-async function request(path, { method = 'GET', body, headers } = {}) {
+/**
+ * A session can end mid-screen: the token expires, or a sign-in elsewhere
+ * replaces it. The app registers one handler here (see AuthContext) so every
+ * screen does not have to work out what a 401 means.
+ */
+let onSessionEnded = null;
+
+export function setSessionEndedHandler(handler) {
+  onSessionEnded = handler;
+}
+
+// The sign-in steps answer 401 for a wrong password or a stale code, which is
+// a failed attempt rather than a session ending.
+const SIGN_IN_PATH = /^\/auth\/(login|verify|resend|forgot)/;
+
+/**
+ * Thin fetch wrapper: attaches the bearer token and unwraps { success, data }.
+ *
+ * Every request shows as loading: reads move the bar along the top of the
+ * screen, and anything that changes data holds a loading dialog until the
+ * server has answered, so nothing is clicked twice. `background` is for the
+ * polls nobody is waiting on, which show nothing.
+ */
+async function request(path, { method = 'GET', body, headers, background = false } = {}) {
+  if (background) return send(path, { method, body, headers });
+
+  const done = trackRequest();
+  const blocking = method !== 'GET';
+  if (blocking) showLoading();
+
+  try {
+    return await send(path, { method, body, headers });
+  } finally {
+    if (blocking) hideLoading();
+    done();
+  }
+}
+
+async function send(path, { method, body, headers }) {
   const token = tokenStore.get();
 
   let res;
@@ -61,8 +100,15 @@ async function request(path, { method = 'GET', body, headers } = {}) {
     // without one did not come from the application.
     const unreachable = payload === null && res.status >= 500;
 
+    // A 401 anywhere else means the session is gone, so say so in words that
+    // help - "Authentication required." reads like a bug on a filled-in form.
+    const sessionEnded = res.status === 401 && !SIGN_IN_PATH.test(path);
+    if (sessionEnded) onSessionEnded?.();
+
     const error = new Error(
-      payload?.message || (unreachable ? OFFLINE_MESSAGE : 'Request failed (' + res.status + ')')
+      sessionEnded
+        ? 'Your session has ended. Please sign in again.'
+        : payload?.message || (unreachable ? OFFLINE_MESSAGE : 'Request failed (' + res.status + ')')
     );
     error.status = res.status;
     error.errors = payload?.errors;
@@ -434,6 +480,59 @@ export const roleApi = {
   },
 };
 
+// --- Job roles --------------------------------------------------------------
+/** The trades a candidate is registered for and tested on. Live API only. */
+export const jobRoleApi = {
+  async list() {
+    requireLiveApi();
+    return request('/job-roles');
+  },
+
+  /** Main Admin and coordinators only. A removed name added again comes back. */
+  async create(name) {
+    requireLiveApi();
+    return request('/job-roles', { method: 'POST', body: { name } });
+  },
+
+  /** Takes the trade off the list; candidates and tests that name it keep it. */
+  async remove(id) {
+    requireLiveApi();
+    return request('/job-roles/' + id, { method: 'DELETE' });
+  },
+};
+
+// --- Foreign companies ------------------------------------------------------
+/** The overseas employers a candidate is tested for. A coordinator sees their own. Live API only. */
+export const companyApi = {
+  async list({ status = 'all' } = {}) {
+    requireLiveApi();
+    return request('/companies?status=' + status);
+  },
+};
+
+// --- Skill tests ------------------------------------------------------------
+/**
+ * One attempt per row, each under its own test number. Booking a new one
+ * closes whatever the candidate still had open. Live API only.
+ */
+export const testApi = {
+  async list({ candidateId = '' } = {}) {
+    requireLiveApi();
+    return request('/tests?candidateId=' + encodeURIComponent(candidateId));
+  },
+
+  async book(payload) {
+    requireLiveApi();
+    return request('/tests', { method: 'POST', body: payload });
+  },
+
+  /** result is 'pass' or 'fail'. */
+  async result(id, result, note) {
+    requireLiveApi();
+    return request('/tests/' + id + '/result', { method: 'PATCH', body: { result, note } });
+  },
+};
+
 // --- Coordinators (Main Admin) ----------------------------------------------
 /** People added to help run the system, each opened to the pages they need. Live API only. */
 export const coordinatorApi = {
@@ -564,7 +663,8 @@ export const dashboardApi = {
 export const notificationsApi = {
   /** What the bell lists for whoever is signed in, newest first. */
   async list() {
-    if (!USE_MOCK) return request('/notifications');
+    // Polled every minute in the background, so it never shows as loading.
+    if (!USE_MOCK) return request('/notifications', { background: true });
     await delay(200);
     return ok(
       agencies
@@ -610,6 +710,17 @@ function filenameFrom(header, fallback) {
 async function downloadFile(path, fallbackName) {
   requireLiveApi();
 
+  const done = trackRequest();
+  showLoading('Preparing the download...');
+  try {
+    return await fetchFile(path, fallbackName);
+  } finally {
+    hideLoading();
+    done();
+  }
+}
+
+async function fetchFile(path, fallbackName) {
   const res = await fetch(BASE_URL + path, {
     headers: { Authorization: 'Bearer ' + tokenStore.get() },
   });
@@ -658,11 +769,12 @@ export const candidateApi = {
    * An agency login is scoped to itself and ignores agencyId. A cross-agency
    * role has to name one, and gets an empty list until it does.
    */
-  async list({ search = '', status = 'all', agencyId = '' } = {}) {
+  async list({ search = '', status = 'all', agencyId = '', poolStatus = 'all' } = {}) {
     requireLiveApi();
     return request(
       '/candidates?search=' + encodeURIComponent(search) +
         '&status=' + status +
+        '&poolStatus=' + poolStatus +
         '&agencyId=' + encodeURIComponent(agencyId)
     );
   },
@@ -688,9 +800,19 @@ export const candidateApi = {
     return request('/candidates/' + id, { method: 'PUT', body: payload });
   },
 
+  /** A coordinator's (or the Main Admin's) call: 'submitted' sends the profile on. */
   async updateStatus(id, status) {
     requireLiveApi();
     return request('/candidates/' + id + '/status', { method: 'PATCH', body: { status } });
+  },
+
+  /**
+   * The agency's own switch. Passing opens the file for documents and stops
+   * other agencies registering the person.
+   */
+  async setPassed(id, passed) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/pass', { method: 'PATCH', body: { passed } });
   },
 
   async documents(id) {
@@ -715,12 +837,24 @@ export const candidateApi = {
     form.append('type', type);
     form.append('file', file);
 
-    const res = await fetch(BASE_URL + '/candidates/' + id + '/documents', {
-      method: 'POST',
-      // No Content-Type: the browser sets the multipart boundary itself.
-      headers: { Authorization: 'Bearer ' + tokenStore.get() },
-      body: form,
-    });
+    const done = trackRequest();
+    showLoading('Uploading ' + (file?.name || 'the file') + '...');
+    let res;
+    try {
+      res = await fetch(BASE_URL + '/candidates/' + id + '/documents', {
+        method: 'POST',
+        // No Content-Type: the browser sets the multipart boundary itself.
+        headers: { Authorization: 'Bearer ' + tokenStore.get() },
+        body: form,
+      });
+    } catch {
+      const error = new Error(OFFLINE_MESSAGE);
+      error.status = 0;
+      throw error;
+    } finally {
+      hideLoading();
+      done();
+    }
 
     const payload = await res.json().catch(() => null);
 

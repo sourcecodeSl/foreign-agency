@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Card, CardHeader } from '../../components/ui/Card';
 import Tabs from '../../components/ui/Tabs';
 import Table from '../../components/ui/Table';
@@ -10,6 +10,7 @@ import { StatusBadge } from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import { IconPlus, IconSearch, IconTrash } from '../../components/ui/Icons';
 import { agencyApi } from '../../lib/api';
+import { confirmAction, escapeHtml } from '../../lib/alert';
 
 // The heading follows the type filter, so it always names what is listed.
 const TYPE_TITLES = {
@@ -57,7 +58,11 @@ export default function AgencyList() {
   const { toast } = useToast();
   const [tab, setTab] = useState('pending');
   const [search, setSearch] = useState('');
-  const [type, setType] = useState('all');
+  // The Foreign Agency and Local Agency links carry ?type=, so the list opens
+  // on that kind and the address bar keeps it.
+  const [params, setParams] = useSearchParams();
+  const type = params.get('type') || 'all';
+  const setType = (next) => setParams(next === 'all' ? {} : { type: next }, { replace: true });
   const [rows, setRows] = useState([]);
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
@@ -67,8 +72,6 @@ export default function AgencyList() {
   // confirmation. Both hold the row so the dialog can render before the
   // fuller record arrives.
   const [details, setDetails] = useState(null);
-  const [confirmDelete, setConfirmDelete] = useState(null);
-  const [deleting, setDeleting] = useState(false);
 
   // Only the newest request may write, so a slow answer for a tab or search
   // that has since changed cannot overwrite the current one.
@@ -161,18 +164,28 @@ export default function AgencyList() {
   };
 
   const removeAgency = async (agency) => {
-    setDeleting(true);
+    const sure = await confirmAction({
+      title: 'Delete ' + agency.name + '?',
+      html:
+        '<p><strong>This cannot be undone.</strong></p>' +
+        '<p style="margin-top:.75rem">The agency record and its owner login are removed, which frees the ' +
+        'username <code>' + escapeHtml(agency.username) + '</code> for reuse.</p>' +
+        '<p style="margin-top:.75rem">An agency that still has candidates on file cannot be deleted - ' +
+        'deleting it would take their documents with it. Remove the candidates first, or deactivate ' +
+        'the agency instead to stop it signing in.</p>',
+      confirmText: 'Delete Agency',
+      danger: true,
+    });
+    if (!sure) return;
+
     try {
       await agencyApi.remove(agency.id);
       toast(agency.name + ' has been deleted.');
-      setConfirmDelete(null);
       setDetails(null);
       load();
     } catch (err) {
       // A 409 means the agency still has candidates, and the API explains why.
       toast(err.message || 'Could not delete the agency.', 'error');
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -303,7 +316,7 @@ export default function AgencyList() {
             title="Delete this agency"
             className="text-red-600 hover:bg-red-50 hover:text-red-700"
             disabled={busyId === row.id}
-            onClick={() => setConfirmDelete(row)}
+            onClick={() => removeAgency(row)}
           >
             Delete
           </Button>
@@ -418,7 +431,7 @@ export default function AgencyList() {
               variant="ghost"
               icon={IconTrash}
               className="text-red-600 hover:bg-red-50 hover:text-red-700"
-              onClick={() => setConfirmDelete(details)}
+              onClick={() => removeAgency(details)}
             >
               Delete
             </Button>
@@ -449,46 +462,6 @@ export default function AgencyList() {
       )}
     </Modal>
 
-    {/* --- delete confirmation --- */}
-    <Modal
-      open={confirmDelete !== null}
-      title={'Delete ' + (confirmDelete?.name || 'agency') + '?'}
-      subtitle="This cannot be undone."
-      onClose={() => (deleting ? null : setConfirmDelete(null))}
-      footer={
-        <>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={deleting}
-            onClick={() => setConfirmDelete(null)}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            loading={deleting}
-            onClick={() => removeAgency(confirmDelete)}
-          >
-            Delete Agency
-          </Button>
-        </>
-      }
-    >
-      <p className="text-sm text-gray-600">
-        The agency record and its owner login are removed, which frees the username{' '}
-        <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-900">
-          {confirmDelete?.username}
-        </code>{' '}
-        for reuse.
-      </p>
-      <p className="mt-3 text-sm text-gray-600">
-        An agency that still has candidates on file cannot be deleted — deleting it would take
-        their documents with it. Remove the candidates first, or deactivate the agency instead to
-        stop it signing in.
-      </p>
-    </Modal>
     </>
   );
 }

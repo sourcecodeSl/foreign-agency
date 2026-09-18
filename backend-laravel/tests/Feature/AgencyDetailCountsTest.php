@@ -70,6 +70,7 @@ class AgencyDetailCountsTest extends TestCase
         return $this->withToken($this->owner)->postJson('/api/v1/candidates', [
             'name' => $name,
             'passportNo' => $passport,
+            'nicNo' => substr(preg_replace('/\D/', '', $passport).'000000000', 0, 9).'V',
             'address' => '12 Temple Road, Negombo',
             'mobile' => '0771234567',
         ])->assertCreated()->json('data.candidate.id');

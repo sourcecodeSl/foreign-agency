@@ -9,11 +9,15 @@ import CandidatesList from '../pages/candidates/CandidatesList';
 // the assertions are about what the page asks it for.
 const listCandidates = vi.fn();
 const removeCandidate = vi.fn();
+const setPassed = vi.fn();
+const updateStatus = vi.fn();
 
 vi.mock('../lib/api', () => ({
   candidateApi: {
     list: (...args) => listCandidates(...args),
     remove: (...args) => removeCandidate(...args),
+    setPassed: (...args) => setPassed(...args),
+    updateStatus: (...args) => updateStatus(...args),
   },
   agencyApi: {
     list: async () => ({
@@ -28,7 +32,7 @@ vi.mock('../lib/api', () => ({
 let roleSlug = 'main_admin';
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ admin: { roleSlug } }),
-  isGlobalRole: (slug) => ['main_admin', 'auditor'].includes(slug),
+  isGlobalRole: (slug) => ['main_admin', 'auditor', 'coordinator'].includes(slug),
 }));
 
 const KAMAL = {
@@ -38,7 +42,21 @@ const KAMAL = {
   mobile: '0771234567',
   email: 'kamal@example.com',
   status: 'draft',
+  poolStatus: 'pool',
   missingDocuments: ['medical'],
+  registeredBy: { source: 'agency', label: 'Agency', name: 'Nadia Perera' },
+};
+
+// Put on the agency's register by a coordinator, and already passed.
+const NIMAL = {
+  id: 2,
+  name: 'Nimal Silva',
+  passportNo: 'N1122334',
+  mobile: '0772223344',
+  status: 'draft',
+  poolStatus: 'passed',
+  missingDocuments: [],
+  registeredBy: { source: 'coordinator', label: 'Coordinator', name: 'Kasun Coordinator' },
 };
 
 function renderList() {
@@ -80,7 +98,38 @@ describe('candidates for a cross-agency reader', () => {
       )
     );
 
-    // Registering belongs to the agency, so a reviewer is not offered it.
+    // The Main Admin may register on the chosen agency's behalf.
+    expect(screen.getByRole('link', { name: /register candidate/i }).getAttribute('href')).toBe(
+      '/candidates/register?agencyId=AG-1042'
+    );
+
+    // The pass is the agency's switch; a reviewer only reads it.
+    expect(screen.getByText('Not passed')).toBeTruthy();
+    expect(screen.queryByRole('switch', { name: 'Passed: Kamal Perera' })).toBeNull();
+
+    // Not passed, so there is nothing to submit yet.
+    expect(screen.getByRole('switch', { name: 'Profile submitted: Kamal Perera' }).disabled).toBe(true);
+  });
+
+  it('submits a passed candidate whose documents are all in', async () => {
+    const user = userEvent.setup();
+    listCandidates.mockResolvedValue({ data: [KAMAL, NIMAL] });
+    updateStatus.mockReset().mockResolvedValue({ message: "Nimal Silva's profile has been submitted." });
+    renderList();
+
+    await user.selectOptions(await screen.findByLabelText('Agency'), 'AG-1041');
+    const submit = await screen.findByRole('switch', { name: 'Profile submitted: Nimal Silva' });
+    expect(submit.disabled).toBe(false);
+
+    await user.click(submit);
+    await waitFor(() => expect(updateStatus).toHaveBeenCalledWith(2, 'submitted'));
+  });
+
+  it('offers the auditor no way to register', async () => {
+    roleSlug = 'auditor';
+    renderList();
+
+    await screen.findByText(/no agency selected/i);
     expect(screen.queryByRole('link', { name: /register candidate/i })).toBeNull();
   });
 });
@@ -98,6 +147,45 @@ describe('candidates for the owning agency', () => {
     expect(await screen.findByText('Kamal Perera')).toBeTruthy();
     expect(screen.queryByLabelText('Agency')).toBeNull();
     expect(screen.getByRole('link', { name: /register candidate/i })).toBeTruthy();
+    // Submitting is the coordinator's switch, not the agency's.
+    expect(screen.queryByRole('switch', { name: /profile submitted/i })).toBeNull();
+  });
+
+  it('switches a candidate to passed from the list', async () => {
+    const user = userEvent.setup();
+    setPassed.mockReset().mockResolvedValue({ message: 'Kamal Perera is marked as passed.' });
+    renderList();
+
+    const toggle = await screen.findByRole('switch', { name: 'Passed: Kamal Perera' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+
+    await user.click(toggle);
+
+    await waitFor(() => expect(setPassed).toHaveBeenCalledWith(1, true));
+    // The list is read again to show the new state.
+    await waitFor(() => expect(listCandidates).toHaveBeenCalledTimes(2));
+  });
+
+  it('says who put each candidate on the register', async () => {
+    listCandidates.mockResolvedValue({ data: [KAMAL, NIMAL] });
+    renderList();
+
+    await screen.findByText('Kamal Perera');
+    expect(screen.getByText('Added by agency')).toBeTruthy();
+    expect(screen.getByText('Added by coordinator · Kasun Coordinator')).toBeTruthy();
+    expect(
+      screen.getByRole('switch', { name: 'Passed: Nimal Silva' }).getAttribute('aria-checked')
+    ).toBe('true');
+  });
+
+  it('marks a blocked candidate and offers no switch', async () => {
+    listCandidates.mockResolvedValue({ data: [{ ...KAMAL, blocked: true, blockedBy: null }] });
+    renderList();
+
+    await screen.findByText('Kamal Perera');
+    expect(screen.getByText('Blocked')).toBeTruthy();
+    expect(screen.getByText('Passed with another agency')).toBeTruthy();
+    expect(screen.queryByRole('switch', { name: 'Passed: Kamal Perera' })).toBeNull();
   });
 
   it('confirms before removing a candidate', async () => {

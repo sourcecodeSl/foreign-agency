@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/layout/AuthLayout';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import { useAuth, nextPathFor } from '../../context/AuthContext';
 import { IconUsers } from '../../components/ui/Icons';
+import { alertError, alertInfo } from '../../lib/alert';
 
 function validate({ username, password }) {
   const errors = {};
@@ -25,15 +26,22 @@ export default function Login() {
     remember: true,
   });
   const [errors, setErrors] = useState({});
-  const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setValues((v) => ({ ...v, [name]: type === 'checkbox' ? checked : value }));
     setErrors((prev) => ({ ...prev, [name]: undefined }));
-    setFormError('');
   };
+
+  // Bounced here because the session ended: say so once, then let the
+  // address forget it so a refresh does not say it again.
+  const sessionEnded = Boolean(location.state?.sessionEnded);
+  useEffect(() => {
+    if (!sessionEnded) return;
+    alertInfo('Please sign in again to carry on.', 'Your session has ended', 'warning');
+    navigate(location.pathname, { replace: true, state: { ...location.state, sessionEnded: false } });
+  }, [sessionEnded, location.pathname, location.state, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -48,7 +56,7 @@ export default function Login() {
       const data = await login(values);
       navigate(nextPathFor(data));
     } catch (err) {
-      setFormError(err.message || 'Sign in failed. Please try again.');
+      alertError(err.message || 'Sign in failed. Please try again.', 'Sign in failed');
     } finally {
       setLoading(false);
     }
@@ -71,15 +79,6 @@ export default function Login() {
       }
     >
       <form onSubmit={handleSubmit} noValidate className="space-y-5">
-        {formError && (
-          <div
-            role="alert"
-            className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
-          >
-            {formError}
-          </div>
-        )}
-
         <Input
           label="Username"
           name="username"

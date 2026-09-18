@@ -5,9 +5,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from '../components/ui/Toast';
 import AgencyList from '../pages/agency/AgencyList';
 
-function renderList() {
+function renderList(entry = '/agencies') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <ToastProvider>
         <AgencyList />
       </ToastProvider>
@@ -34,8 +34,12 @@ describe('agency listing by type', () => {
 
     // The demo rows are all local, so the tab is empty and says so.
     expect(await screen.findByText('No pending foreign agencies found.')).toBeTruthy();
+  });
 
-    await user.selectOptions(filter, 'all');
-    expect(await screen.findByText('Agencies')).toBeTruthy();
+  it('opens on the kind the menu link asked for', async () => {
+    renderList('/agencies?type=foreign');
+
+    expect(await screen.findByText('Foreign Agencies')).toBeTruthy();
+    expect(screen.getByLabelText(/agency type/i).value).toBe('foreign');
   });
 });

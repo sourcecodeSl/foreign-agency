@@ -4,7 +4,7 @@ import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Badge, { StatusBadge } from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
-import { IconSearch, IconPlus, IconTrash } from '../../components/ui/Icons';
+import { IconSearch, IconTrash } from '../../components/ui/Icons';
 import { userApi, roleApi } from '../../lib/api';
 
 export default function UsersList() {
@@ -122,7 +122,7 @@ export default function UsersList() {
     <Card>
       <CardHeader
         title="Users"
-        subtitle="Every account across the main system and its agencies."
+        subtitle="Every account across the main system and its agencies. Agency logins are issued with the agency, and coordinators from Coordinators & Access."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -163,8 +163,6 @@ export default function UsersList() {
                            focus:ring-4 focus:ring-primary-100 sm:w-52"
               />
             </div>
-
-            <Button icon={IconPlus}>Add User</Button>
           </div>
         }
       />

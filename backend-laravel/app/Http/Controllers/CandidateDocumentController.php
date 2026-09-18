@@ -70,6 +70,7 @@ class CandidateDocumentController extends Controller
     {
         $this->requireOwningAgency($request);
         $candidate = $this->find($request, $candidateId);
+        $this->requireOpenForDocuments($candidate);
 
         $request->validate([
             'type' => ['required', Rule::in(DocumentType::values())],
@@ -108,6 +109,7 @@ class CandidateDocumentController extends Controller
     {
         $this->requireOwningAgency($request);
         $candidate = $this->find($request, $candidateId);
+        $this->requireOpenForDocuments($candidate);
 
         $rules = ['documents' => ['required', 'array', 'min:1']];
         foreach (DocumentType::values() as $type) {
@@ -279,6 +281,28 @@ class CandidateDocumentController extends Controller
 
         if (in_array($auth['roleSlug'] ?? null, self::GLOBAL_ROLES, true)) {
             throw new ApiException(403, 'Documents are attached by the agency that owns the candidate.');
+        }
+    }
+
+    /**
+     * Documents are collected only for a candidate who has passed, and stop
+     * once the coordinator has checked them and submitted the profile.
+     */
+    private function requireOpenForDocuments(Candidate $candidate): void
+    {
+        if ($candidate->isBlocked()) {
+            throw new ApiException(409, $candidate->name.' has already passed with another agency, '
+                .'so this file is blocked.');
+        }
+
+        if (! $candidate->isPassed()) {
+            throw new ApiException(409, 'Documents are attached only after the candidate has passed. '
+                .'Mark '.$candidate->name.' as passed first.');
+        }
+
+        if (in_array($candidate->status, Candidate::LOCKED_STATUSES, true)) {
+            throw new ApiException(409, 'The coordinator has submitted '.$candidate->name
+                ."'s profile, so its documents can no longer change.");
         }
     }
 

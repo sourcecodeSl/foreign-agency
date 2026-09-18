@@ -1,3 +1,5 @@
+import { PageLoader } from './Spinner';
+
 /**
  * Generic data table.
  *
@@ -27,8 +29,8 @@ export default function Table({ columns, rows, loading = false, empty = 'No reco
         <tbody className="divide-y divide-gray-100 bg-white">
           {loading && (
             <tr>
-              <td colSpan={columns.length} className="px-5 py-10 text-center text-gray-500">
-                Loading records...
+              <td colSpan={columns.length} className="px-5">
+                <PageLoader label="Loading records..." className="py-10" />
               </td>
             </tr>
           )}

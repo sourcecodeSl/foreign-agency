@@ -3,11 +3,11 @@ import { Card, CardHeader } from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Tabs from '../../components/ui/Tabs';
 import Button from '../../components/ui/Button';
-import Modal from '../../components/ui/Modal';
 import { StatusBadge } from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import { IconMail, IconSearch, IconCheck, IconRefresh, IconTrash } from '../../components/ui/Icons';
 import { verificationApi } from '../../lib/api';
+import { confirmAction, escapeHtml } from '../../lib/alert';
 import AgencyVerification from './AgencyVerification';
 
 const TABS = [
@@ -24,8 +24,6 @@ export default function EmailVerification() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
-  const [confirmDelete, setConfirmDelete] = useState(null);
-  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,16 +56,24 @@ export default function EmailVerification() {
   };
 
   const removeRequest = async (row) => {
-    setDeleting(true);
+    const sure = await confirmAction({
+      title: 'Remove this request?',
+      html:
+        '<p>The confirmation history for <strong>' + escapeHtml(row.email) +
+        '</strong> is dropped from this list.</p>' +
+        '<p style="margin-top:.75rem">This is only the record of the links that were sent - the account ' +
+        'itself is not touched, and a new confirmation can be requested at any time.</p>',
+      confirmText: 'Remove Request',
+      danger: true,
+    });
+    if (!sure) return;
+
     try {
       await verificationApi.removeEmail(row.id);
       toast(row.email + ' has been removed from the list.');
-      setConfirmDelete(null);
       load();
     } catch (err) {
       toast(err.message || 'Could not remove the request.', 'error');
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -136,7 +142,7 @@ export default function EmailVerification() {
             title="Remove this request"
             className="text-red-600 hover:bg-red-50 hover:text-red-700"
             disabled={busyId === row.id}
-            onClick={() => setConfirmDelete(row)}
+            onClick={() => removeRequest(row)}
           >
             Delete
           </Button>
@@ -172,43 +178,6 @@ export default function EmailVerification() {
         <Tabs tabs={TABS} active={tab} onChange={setTab} />
         <Table columns={columns} rows={rows} loading={loading} empty="No verification requests found." />
       </Card>
-
-      <Modal
-        open={confirmDelete !== null}
-        title="Remove this request?"
-        subtitle={confirmDelete?.email}
-        onClose={() => (deleting ? null : setConfirmDelete(null))}
-        footer={
-          <>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={deleting}
-              onClick={() => setConfirmDelete(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
-              loading={deleting}
-              onClick={() => removeRequest(confirmDelete)}
-            >
-              Remove Request
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-gray-600">
-          The confirmation history for{' '}
-          <span className="font-medium text-gray-900">{confirmDelete?.email}</span> is dropped from
-          this list.
-        </p>
-        <p className="mt-3 text-sm text-gray-600">
-          This is only the record of the links that were sent — the account itself is not touched,
-          and a new confirmation can be requested at any time.
-        </p>
-      </Modal>
     </div>
   );
 }

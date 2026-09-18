@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { authApi, tokenStore } from '../lib/api';
+import { authApi, tokenStore, setSessionEndedHandler } from '../lib/api';
 import { COORDINATOR, coordinatorHome } from '../lib/access';
+import { PageLoader } from '../components/ui/Spinner';
 
 const AuthContext = createContext(null);
 
@@ -45,6 +46,8 @@ export function AuthProvider({ children }) {
   const [admin, setAdmin] = useState(null);
   const [challenge, setChallenge] = useState(null); // pending OTP step
   const [booting, setBooting] = useState(true);
+  // Set once the API has turned a request away for want of a session.
+  const [sessionEnded, setSessionEnded] = useState(false);
 
   // Restore the session on a hard refresh.
   useEffect(() => {
@@ -59,6 +62,18 @@ export function AuthProvider({ children }) {
         setBooting(false);
       }
     })();
+  }, []);
+
+  // Whatever screen was open, a lost session ends the same way: drop the
+  // token and the account, so the guarded screens bounce to the sign-in page.
+  useEffect(() => {
+    setSessionEndedHandler(() => {
+      tokenStore.clear();
+      setAdmin(null);
+      setSessionEnded(true);
+    });
+
+    return () => setSessionEndedHandler(null);
   }, []);
 
   const value = useMemo(() => {
@@ -94,6 +109,7 @@ export function AuthProvider({ children }) {
       admin,
       challenge,
       booting,
+      sessionEnded,
       isAuthenticated: !!admin && !!tokenStore.get(),
 
       /*
@@ -104,12 +120,13 @@ export function AuthProvider({ children }) {
 
       /** Credentials -> the first code still owed, or straight to the session. */
       async login(credentials) {
-        // A fresh sign-in supersedes any earlier session. Without this, a token
-        // left in localStorage would make the verification screens think the
-        // user is already authenticated and let them skip a step.
-        tokenStore.clear();
+        // A fresh sign-in supersedes the account in hand, so the verification
+        // screens cannot be skipped by a session that is already open. The
+        // token itself stays until the new one replaces it: clearing it here
+        // would sign out every other tab the moment this form is used.
         setAdmin(null);
         setChallenge(null);
+        setSessionEnded(false);
 
         const { data } = await authApi.login(credentials);
         advance(data);
@@ -152,26 +169,26 @@ export function AuthProvider({ children }) {
         setChallenge(null);
       },
     };
-  }, [admin, challenge, booting]);
+  }, [admin, challenge, booting, sessionEnded]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 /** Wraps the dashboard routes; bounces unauthenticated visitors to /login. */
 export function RequireAuth({ children }) {
-  const { isAuthenticated, booting } = useAuth();
+  const { isAuthenticated, booting, sessionEnded } = useAuth();
   const location = useLocation();
 
   if (booting) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-gray-500">
-        Loading your workspace...
+      <div className="flex min-h-screen items-center justify-center">
+        <PageLoader label="Loading your workspace..." />
       </div>
     );
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to="/login" state={{ from: location, sessionEnded }} replace />;
   }
 
   return children;

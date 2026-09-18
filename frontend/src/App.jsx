@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, RequireAuth, useAuth } from './context/AuthContext';
 import { canOpen } from './lib/access';
 import { ToastProvider } from './components/ui/Toast';
+import TopLoader from './components/ui/TopLoader';
 import DashboardLayout from './components/layout/DashboardLayout';
 
 import Login from './pages/auth/Login';
@@ -19,6 +20,7 @@ import UserTypes from './pages/users/UserTypes';
 import UserPermissions from './pages/users/UserPermissions';
 import Coordinators from './pages/users/Coordinators';
 import CandidatesList from './pages/candidates/CandidatesList';
+import CandidateList from './pages/candidates/CandidateList';
 import RegisterCandidate from './pages/candidates/RegisterCandidate';
 import CandidateDetail from './pages/candidates/CandidateDetail';
 
@@ -43,6 +45,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <ToastProvider>
+        <TopLoader />
         <AuthProvider>
           <Routes>
             {/* Public */}
@@ -65,7 +68,8 @@ export default function App() {
               <Route path="/agencies/create" element={<PageGate page="agencies.create"><CreateAgency /></PageGate>} />
               <Route path="/agency/profile" element={<PageGate page={null}><AgencyProfile /></PageGate>} />
               <Route path="/candidates" element={<PageGate page="candidates"><CandidatesList /></PageGate>} />
-              <Route path="/candidates/register" element={<PageGate page={null}><RegisterCandidate /></PageGate>} />
+              <Route path="/candidates/all" element={<PageGate page="candidates"><CandidateList /></PageGate>} />
+              <Route path="/candidates/register" element={<PageGate page="candidates"><RegisterCandidate /></PageGate>} />
               <Route path="/candidates/:id" element={<PageGate page="candidates"><CandidateDetail /></PageGate>} />
               <Route path="/users" element={<PageGate page={null}><UsersList /></PageGate>} />
               <Route path="/users/types" element={<PageGate page={null}><UserTypes /></PageGate>} />

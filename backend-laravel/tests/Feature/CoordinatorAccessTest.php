@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\Jwt;
 use App\Support\PageAccess;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 /**
@@ -121,7 +122,7 @@ class CoordinatorAccessTest extends TestCase
         $this->getJson('/api/v1/coordinators')->assertStatus(403);
     }
 
-    public function test_candidate_files_are_read_only_for_a_coordinator(): void
+    public function test_a_coordinator_registers_for_an_agency_but_never_attaches(): void
     {
         Candidate::create([
             'agency_id' => 'AG-9001',
@@ -138,7 +139,26 @@ class CoordinatorAccessTest extends TestCase
         $this->getJson('/api/v1/agencies')->assertOk();
         $this->getJson('/api/v1/candidates?agencyId=AG-9001')->assertOk()->assertJsonCount(1, 'data');
 
-        $this->postJson('/api/v1/candidates', ['agencyId' => 'AG-9001'])->assertStatus(403);
+        // A coordinator may put a candidate on an agency's register, and the
+        // file says so.
+        $id = $this->postJson('/api/v1/candidates', [
+            'agencyId' => 'AG-9001',
+            'name' => 'Nimal Silva',
+            'passportNo' => 'N1122334',
+            'nicNo' => '881122334V',
+            'address' => '8 Lake Road, Kandy',
+            'mobile' => '0772223344',
+        ])->assertCreated()
+            ->assertJsonPath('data.candidate.registeredBy.source', 'coordinator')
+            ->json('data.candidate.id');
+
+        // Attaching documents stays the agency's job, and so does the pass.
+        $this->postJson('/api/v1/candidates/'.$id.'/documents', [
+            'type' => 'medical',
+            'file' => UploadedFile::fake()->create('medical.pdf', 40, 'application/pdf'),
+        ])->assertStatus(403);
+        $this->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])->assertStatus(403);
+
         $this->patchJson('/api/v1/agencies/AG-9001/status', ['status' => 'active'])->assertStatus(403);
     }
 

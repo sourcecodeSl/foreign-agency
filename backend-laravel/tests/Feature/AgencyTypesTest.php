@@ -13,6 +13,9 @@ use Tests\TestCase;
  * Agencies are local (Sri Lanka) or foreign (overseas). A coordinator can
  * create either; each gets its own login and registers its own candidates,
  * and neither sees the other's files.
+ *
+ * A foreign agency is not a foreign company: companies are the overseas
+ * employers that run skill tests, and they live in their own directory.
  */
 class AgencyTypesTest extends TestCase
 {
@@ -67,6 +70,7 @@ class AgencyTypesTest extends TestCase
         return [
             'name' => 'Kamal Perera',
             'passportNo' => $passport,
+            'nicNo' => substr(preg_replace('/\D/', '', $passport).'000000000', 0, 9).'V',
             'address' => '12 Temple Road, Negombo',
             'mobile' => '0771234567',
         ];
@@ -126,7 +130,8 @@ class AgencyTypesTest extends TestCase
             ->assertJsonPath('data.country', 'Sri Lanka')
             ->json('data.id');
 
-        // The list and its counts can be narrowed to one kind.
+        // The list and its counts can be narrowed to one kind - the Foreign
+        // Agency and Local Agency links in the menu do exactly this.
         $foreignIds = collect($this->getJson('/api/v1/agencies?type=foreign')->assertOk()->json('data'))->pluck('id')->all();
         $this->assertSame([$foreign], $foreignIds);
         $this->getJson('/api/v1/agencies/counts?type=foreign')->assertOk()->assertJsonPath('data.all', 1);

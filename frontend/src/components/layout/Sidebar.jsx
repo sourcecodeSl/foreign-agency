@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
 import { canOpen, COORDINATOR } from '../../lib/access';
 import {
@@ -25,18 +25,22 @@ const ADMIN_NAV = [
     items: [{ to: '/dashboard', label: 'Dashboard', icon: IconDashboard, end: true, page: 'dashboard' }],
   },
   {
-    section: 'Agency Management',
+    section: 'Candidate Management',
     items: [
-      { to: '/agencies/create', label: 'Create Agency', icon: IconBuilding, page: 'agencies.create' },
-      { to: '/agencies', label: 'Agency List', icon: IconBuilding, end: true, page: 'agencies' },
+      { to: '/candidates/all', label: 'Candidate List', icon: IconUsers, page: 'candidates' },
+      // The by-agency screen reads one agency at a time, so its label says so
+      // rather than promising a single list of everybody.
+      { to: '/candidates', label: 'Candidates by Agency', icon: IconUsers, end: true, page: 'candidates' },
     ],
   },
   {
-    section: 'Candidates',
-    // Read one agency at a time, so the label says so rather than promising
-    // a single list of everybody.
+    section: 'Foreign Agent Management',
     items: [
-      { to: '/candidates', label: 'Candidates by Agency', icon: IconUsers, end: true, page: 'candidates' },
+      { to: '/users/coordinators', label: 'Coordinators & Access', icon: IconShield, mainAdminOnly: true },
+      // One listing, opened on one kind of agency. New agencies are added from
+      // the button on that page, which is why Create Agency is not a link here.
+      { to: '/agencies?type=foreign', label: 'Foreign Agency', icon: IconBuilding, page: 'agencies' },
+      { to: '/agencies?type=local', label: 'Local Agency', icon: IconBuilding, page: 'agencies' },
     ],
   },
   {
@@ -45,7 +49,6 @@ const ADMIN_NAV = [
       { to: '/users', label: 'Users List', icon: IconUsers, end: true },
       { to: '/users/types', label: 'User Types / Roles', icon: IconShield },
       { to: '/users/permissions', label: 'User Permissions', icon: IconShield },
-      { to: '/users/coordinators', label: 'Coordinators & Access', icon: IconShield, mainAdminOnly: true },
     ],
   },
   {
@@ -89,6 +92,13 @@ function adminNavFor(admin) {
 
 function NavItem({ item, onNavigate }) {
   const Icon = item.icon;
+  const { pathname, search } = useLocation();
+
+  // A link that carries a filter (?type=foreign) is current only while that
+  // filter is the one on screen; NavLink on its own compares the path alone.
+  const [path, query] = item.to.split('?');
+  const filtered = query ? pathname === path && search === '?' + query : null;
+
   return (
     <NavLink
       to={item.to}
@@ -96,14 +106,16 @@ function NavItem({ item, onNavigate }) {
       onClick={onNavigate}
       className={({ isActive }) =>
         'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ' +
-        (isActive
+        (filtered ?? isActive
           ? 'bg-primary-50 text-primary-700'
           : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900')
       }
     >
       {({ isActive }) => (
         <>
-          <Icon className={'h-5 w-5 ' + (isActive ? 'text-primary-600' : 'text-gray-400')} />
+          <Icon
+            className={'h-5 w-5 ' + ((filtered ?? isActive) ? 'text-primary-600' : 'text-gray-400')}
+          />
           <span className="truncate">{item.label}</span>
         </>
       )}

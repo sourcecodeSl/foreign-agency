@@ -6,7 +6,16 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use Illuminate\Support\Env;
 use App\Exceptions\ApiException;
+
+// XAMPP's Apache on Windows serves every request from threads of a single
+// process, and putenv() writes to that shared process environment. When one
+// request finishes, PHP takes its variables back out, so a request running
+// beside it could lose .env halfway through: a valid token then failed to
+// verify ("Your session has ended") and the database fell back to sqlite.
+// Without putenv, .env lives in $_SERVER and $_ENV, which each request owns.
+Env::disablePutenv();
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(

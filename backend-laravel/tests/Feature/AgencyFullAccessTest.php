@@ -69,6 +69,7 @@ class AgencyFullAccessTest extends TestCase
         $id = $this->agency()->postJson('/api/v1/candidates', [
             'name' => 'Kamal Perera',
             'passportNo' => 'N7788990',
+            'nicNo' => '901234567V',
             'address' => '12 Temple Road, Negombo',
             'mobile' => '0771234567',
             'email' => 'kamal@example.com',
@@ -89,6 +90,12 @@ class AgencyFullAccessTest extends TestCase
         $this->agency()->putJson('/api/v1/candidates/'.$id, ['mobile' => '0779999999'])
             ->assertOk()
             ->assertJsonPath('data.mobile', '0779999999');
+
+        // --- mark as passed, which opens the file for documents ---
+        $this->agency()->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
+            ->assertOk()
+            ->assertJsonPath('data.poolStatus', 'passed')
+            ->assertJsonPath('data.documentsOpen', true);
 
         // --- attach every required document ---
         foreach (DocumentType::cases() as $type) {
@@ -130,10 +137,9 @@ class AgencyFullAccessTest extends TestCase
         $archive->close();
         @unlink($tmp);
 
-        // --- submit for review, now that the set is complete ---
+        // --- submitting the profile is the coordinator's call, not the agency's ---
         $this->agency()->patchJson('/api/v1/candidates/'.$id.'/status', ['status' => 'submitted'])
-            ->assertOk()
-            ->assertJsonPath('data.status', 'submitted');
+            ->assertStatus(403);
 
         // --- remove ---
         $this->agency()->deleteJson('/api/v1/candidates/'.$id)->assertOk();

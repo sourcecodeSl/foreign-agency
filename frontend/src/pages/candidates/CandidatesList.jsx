@@ -4,11 +4,13 @@ import { Card, CardHeader } from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
-import Modal from '../../components/ui/Modal';
+import Switch from '../../components/ui/Switch';
 import { useToast } from '../../components/ui/Toast';
 import { IconPlus, IconSearch, IconUsers, IconTrash, IconBuilding } from '../../components/ui/Icons';
 import { candidateApi, agencyApi } from '../../lib/api';
+import { confirmAction, escapeHtml } from '../../lib/alert';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
+import { SourceTag, SubmitSwitch, canRegister, isReviewer, isSettled } from './shared';
 
 const STATUS_TONE = {
   draft: 'gray',
@@ -24,6 +26,8 @@ export default function CandidatesList() {
 
   // A cross-agency role browses one agency at a time and picks which.
   const isAdmin = isGlobalRole(admin?.roleSlug);
+  // A coordinator (or the Main Admin) submits a passed candidate's profile.
+  const reviewer = isReviewer(admin?.roleSlug);
 
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState('');
@@ -32,21 +36,25 @@ export default function CandidatesList() {
 
   const [agencies, setAgencies] = useState([]);
   const [agencyId, setAgencyId] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState(null);
-  const [deleting, setDeleting] = useState(false);
+  // Local or foreign first, so the agency picker beside it is a short list.
+  const [agencyType, setAgencyType] = useState('all');
+  // The row whose pass is being switched.
+  const [passingId, setPassingId] = useState(null);
 
   // The picker only exists for the admin; an agency login is already scoped.
   useEffect(() => {
     if (!isAdmin) return;
     (async () => {
       try {
-        const { data } = await agencyApi.list({ status: 'all' });
+        const { data } = await agencyApi.list({ status: 'all', type: agencyType });
         setAgencies(data);
+        // The agency in hand may not be of the kind now on show.
+        setAgencyId((chosen) => (data.some((a) => a.id === chosen) ? chosen : ''));
       } catch (err) {
         toast(err.message || 'Could not load the agency list.', 'error');
       }
     })();
-  }, [isAdmin, toast]);
+  }, [isAdmin, agencyType, toast]);
 
   const load = useCallback(async () => {
     // Nothing to fetch until the admin has chosen whose files to look at.
@@ -74,16 +82,36 @@ export default function CandidatesList() {
   }, [load, search]);
 
   const removeCandidate = async (candidate) => {
-    setDeleting(true);
+    const sure = await confirmAction({
+      title: 'Remove ' + candidate.name + '?',
+      html:
+        'Passport <code>' + escapeHtml(candidate.passportNo) + '</code> is removed from the register. ' +
+        'The documents already uploaded stay on the server, so the record can be restored if this was a mistake.',
+      confirmText: 'Remove Candidate',
+      danger: true,
+    });
+    if (!sure) return;
+
     try {
       await candidateApi.remove(candidate.id);
       toast(candidate.name + ' has been removed.');
-      setConfirmDelete(null);
       load();
     } catch (err) {
       toast(err.message || 'Could not remove the candidate.', 'error');
+    }
+  };
+
+  // The agency's own switch; the server refuses anyone already passed elsewhere.
+  const setPassed = async (row, passed) => {
+    setPassingId(row.id);
+    try {
+      const res = await candidateApi.setPassed(row.id, passed);
+      toast(res.message || (passed ? row.name + ' is marked as passed.' : row.name + ' is no longer marked as passed.'));
+      load();
+    } catch (err) {
+      toast(err.message || 'Could not change the pass.', 'error');
     } finally {
-      setDeleting(false);
+      setPassingId(null);
     }
   };
 
@@ -92,12 +120,13 @@ export default function CandidatesList() {
       key: 'name',
       header: 'Candidate',
       render: (row) => (
-        <div>
+        <div className="space-y-1">
           <p className="font-medium text-gray-900">{row.name}</p>
           <p className="text-xs text-gray-500">
             Passport {row.passportNo}
             {row.nicNo ? ' · NIC ' + row.nicNo : ''}
           </p>
+          <SourceTag registeredBy={row.registeredBy} />
         </div>
       ),
     },
@@ -127,6 +156,68 @@ export default function CandidatesList() {
       },
     },
     {
+      key: 'passed',
+      header: 'Passed',
+      render: (row) => {
+        const passed = row.poolStatus === 'passed';
+
+        // Passed with another agency under the same NIC: nothing to switch.
+        if (row.blocked) {
+          return (
+            <div className="max-w-[12rem] space-y-1 whitespace-normal">
+              <Badge tone="red" dot>
+                Blocked
+              </Badge>
+              <p className="text-xs text-red-700">
+                Passed with {row.blockedBy || 'another agency'}
+              </p>
+            </div>
+          );
+        }
+
+        if (isAdmin) {
+          return (
+            <Badge tone={passed ? 'green' : 'gray'} dot>
+              {passed ? 'Passed' : 'Not passed'}
+            </Badge>
+          );
+        }
+
+        // A pass from a skill test, or on a submitted profile, stays on; an
+        // open skill test is waiting for the coordinator's result.
+        const locked = passed
+          ? Boolean(row.lockedCompany) || isSettled(row)
+          : row.poolStatus === 'testing';
+
+        return (
+          <Switch
+            checked={passed}
+            onChange={(next) => setPassed(row, next)}
+            loading={passingId === row.id}
+            disabled={locked}
+            label={'Passed: ' + row.name}
+            title={
+              row.poolStatus === 'testing'
+                ? 'A skill test is open for this candidate.'
+                : passed
+                  ? 'Passed - documents are open.'
+                  : 'Switch on once the candidate has passed.'
+            }
+          />
+        );
+      },
+    },
+    // Opens once a passed candidate's documents are all in.
+    ...(reviewer
+      ? [
+          {
+            key: 'submitted',
+            header: 'Submitted',
+            render: (row) => <SubmitSwitch candidate={row} onChanged={load} />,
+          },
+        ]
+      : []),
+    {
       key: 'status',
       header: 'Status',
       render: (row) => <Badge tone={STATUS_TONE[row.status] || 'gray'} dot>{row.status}</Badge>,
@@ -146,7 +237,7 @@ export default function CandidatesList() {
             icon={IconTrash}
             title="Remove this candidate"
             className="text-red-600 hover:bg-red-50 hover:text-red-700"
-            onClick={() => setConfirmDelete(row)}
+            onClick={() => removeCandidate(row)}
           >
             Delete
           </Button>
@@ -168,11 +259,24 @@ export default function CandidatesList() {
           title="Candidates"
           subtitle={
             isAdmin
-              ? 'Pick an agency to review the candidates it registered.'
+              ? 'Pick local or foreign, then the agency whose candidates you want to review.'
               : 'Everyone registered by your agency, and how complete their file is.'
           }
           action={
             <div className="flex flex-wrap items-center gap-2">
+              {isAdmin && (
+                <select
+                  value={agencyType}
+                  onChange={(e) => setAgencyType(e.target.value)}
+                  className={selectClass}
+                  aria-label="Agency type"
+                >
+                  <option value="all">All agencies</option>
+                  <option value="local">Local agencies</option>
+                  <option value="foreign">Foreign agencies</option>
+                </select>
+              )}
+
               {isAdmin && (
                 <select
                   value={agencyId}
@@ -180,7 +284,13 @@ export default function CandidatesList() {
                   className={selectClass}
                   aria-label="Agency"
                 >
-                  <option value="">Select an agency...</option>
+                  <option value="">
+                    {agencyType === 'foreign'
+                      ? 'Select a foreign agency...'
+                      : agencyType === 'local'
+                      ? 'Select a local agency...'
+                      : 'Select an agency...'}
+                  </option>
                   {agencies.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name}
@@ -216,9 +326,15 @@ export default function CandidatesList() {
                 />
               </div>
 
-              {/* Registering is the agency's job, so the admin is not offered it. */}
-              {!isAdmin && (
-                <Link to="/candidates/register">
+              {/* The agency registers for itself; a coordinator (or the Main Admin)
+                  may register on an agency's behalf. The auditor only reads. */}
+              {canRegister(admin?.roleSlug) && (
+                <Link
+                  to={
+                    '/candidates/register' +
+                    (isAdmin && agencyId ? '?agencyId=' + encodeURIComponent(agencyId) : '')
+                  }
+                >
                   <Button icon={IconPlus}>Register Candidate</Button>
                 </Link>
               )}
@@ -252,42 +368,6 @@ export default function CandidatesList() {
           </span>
         </div>
       </Card>
-
-      <Modal
-        open={confirmDelete !== null}
-        title={'Remove ' + (confirmDelete?.name || 'candidate') + '?'}
-        subtitle="The candidate no longer appears in the list."
-        onClose={() => (deleting ? null : setConfirmDelete(null))}
-        footer={
-          <>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={deleting}
-              onClick={() => setConfirmDelete(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
-              loading={deleting}
-              onClick={() => removeCandidate(confirmDelete)}
-            >
-              Remove Candidate
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-gray-600">
-          Passport{' '}
-          <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-900">
-            {confirmDelete?.passportNo}
-          </code>{' '}
-          is removed from the register. The documents already uploaded stay on the server, so the
-          record can be restored if this was a mistake.
-        </p>
-      </Modal>
     </>
   );
 }

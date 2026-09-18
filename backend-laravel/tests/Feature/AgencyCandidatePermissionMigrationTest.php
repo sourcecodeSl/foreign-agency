@@ -151,6 +151,7 @@ class AgencyCandidatePermissionMigrationTest extends TestCase
         $payload = [
             'name' => 'Kamal Perera',
             'passportNo' => 'N7788990',
+            'nicNo' => '901234567V',
             'address' => '12 Temple Road, Negombo',
             'mobile' => '0771234567',
         ];

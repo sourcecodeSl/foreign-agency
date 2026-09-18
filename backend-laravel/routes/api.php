@@ -7,9 +7,12 @@ use App\Http\Controllers\CandidateController;
 use App\Http\Controllers\CandidateDocumentController;
 use App\Http\Controllers\CoordinatorController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ForeignCompanyController;
+use App\Http\Controllers\JobRoleController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\SkillTestController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VerificationController;
 use Illuminate\Support\Facades\Route;
@@ -76,7 +79,12 @@ Route::prefix('candidates')->middleware('auth.jwt')->group(function () {
     Route::post('/', [CandidateController::class, 'store'])->middleware('can.perm:candidates,create');
     Route::get('/{id}', [CandidateController::class, 'show'])->middleware('can.perm:candidates,view');
     Route::put('/{id}', [CandidateController::class, 'update'])->middleware('can.perm:candidates,edit');
-    Route::patch('/{id}/status', [CandidateController::class, 'updateStatus'])->middleware('can.perm:candidates,edit');
+    // The agency's own switch: passing opens the file for documents and ties
+    // the person to that agency.
+    Route::patch('/{id}/pass', [CandidateController::class, 'pass'])->middleware('can.perm:candidates,edit');
+    // Submitting the profile is a coordinator's call (or the Main Admin's),
+    // checked in the controller; an agency never submits.
+    Route::patch('/{id}/status', [CandidateController::class, 'updateStatus'])->middleware('can.page:candidates');
     Route::delete('/{id}', [CandidateController::class, 'destroy'])->middleware('can.perm:candidates,delete');
 
     // Documents attached to one candidate. Uploads are append-only and there
@@ -121,6 +129,40 @@ Route::prefix('coordinators')->middleware('auth.jwt')->group(function () {
     Route::patch('/{id}/status', [CoordinatorController::class, 'updateStatus']);
     Route::post('/{id}/password', [CoordinatorController::class, 'resetPassword']);
     Route::delete('/{id}', [CoordinatorController::class, 'destroy']);
+});
+
+// --- Foreign companies ------------------------------------------------------
+// Each company belongs to the coordinator (foreign agent) who brought it in;
+// the Main Admin sees every one. can.page holds a coordinator to the pages
+// opened to them; the controller keeps agency logins out altogether.
+Route::middleware(['auth.jwt', 'can.page:companies'])->group(function () {
+    Route::prefix('companies')->group(function () {
+        Route::get('/', [ForeignCompanyController::class, 'index']);
+        Route::post('/', [ForeignCompanyController::class, 'store']);
+        Route::get('/{id}', [ForeignCompanyController::class, 'show']);
+        Route::put('/{id}', [ForeignCompanyController::class, 'update']);
+        Route::patch('/{id}/status', [ForeignCompanyController::class, 'updateStatus']);
+        // Only candidates who passed a test here - passing locks them to one company.
+        Route::get('/{id}/candidates', [ForeignCompanyController::class, 'candidates']);
+    });
+});
+
+// --- Skill tests ------------------------------------------------------------
+// An agency reads the attempts made on its own candidates; the Main Admin and
+// coordinators book them and record the result.
+Route::get('/job-roles', [JobRoleController::class, 'index'])->middleware('auth.jwt');
+
+// The job categories on the registration screen: the Main Admin and
+// coordinators add and remove them; the controller keeps agencies out.
+Route::middleware(['auth.jwt', 'can.page:candidates'])->group(function () {
+    Route::post('/job-roles', [JobRoleController::class, 'store']);
+    Route::delete('/job-roles/{id}', [JobRoleController::class, 'destroy']);
+});
+
+Route::prefix('tests')->middleware('auth.jwt')->group(function () {
+    Route::get('/', [SkillTestController::class, 'index']);
+    Route::post('/', [SkillTestController::class, 'store'])->middleware('can.page:companies');
+    Route::patch('/{id}/result', [SkillTestController::class, 'result'])->middleware('can.page:companies');
 });
 
 // --- Verification (authenticated) -------------------------------------------

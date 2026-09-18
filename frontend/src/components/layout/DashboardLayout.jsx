@@ -9,7 +9,8 @@ const PAGE_META = [
   { match: /^\/agency\/profile/, title: 'Agency Details', subtitle: 'Your agency details and the phone and email used to sign in' },
   { match: /^\/agencies\/create/, title: 'Create Agency', subtitle: 'Register a local or foreign agency and issue its login' },
   { match: /^\/agencies/, title: 'Agency Management', subtitle: 'Review pending, active and deactivated agencies' },
-  { match: /^\/candidates\/register/, title: 'Register Candidate', subtitle: 'Capture the candidate details, then attach the documents' },
+  { match: /^\/candidates\/all/, title: 'Candidate List', subtitle: 'Every candidate across all agencies, and where each one stands' },
+  { match: /^\/candidates\/register/, title: 'Register Candidate', subtitle: 'Capture the candidate details; documents follow once they pass' },
   { match: /^\/candidates\/\d+/, title: 'Candidate File', subtitle: 'Details and attached documents' },
   // Wording that holds for both readers: an agency sees its own, the admin
   // picks whose to look at. The card below carries the role-specific line.

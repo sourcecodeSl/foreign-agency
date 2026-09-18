@@ -12,9 +12,13 @@ import {
   IconChevronDown,
   IconTrash,
 } from '../../components/ui/Icons';
-import Modal from '../../components/ui/Modal';
+import Switch from '../../components/ui/Switch';
+import { PageLoader } from '../../components/ui/Spinner';
 import { candidateApi } from '../../lib/api';
+import { confirmAction, escapeHtml } from '../../lib/alert';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
+import { SourceTag, canRunTests, formatDate, isReviewer, isSettled, submitState } from './shared';
+import SkillTests from './SkillTests';
 
 const STATUS_TONE = { draft: 'gray', submitted: 'blue', approved: 'green', rejected: 'red' };
 
@@ -152,8 +156,11 @@ export default function CandidateDetail() {
   const { toast } = useToast();
   const { admin } = useAuth();
 
-  // A cross-agency role reviews the file; it does not attach or submit.
-  const readOnly = isGlobalRole(admin?.roleSlug);
+  // The agency switches the pass and attaches; a coordinator (or the Main
+  // Admin) checks the documents and submits the profile.
+  const isAgency = !isGlobalRole(admin?.roleSlug);
+  const reviewer = isReviewer(admin?.roleSlug);
+  const tester = canRunTests(admin);
 
   const [candidate, setCandidate] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -161,9 +168,9 @@ export default function CandidateDetail() {
   const [missing, setMissing] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(null);
+  const [passing, setPassing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [zipping, setZipping] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -221,29 +228,57 @@ export default function CandidateDetail() {
   };
 
   const handleDelete = async () => {
-    setDeleting(true);
+    const attachedCount = required.length - missing.length;
+    const sure = await confirmAction({
+      title: 'Remove ' + candidate.name + '?',
+      html:
+        'Passport <code>' + escapeHtml(candidate.passportNo) + '</code> is removed from the register. ' +
+        'The ' + attachedCount + ' attached document' + (attachedCount === 1 ? '' : 's') +
+        ' stay on the server, so the record can be restored if this was a mistake.',
+      confirmText: 'Remove Candidate',
+      danger: true,
+    });
+    if (!sure) return;
+
     try {
       await candidateApi.remove(id);
       toast(candidate.name + ' has been removed.');
       navigate('/candidates');
     } catch (err) {
       toast(err.message || 'Could not remove the candidate.', 'error');
-      setDeleting(false);
     }
   };
 
-  const handleSubmit = async () => {
+  const handlePass = async (passed) => {
+    setPassing(true);
     try {
-      await candidateApi.updateStatus(id, 'submitted');
-      toast('Candidate submitted for review.');
+      const res = await candidateApi.setPassed(id, passed);
+      toast(res.message || (passed ? 'Marked as passed.' : 'No longer marked as passed.'));
       load();
     } catch (err) {
-      toast(err.message || 'Could not submit.', 'error');
+      toast(err.message || 'Could not change the pass.', 'error');
+    } finally {
+      setPassing(false);
+    }
+  };
+
+  // The coordinator's switch: on submits the profile, off sends it back to
+  // the agency as a draft.
+  const handleSubmit = async (submit) => {
+    setSubmitting(true);
+    try {
+      const res = await candidateApi.updateStatus(id, submit ? 'submitted' : 'draft');
+      toast(res.message || (submit ? 'Profile submitted.' : 'Profile sent back to the agency.'));
+      load();
+    } catch (err) {
+      toast(err.message || 'Could not change the submission.', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   if (loading) {
-    return <p className="py-16 text-center text-sm text-gray-500">Loading candidate...</p>;
+    return <PageLoader label="Loading candidate..." />;
   }
   if (!candidate) return null;
 
@@ -256,8 +291,87 @@ export default function CandidateDetail() {
   const uploadedCount = required.length - missing.length;
   const complete = missing.length === 0;
 
+  const passed = candidate.poolStatus === 'passed';
+  const settled = isSettled(candidate);
+  // Only the agency attaches, and only while the file is open: passed, and
+  // not yet submitted by the coordinator.
+  const canAttach = isAgency && Boolean(candidate.documentsOpen);
+
+  // The submit switch opens only once a passed candidate's documents are all in.
+  const submit = submitState(candidate, missing.length);
+  const submittedOn = candidate.submittedAt
+    ? 'Submitted on ' + formatDate(candidate.submittedAt) +
+      (candidate.submittedBy ? ' by ' + candidate.submittedBy : '') + '.'
+    : 'Submitted.';
+  let submitNote;
+  if (reviewer) {
+    submitNote = submit.submitted && !submit.locked
+      ? submittedOn + ' Switch off to send it back to the agency.'
+      : submit.reason;
+  } else if (submit.submitted) {
+    submitNote = submittedOn;
+  } else if (passed && complete) {
+    submitNote = 'Every document is in. A coordinator checks them and submits the profile.';
+  } else {
+    submitNote = 'A coordinator submits the profile once the candidate has passed and every document is attached.';
+  }
+
+  // Why the switch is where it is, and why it may not move.
+  let passNote;
+  let passLocked = false;
+  if (passed && candidate.lockedCompany) {
+    passNote = 'Passed a skill test with ' + candidate.lockedCompany.name + '.';
+    passLocked = true;
+  } else if (passed) {
+    passNote = 'Passed' + (candidate.passedAt ? ' on ' + formatDate(candidate.passedAt) : '') + '.';
+    passLocked = settled;
+  } else if (candidate.blocked) {
+    passNote = 'This person has already passed with another agency, so they cannot be passed here.';
+    passLocked = true;
+  } else if (candidate.poolStatus === 'testing') {
+    passNote = 'A skill test is open for this candidate. The coordinator records its result.';
+    passLocked = true;
+  } else {
+    passNote = isAgency
+      ? 'Switch on once the candidate has passed. Until then no documents are attached, and they may also register with other agencies.'
+      : 'Not passed yet. The agency switches this on once the candidate passes.';
+  }
+  if (passed) {
+    passNote += settled
+      ? ' The coordinator has submitted the profile.'
+      : ' Documents are open, and no other agency can register this candidate.';
+  }
+
+  let documentsNote;
+  if (candidate.blocked) {
+    documentsNote = 'This file is blocked, so no documents can be attached.';
+  } else if (!isAgency) {
+    documentsNote = 'Attached by the agency. Every version is kept, so nothing here was ever replaced.';
+  } else if (!passed) {
+    documentsNote = 'Documents are attached once the candidate has passed. Switch on Passed above first.';
+  } else if (settled) {
+    documentsNote = 'The coordinator has checked these documents and submitted the profile, so they are settled.';
+  } else {
+    documentsNote = 'Attaching a file never replaces an older one — every version is kept.';
+  }
+
   return (
     <div className="space-y-6">
+      {/* Passed with another agency under the same NIC: nothing more happens here. */}
+      {candidate.blocked && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800"
+        >
+          <p className="font-semibold">This candidate is blocked</p>
+          <p className="mt-1">
+            The person with NIC {candidate.nicNo} has already passed with{' '}
+            {candidate.blockedBy || 'another agency'}. This file cannot be passed, edited or given
+            documents while that pass stands.
+          </p>
+        </div>
+      )}
+
       {/* --- details --- */}
       <Card>
         <CardHeader
@@ -265,14 +379,20 @@ export default function CandidateDetail() {
           subtitle={'Passport ' + candidate.passportNo + (candidate.nicNo ? ' · NIC ' + candidate.nicNo : '')}
           action={
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={STATUS_TONE[candidate.status] || 'gray'} dot>
-                {candidate.status}
-              </Badge>
+              {candidate.blocked ? (
+                <Badge tone="red" dot>
+                  Blocked
+                </Badge>
+              ) : (
+                <Badge tone={STATUS_TONE[candidate.status] || 'gray'} dot>
+                  {candidate.status}
+                </Badge>
+              )}
               <Button
                 variant="ghost"
                 icon={IconTrash}
                 className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                onClick={() => setConfirmDelete(true)}
+                onClick={handleDelete}
               >
                 Delete
               </Button>
@@ -287,7 +407,24 @@ export default function CandidateDetail() {
             {[
               ['Mobile', candidate.mobile],
               ['Email', candidate.email || '—'],
-              ['Registered', candidate.createdAt],
+              ['Registered', formatDate(candidate.createdAt)],
+              ['Added by', <SourceTag registeredBy={candidate.registeredBy} />],
+              [
+                'Job categories',
+                candidate.jobRoles?.length
+                  ? candidate.jobRoles.map((role) => role.name).join(', ')
+                  : candidate.jobRole || '—',
+              ],
+              ['Test index No', candidate.testIndexNo || '—'],
+              ...(candidate.submittedAt
+                ? [
+                    [
+                      'Profile submitted',
+                      formatDate(candidate.submittedAt) +
+                        (candidate.submittedBy ? ' by ' + candidate.submittedBy : ''),
+                    ],
+                  ]
+                : []),
               ['Address', candidate.address],
             ].map(([label, value]) => (
               <div key={label}>
@@ -301,15 +438,59 @@ export default function CandidateDetail() {
         </CardBody>
       </Card>
 
+      {/* --- skill tests: one file, a new test number for every attempt --- */}
+      <SkillTests candidate={candidate} canRun={tester} onChanged={load} />
+
+      {/* --- the pass: the agency's switch, everyone else reads it --- */}
+      <Card>
+        <div className="flex flex-wrap items-center gap-4 px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-gray-900">Passed</p>
+            <p className="mt-0.5 text-xs text-gray-500">{passNote}</p>
+          </div>
+          {isAgency ? (
+            <Switch
+              checked={passed}
+              onChange={handlePass}
+              loading={passing}
+              disabled={passLocked}
+              label="Passed"
+            />
+          ) : (
+            <Badge tone={passed ? 'green' : 'gray'} dot>
+              {passed ? 'Passed' : 'Not passed'}
+            </Badge>
+          )}
+        </div>
+
+        {/* --- then the submission: the coordinator's switch --- */}
+        <div className="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-gray-900">Profile submitted</p>
+            <p className="mt-0.5 text-xs text-gray-500">{submitNote}</p>
+          </div>
+          {reviewer ? (
+            <Switch
+              checked={submit.submitted}
+              onChange={handleSubmit}
+              loading={submitting}
+              disabled={submit.locked}
+              label="Profile submitted"
+              title={submit.reason}
+            />
+          ) : (
+            <Badge tone={submit.submitted ? 'blue' : 'gray'} dot>
+              {submit.submitted ? 'Submitted' : 'Not submitted'}
+            </Badge>
+          )}
+        </div>
+      </Card>
+
       {/* --- documents --- */}
       <Card>
         <CardHeader
           title="Documents"
-          subtitle={
-            readOnly
-              ? 'Filed by the agency. Every version is kept, so nothing here was ever replaced.'
-              : 'Attaching a file never replaces an older one — every version is kept.'
-          }
+          subtitle={documentsNote}
           action={
             <div className="flex flex-wrap items-center gap-2">
               <span
@@ -328,9 +509,6 @@ export default function CandidateDetail() {
               >
                 Download all (ZIP)
               </Button>
-              {!readOnly && complete && candidate.status === 'draft' && (
-                <Button onClick={handleSubmit}>Submit for review</Button>
-              )}
             </div>
           }
         />
@@ -344,7 +522,7 @@ export default function CandidateDetail() {
               uploading={uploading}
               onUpload={handleUpload}
               onDownload={handleDownloadOne}
-              readOnly={readOnly}
+              readOnly={!canAttach}
             />
           ))}
         </div>
@@ -355,37 +533,6 @@ export default function CandidateDetail() {
         </div>
       </Card>
 
-      <Modal
-        open={confirmDelete}
-        title={'Remove ' + candidate.name + '?'}
-        subtitle="The candidate no longer appears in the register."
-        onClose={() => (deleting ? null : setConfirmDelete(false))}
-        footer={
-          <>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={deleting}
-              onClick={() => setConfirmDelete(false)}
-            >
-              Cancel
-            </Button>
-            <Button size="sm" variant="danger" loading={deleting} onClick={handleDelete}>
-              Remove Candidate
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-gray-600">
-          Passport{' '}
-          <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-900">
-            {candidate.passportNo}
-          </code>{' '}
-          is removed from the register. The {uploadedCount} attached document
-          {uploadedCount === 1 ? '' : 's'} stay on the server, so the record can be restored if this
-          was a mistake.
-        </p>
-      </Modal>
     </div>
   );
 }

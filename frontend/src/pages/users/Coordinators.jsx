@@ -18,6 +18,7 @@ import {
   IconPhone,
 } from '../../components/ui/Icons';
 import { coordinatorApi } from '../../lib/api';
+import { confirmAction } from '../../lib/alert';
 
 const EMPTY = { name: '', username: '', email: '', phone: '', password: '', pages: [] };
 
@@ -330,8 +331,6 @@ export default function Coordinators() {
   const [search, setSearch] = useState('');
   const [form, setForm] = useState({ open: false, editing: null });
   const [credentials, setCredentials] = useState(null);
-  const [confirm, setConfirm] = useState(null);
-  const [confirming, setConfirming] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
   const load = useCallback(async () => {
@@ -397,7 +396,7 @@ export default function Coordinators() {
   };
 
   const askReset = (row) =>
-    setConfirm({
+    runConfirmed({
       title: 'Reset the password for ' + row.name + '?',
       body: 'A new password is generated and the current one stops working at once.',
       action: 'Reset password',
@@ -414,7 +413,7 @@ export default function Coordinators() {
     });
 
   const askRemove = (row) =>
-    setConfirm({
+    runConfirmed({
       title: 'Remove ' + row.name + '?',
       body: 'Their login is deleted and they can no longer sign in. Agencies and candidate files they worked on stay as they are.',
       action: 'Remove',
@@ -427,15 +426,20 @@ export default function Coordinators() {
       },
     });
 
-  const runConfirm = async () => {
-    setConfirming(true);
+  // Asks first, then runs the action; SweetAlert holds the question.
+  const runConfirmed = async (confirm) => {
+    const sure = await confirmAction({
+      title: confirm.title,
+      text: confirm.body,
+      confirmText: confirm.action,
+      danger: Boolean(confirm.danger),
+    });
+    if (!sure) return;
+
     try {
       await confirm.run();
-      setConfirm(null);
     } catch (err) {
       toast(err.message || confirm.failure, 'error');
-    } finally {
-      setConfirming(false);
     }
   };
 
@@ -602,29 +606,6 @@ export default function Coordinators() {
       />
 
       <CredentialsDialog credentials={credentials} onClose={() => setCredentials(null)} />
-
-      <Modal
-        open={Boolean(confirm)}
-        title={confirm?.title}
-        onClose={() => setConfirm(null)}
-        footer={
-          <>
-            <Button type="button" variant="secondary" onClick={() => setConfirm(null)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant={confirm?.danger ? 'danger' : 'primary'}
-              loading={confirming}
-              onClick={runConfirm}
-            >
-              {confirm?.action}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-gray-600">{confirm?.body}</p>
-      </Modal>
     </>
   );
 }

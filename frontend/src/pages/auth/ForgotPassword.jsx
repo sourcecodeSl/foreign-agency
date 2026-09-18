@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/layout/AuthLayout';
 import OtpForm from '../../components/auth/OtpForm';
@@ -6,6 +6,7 @@ import StepIndicator from '../../components/auth/StepIndicator';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import { authApi } from '../../lib/api';
+import { alertError } from '../../lib/alert';
 import { IconUsers, IconMail, IconShield, IconCheck } from '../../components/ui/Icons';
 
 const STEPS = [
@@ -102,6 +103,11 @@ export default function ForgotPassword() {
   const [username, setUsername] = useState('');
   const [usernameError, setUsernameError] = useState('');
   const [formError, setFormError] = useState('');
+
+  // A form-wide error is shown through SweetAlert, like every other message.
+  useEffect(() => {
+    if (formError) alertError(formError);
+  }, [formError]);
   const [loading, setLoading] = useState(false);
   const [challenge, setChallenge] = useState(null);
   const [resetToken, setResetToken] = useState('');
@@ -209,15 +215,6 @@ export default function ForgotPassword() {
       }
     >
       {step !== 'done' && <StepIndicator steps={STEPS} current={step} />}
-
-      {formError && (
-        <div
-          role="alert"
-          className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
-        >
-          {formError}
-        </div>
-      )}
 
       {step === 'account' && (
         <form onSubmit={findAccount} noValidate className="space-y-5">

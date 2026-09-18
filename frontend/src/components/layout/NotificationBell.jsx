@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { notificationsApi } from '../../lib/api';
 import { IconBell, IconCheck } from '../ui/Icons';
+import { PageLoader } from '../ui/Spinner';
 
 // How often the list is re-read while the page is in view.
 const REFRESH_MS = 60000;
@@ -201,7 +202,7 @@ export default function NotificationBell() {
             </div>
 
             {!loaded ? (
-              <p className="px-4 py-8 text-center text-sm text-gray-500">Loading...</p>
+              <PageLoader label="Loading..." className="py-8" />
             ) : items.length === 0 ? (
               <div className="px-6 py-10 text-center">
                 <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
