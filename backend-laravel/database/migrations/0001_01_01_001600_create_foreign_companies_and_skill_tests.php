@@ -13,9 +13,12 @@ use Illuminate\Support\Facades\Schema;
  * in. A candidate stays in the pool until they pass a test, and passing locks
  * them to that one company - which is why the lock lives on the candidate.
  *
- * Agencies marked "foreign" are moved into foreign_companies: in this
- * workflow the overseas party is an employer, not an agency that registers
- * candidates, so agencies are local again.
+ * Agencies are left as they are. An earlier version of this migration moved
+ * "foreign" agencies into foreign_companies, deleted them and dropped
+ * agencies.type/country; 0001_01_01_001700 put the columns back because a
+ * foreign agency is still an agency. On a database that has not run this yet
+ * (the live site) that step would only lose agencies and their logins, so it
+ * is gone.
  */
 return new class extends Migration
 {
@@ -111,35 +114,6 @@ return new class extends Migration
             $table->index('pool_status');
             $table->index('locked_company_id');
         });
-
-        if (Schema::hasColumn('agencies', 'type')) {
-            foreach (DB::table('agencies')->where('type', 'foreign')->get() as $agency) {
-                DB::table('foreign_companies')->insert([
-                    'code' => 'FC-'.substr((string) $agency->id, 3),
-                    'name' => $agency->name,
-                    'country' => $agency->country ?: 'Unknown',
-                    'contact_name' => $agency->contact,
-                    'contact_email' => $agency->email,
-                    'status' => $agency->status === 'active' ? 'active' : 'inactive',
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ]);
-
-                // Only an agency nobody has filed candidates under is removed;
-                // one that already holds files stays, as a local agency.
-                if (DB::table('candidates')->where('agency_id', $agency->id)->exists()) {
-                    DB::table('agencies')->where('id', $agency->id)->update(['type' => 'local']);
-                } else {
-                    DB::table('users')->where('agency_id', $agency->id)->delete();
-                    DB::table('agencies')->where('id', $agency->id)->delete();
-                }
-            }
-
-            Schema::table('agencies', function (Blueprint $table) {
-                $table->dropIndex(['type']);
-                $table->dropColumn(['type', 'country']);
-            });
-        }
     }
 
     public function down(): void
