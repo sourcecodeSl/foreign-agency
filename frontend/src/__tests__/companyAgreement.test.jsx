@@ -9,6 +9,7 @@ const update = vi.fn();
 const sendToAdmin = vi.fn();
 const sendToAgency = vi.fn();
 const recipients = vi.fn();
+const localiseEmployer = vi.fn();
 
 vi.mock('../lib/api', () => ({
   agreementApi: {
@@ -16,6 +17,7 @@ vi.mock('../lib/api', () => ({
     sendToAdmin: (...args) => sendToAdmin(...args),
     sendToAgency: (...args) => sendToAgency(...args),
     recipients: (...args) => recipients(...args),
+    localiseEmployer: (...args) => localiseEmployer(...args),
     fileUrl: vi.fn(),
     templateFileUrl: vi.fn(),
   },
@@ -108,12 +110,57 @@ describe("a foreign company's agreement, from each side", () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'sent_to_admin' }));
   });
 
-  it('is read-only for the company once sent', () => {
+  it('fills the Hebrew and Sinhala again when the English changes', async () => {
+    localiseEmployer.mockReset().mockResolvedValue({
+      data: {
+        values: {
+          representative_name: {
+            en: 'Visal Theekshana',
+            he: 'ויסל תיקשנה',
+            si: 'විසල් තීක්ෂණ',
+            auto: { he: true, si: true },
+          },
+        },
+      },
+    });
+    update.mockClear();
+    const user = userEvent.setup();
+    renderAs(COMPANY);
+
+    const english = screen.getByLabelText('Authorised representative - Name (en)');
+    await user.clear(english);
+    await user.type(english, 'Visal Theekshana');
+    // Leaving the English carries it over.
+    await user.tab();
+
+    await waitFor(() => expect(localiseEmployer).toHaveBeenCalledWith({ representative_name: 'Visal Theekshana' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Authorised representative - Name (he)').value).toBe('ויסל תיקשנה')
+    );
+    expect(screen.getByLabelText('Authorised representative - Name (si)').value).toBe('විසල් තීක්ෂණ');
+
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0][1].values.representative_name.si).toBe('විසල් තීක්ෂණ');
+    // Already carried over, so Save does not ask again.
+    expect(localiseEmployer).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the company still correct it once sent, without sending it again', async () => {
+    const user = userEvent.setup();
     renderAs(COMPANY, { ...AGREEMENT, status: 'sent_to_admin' });
 
-    expect(screen.queryByLabelText('Authorised representative - Name (he)')).toBeNull();
     expect(screen.queryByRole('button', { name: /send to admin/i })).toBeNull();
     expect(screen.getByText('Sent to admin')).toBeTruthy();
+
+    const hebrew = screen.getByLabelText('Authorised representative - Name (he)');
+    await user.clear(hebrew);
+    await user.type(hebrew, 'רות לווין');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0][1].values.representative_name.he).toBe('רות לווין');
+    expect(sendToAdmin).not.toHaveBeenCalled();
   });
 
   it('lets the admin pass a sent agreement to a local agency', async () => {

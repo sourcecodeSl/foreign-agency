@@ -660,6 +660,16 @@ function CompanyAgreementList({ agreements, empty, onRemove, onEdit, onSend }) {
               {a.sentToAdminAt ? 'sent ' + formatDate(a.sentToAdminAt) : 'updated ' + formatDate(a.updatedAt)}
             </p>
           </div>
+          {onRemove && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={IconTrash}
+              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={() => onRemove(a)}
+              aria-label={'Delete ' + a.title}
+            />
+          )}
           <StatusBadge agreement={a} />
           {onEdit && (
             <Button size="sm" variant="secondary" icon={IconEdit} onClick={() => onEdit(a)}>
@@ -673,16 +683,6 @@ function CompanyAgreementList({ agreements, empty, onRemove, onEdit, onSend }) {
             <Button size="sm" onClick={() => onSend(a)}>
               Send to admin
             </Button>
-          )}
-          {onRemove && a.status === 'draft' && (
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={IconTrash}
-              className="text-red-600 hover:bg-red-50 hover:text-red-700"
-              onClick={() => onRemove(a)}
-              aria-label={'Delete ' + a.title}
-            />
           )}
         </li>
       ))}
@@ -735,7 +735,12 @@ function CompanyAgreements() {
   const removeAgreement = async (agreement) => {
     const sure = await confirmAction({
       title: 'Delete ' + agreement.title + '?',
-      text: 'The agreement and its PDF are deleted.',
+      text:
+        agreement.status === 'draft'
+          ? 'The agreement and its PDF are deleted.'
+          : 'It has been sent already - it is deleted for the admin' +
+            (agreement.status === 'sent_to_agency' ? ' and ' + (agreement.localAgencyName || 'the local agency') : '') +
+            ' too.',
       confirmText: 'Delete',
       danger: true,
     });
@@ -752,7 +757,7 @@ function CompanyAgreements() {
   const sendToAdmin = async (agreement) => {
     const sure = await confirmAction({
       title: 'Send ' + agreement.title + ' to the admin?',
-      text: 'Once sent, only its name, salary, seal and signature can be changed.',
+      text: 'You can still correct it after it is sent.',
       confirmText: 'Send',
     });
     if (!sure) return;

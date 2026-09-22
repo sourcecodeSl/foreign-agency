@@ -190,6 +190,7 @@ Route::middleware(['auth.jwt', 'can.page:agreements'])->group(function () {
     // Before /agreements/{id}, so "translate" is never read as an id.
     Route::post('/agreements/translate', [AgreementController::class, 'translate'])->middleware('throttle:60,1,translate');
     Route::get('/agreements/recipients', [AgreementController::class, 'recipients']);
+    Route::post('/agreements/employer-localise', [AgreementController::class, 'localiseEmployer'])->middleware('throttle:60,1,translate');
     Route::get('/agreements', [AgreementController::class, 'index']);
     Route::post('/agreements', [AgreementController::class, 'store']);
     Route::get('/agreements/{id}', [AgreementController::class, 'show']);

@@ -23,7 +23,7 @@ const COLUMNS = [
  * in every language; without it the table only reads. `editAll` opens every
  * cell, English and numbers too.
  */
-export function EmployerTable({ section, values, onChange, editAll = false }) {
+export function EmployerTable({ section, values, onChange, editAll = false, onEnglishDone, localising = [] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[48rem] table-fixed border-collapse text-sm">
@@ -71,6 +71,8 @@ export function EmployerTable({ section, values, onChange, editAll = false }) {
                           dir={col.dir}
                           value={value[col.code] || ''}
                           onChange={(e) => onChange(field.key, col.code, e.target.value)}
+                          onBlur={col.code === 'en' && onEnglishDone ? () => onEnglishDone(field.key) : undefined}
+                          disabled={col.code !== 'en' && localising.includes(field.key)}
                           className={
                             'field-input mt-1 resize-none ' + (auto ? 'border-amber-300 bg-amber-50/40' : '')
                           }

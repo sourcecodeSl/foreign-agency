@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardHeader, CardBody, CardFooter } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -260,8 +260,62 @@ export default function CompanyAgreement({ agreement, onChange }) {
 
   const adminSide = isGlobalRole(admin?.roleSlug);
   const isOwner = !adminSide && admin?.agency?.id === agreement.agencyId;
-  const editable = isOwner && agreement.status === 'draft';
+  // The company corrects its agreement at any stage, even once sent.
+  const editable = isOwner;
+  const draft = agreement.status === 'draft';
   const unchecked = Object.values(values).some((v) => v.auto?.he || v.auto?.si);
+
+  // The English each field's Hebrew and Sinhala were last filled from, and
+  // the refill under way, so Save waits for it rather than racing it.
+  const localisedFrom = useRef(
+    Object.fromEntries(Object.entries(agreement.values || {}).map(([key, v]) => [key, (v?.en || '').trim()]))
+  );
+  const pending = useRef(Promise.resolve());
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  const [localising, setLocalising] = useState([]);
+
+  const kindOf = (key) => agreement.employerSection?.fields.find((f) => f.key === key)?.kind;
+
+  /** English changed since its Hebrew and Sinhala were filled, for words and names. */
+  const stale = (current) =>
+    Object.keys(current).filter((key) => {
+      const en = (current[key]?.en || '').trim();
+      return kindOf(key) && kindOf(key) !== 'text' && en !== '' && en !== localisedFrom.current[key];
+    });
+
+  /** Fills the Hebrew and Sinhala of these fields again from their English. */
+  const localise = (keys) => {
+    if (keys.length === 0) return pending.current;
+    const english = Object.fromEntries(keys.map((key) => [key, valuesRef.current[key].en.trim()]));
+    keys.forEach((key) => (localisedFrom.current[key] = english[key]));
+    setLocalising((prev) => [...prev, ...keys]);
+
+    const run = pending.current
+      .then(() => agreementApi.localiseEmployer(english))
+      .then(({ data }) => {
+        setValues((prev) => {
+          const next = { ...prev };
+          for (const key of keys) {
+            const filled = data.values?.[key];
+            // Typed over again meanwhile: that newer English refills it later.
+            if (!filled || (prev[key]?.en || '').trim() !== english[key]) continue;
+            next[key] = { ...prev[key], he: filled.he, si: filled.si, auto: filled.auto };
+          }
+          valuesRef.current = next;
+          return next;
+        });
+      })
+      .catch((err) => {
+        keys.forEach((key) => delete localisedFrom.current[key]);
+        alertError(err.message || 'Could not fill the Hebrew and Sinhala.', 'Not translated');
+      })
+      .finally(() => setLocalising((prev) => prev.filter((key) => !keys.includes(key))));
+    pending.current = run;
+    return run;
+  };
+
+  const englishDone = (key) => localise(stale({ [key]: valuesRef.current[key] }));
 
   const change = (key, lang, text) => {
     setDirty(true);
@@ -276,7 +330,12 @@ export default function CompanyAgreement({ agreement, onChange }) {
   };
 
   const save = async () => {
-    const { data } = await agreementApi.update(agreement.id, { values });
+    // English typed but not yet carried over is carried over before saving.
+    await localise(stale(valuesRef.current));
+    const { data } = await agreementApi.update(agreement.id, { values: valuesRef.current });
+    localisedFrom.current = Object.fromEntries(
+      Object.entries(data.values || {}).map(([key, v]) => [key, (v?.en || '').trim()])
+    );
     setValues(data.values || {});
     setDirty(false);
     onChange(data);
@@ -298,7 +357,7 @@ export default function CompanyAgreement({ agreement, onChange }) {
   const sendToAdmin = async () => {
     const sure = await confirmAction({
       title: 'Send to the admin?',
-      text: 'Once sent, the agreement can no longer be changed.',
+      text: 'You can still correct it after it is sent.',
       confirmText: 'Send',
     });
     if (!sure) return;
@@ -344,15 +403,19 @@ export default function CompanyAgreement({ agreement, onChange }) {
         <CardHeader
           title="Employment Agreement - employer"
           subtitle={
-            editable
-              ? 'Filled from your company details in all three languages. Change any of it for this agreement, check the highlighted Hebrew and Sinhala, then send it to the admin.'
-              : 'Filled from the company details in English, Hebrew and Sinhala.'
+            !editable
+              ? 'Filled from the company details in English, Hebrew and Sinhala.'
+              : draft
+                ? 'Filled from your company details in all three languages. Change any of it for this agreement, check the highlighted Hebrew and Sinhala, then send it to the admin.'
+                : 'Already sent - correct anything that reads wrong and save; the admin and the local agency see the change.'
           }
         />
         <EmployerTable
           section={agreement.employerSection}
           values={values}
           onChange={editable ? change : undefined}
+          onEnglishDone={editable ? englishDone : undefined}
+          localising={localising}
           editAll
         />
         {editable && (
@@ -365,9 +428,11 @@ export default function CompanyAgreement({ agreement, onChange }) {
             <Button variant="secondary" onClick={saveOnly} loading={busy === 'save'} disabled={!dirty || !!busy}>
               Save
             </Button>
-            <Button onClick={sendToAdmin} loading={busy === 'send'} disabled={!!busy}>
-              Send to admin
-            </Button>
+            {draft && (
+              <Button onClick={sendToAdmin} loading={busy === 'send'} disabled={!!busy}>
+                Send to admin
+              </Button>
+            )}
           </div>
         )}
       </Card>

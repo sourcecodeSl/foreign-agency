@@ -1241,6 +1241,12 @@ export const agreementApi = {
     return request('/agreements/' + id, { method: 'PUT', body: payload });
   },
 
+  /** Hebrew and Sinhala for employer fields from their new English: { field: english }. */
+  async localiseEmployer(english) {
+    requireLiveApi();
+    return request('/agreements/employer-localise', { method: 'POST', body: { english } });
+  },
+
   async remove(id) {
     requireLiveApi();
     return request('/agreements/' + id, { method: 'DELETE' });

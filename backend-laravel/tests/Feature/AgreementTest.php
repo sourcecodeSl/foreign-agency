@@ -236,15 +236,17 @@ class AgreementTest extends TestCase
         $this->getJson('/api/v1/agreements')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/v1/agreements/'.$id)->assertNotFound();
 
-        // The company sends it, and can no longer change it.
+        // The company sends it, and can still correct it.
         $company = User::where('agency_id', 'AG-9301')->first();
         $this->app['auth']->forgetGuards();
         $this->withToken(Jwt::sign($company->toPublic()))
             ->postJson('/api/v1/agreements/'.$id.'/send-to-admin')
             ->assertOk()
             ->assertJsonPath('data.status', 'sent_to_admin');
-        $this->putJson('/api/v1/agreements/'.$id, ['title' => 'Changed'])->assertStatus(409);
-        $this->deleteJson('/api/v1/agreements/'.$id)->assertStatus(409);
+        $this->putJson('/api/v1/agreements/'.$id, ['values' => [
+            'representative_name' => ['en' => 'Ruth Levin', 'he' => 'רות לווין'],
+        ]])->assertOk()->assertJsonPath('data.values.representative_name.he', 'רות לווין')
+            ->assertJsonPath('data.status', 'sent_to_admin');
         $this->postJson('/api/v1/agreements/'.$id.'/send-to-agency', ['agencyId' => 'AG-9302'])->assertStatus(403);
 
         // The admin picks the company, sees it, and passes it to the local agency.
@@ -412,8 +414,8 @@ class AgreementTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.values.salary.en', 'NIS 7,512.40 (Seven thousand five hundred twelve New Israeli Shekels and forty agorot)');
 
-        // Once sent, the company still keeps its name and salary up to date;
-        // the Hebrew and Sinhala of the employer part are fixed.
+        // Once sent, the company still keeps its name, salary and the
+        // employer part up to date.
         $this->postJson('/api/v1/agreements/'.$id.'/send-to-admin')->assertOk();
         $this->patchJson('/api/v1/agreements/'.$id.'/details', ['title' => 'SEC 2026', 'salary' => 8000])
             ->assertOk()
@@ -421,7 +423,9 @@ class AgreementTest extends TestCase
             ->assertJsonPath('data.status', 'sent_to_admin')
             ->assertJsonPath('data.values.salary.en', 'NIS 8,000.00 (Eight thousand New Israeli Shekels)');
         $this->patchJson('/api/v1/agreements/'.$id.'/details', [])->assertStatus(422);
-        $this->putJson('/api/v1/agreements/'.$id, ['values' => []])->assertStatus(409);
+        $this->putJson('/api/v1/agreements/'.$id, ['values' => []])
+            ->assertOk()
+            ->assertJsonPath('data.values.salary.en', 'NIS 8,000.00 (Eight thousand New Israeli Shekels)');
 
         // The admin never edits it.
         $this->asAdmin()->patchJson('/api/v1/agreements/'.$id.'/details', ['salary' => 9000])->assertStatus(403);
@@ -508,6 +512,44 @@ class AgreementTest extends TestCase
             ->assertStatus(403);
         $this->postJson('/api/v1/agreements/translate', ['texts' => ['Tiler']])->assertStatus(403);
         $this->getJson('/api/v1/agreements/recipients')->assertStatus(403);
+    }
+
+    public function test_new_english_is_carried_into_hebrew_and_sinhala_by_kind(): void
+    {
+        config(['services.google_translate.key' => null]);
+        $this->agencyLogin('AG-9209', 'foreign');
+
+        $this->postJson('/api/v1/agreements/employer-localise', ['english' => [
+            'representative_name' => 'Ruth Levin',
+            'company_registration_no' => '514236790',
+        ]])
+            ->assertOk()
+            ->assertJsonPath('data.values.representative_name.he', 'רות לוין')
+            ->assertJsonPath('data.values.representative_name.auto.si', true)
+            ->assertJsonPath('data.values.company_registration_no.si', '514236790')
+            ->assertJsonMissingPath('data.values.company_address');
+
+        // A local agency never fills the employer part.
+        $this->agencyLogin('AG-9210', 'local')
+            ->postJson('/api/v1/agreements/employer-localise', ['english' => ['representative_name' => 'x']])
+            ->assertForbidden();
+    }
+
+    public function test_a_company_deletes_a_sent_agreement_and_no_side_sees_it_again(): void
+    {
+        $this->agencyLogin('AG-9207', 'foreign');
+        $id = $this->upload()['agreementId'];
+        $this->postJson('/api/v1/agreements/'.$id.'/send-to-admin')->assertOk();
+        $company = User::where('agency_id', 'AG-9207')->first();
+
+        $this->agencyLogin('AG-9208', 'local');
+        $this->asAdmin()->postJson('/api/v1/agreements/'.$id.'/send-to-agency', ['agencyId' => 'AG-9208'])->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken(Jwt::sign($company->toPublic()))
+            ->deleteJson('/api/v1/agreements/'.$id)->assertOk();
+
+        $this->asAdmin()->getJson('/api/v1/agreements/'.$id)->assertNotFound();
     }
 
     public function test_a_company_deletes_its_draft_and_the_pdf_with_it(): void

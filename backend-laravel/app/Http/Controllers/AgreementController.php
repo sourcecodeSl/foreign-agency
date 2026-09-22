@@ -33,7 +33,7 @@ use Illuminate\Validation\Rule;
  *   company  a foreign company. Uploading a PDF creates its agreement, with
  *            the employer part already filled from the company record in all
  *            three languages. It checks the Hebrew and Sinhala, then sends it
- *            to the admin side - after which it can no longer change it.
+ *            to the admin side - and can still correct it after that.
  *   local    a local agency. Sees an agreement only once the admin side has
  *            passed it to that agency. It assigns one of its candidates to
  *            it, which fills the employee part from the candidate's file,
@@ -136,20 +136,16 @@ class AgreementController extends Controller
             ?? throw new ApiException(404, 'Agreement not found.');
     }
 
-    /** A company's agreement, once sent, is no longer the company's to change. */
+    /**
+     * A company's agreement is the company's to change, even once sent - the
+     * filled Hebrew and Sinhala may need correcting after the admin side or
+     * the local agency has read it. The admin side only reads it.
+     */
     private function requireEditable(Agreement $agreement, ?Agency $company): void
     {
-        if (! $agreement->agency_id) {
-            return;
-        }
-
-        if (! $company) {
+        if ($agreement->agency_id && ! $company) {
             throw new ApiException(403, ($agreement->agency?->name ?? 'The company')
                 .' fills this agreement; the admin side reads it and sends it on.');
-        }
-
-        if ($agreement->status !== Agreement::DRAFT) {
-            throw new ApiException(409, 'This agreement has been sent to the admin and can no longer be changed.');
         }
     }
 
@@ -783,15 +779,14 @@ class AgreementController extends Controller
         );
     }
 
-    /** DELETE /agreements/{id} - a company deletes only what it has not sent yet. */
+    /** DELETE /agreements/{id} - a company deletes its own, sent or not. */
     public function destroy(Request $request, string $id)
     {
+        // A company deletes its own at any stage, even once sent: it is gone
+        // for the admin side and the local agency too. findAgreement only
+        // finds a company's own.
         $company = $this->writer($request);
         $agreement = $this->findAgreement($request, $id);
-
-        if ($company) {
-            $this->requireEditable($agreement, $company);
-        }
 
         $template = $agreement->template;
         foreach (self::MARKS as $type) {
@@ -809,6 +804,36 @@ class AgreementController extends Controller
         }
 
         return ApiResponse::ok(['id' => (int) $id], $agreement->title.' deleted.');
+    }
+
+    /**
+     * POST /agreements/employer-localise  { english: { field: text } }
+     *
+     * The Hebrew and Sinhala of employer fields from English the company has
+     * just typed, each the way the field is carried over: numbers copied,
+     * names spelt by sound, the address and position translated where a key
+     * is set. Nothing is saved.
+     */
+    public function localiseEmployer(Request $request)
+    {
+        $this->writer($request);
+
+        $request->validate([
+            'english' => ['required', 'array', 'min:1'],
+            'english.*' => ['nullable', 'string', 'max:'.self::MAX_VALUE],
+        ]);
+
+        $section = EmployerDetails::section();
+        $sent = (array) $request->input('english');
+        $section['fields'] = array_values(array_filter(
+            $section['fields'],
+            fn ($field) => array_key_exists($field['key'], $sent)
+        ));
+        $english = array_map(fn ($text) => trim((string) $text), $sent);
+
+        [$values, $error] = EmployerDetails::localise($section, $english, [EmployerDetails::class, 'spelt']);
+
+        return ApiResponse::ok(['values' => (object) $values, 'translationError' => $error]);
     }
 
     /**
