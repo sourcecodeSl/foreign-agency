@@ -45,7 +45,17 @@ class Candidate extends Model
         'submitted_at' => 'datetime',
         'date_of_birth' => 'date:Y-m-d',
         'passport_expiry' => 'date:Y-m-d',
+        'police_issued_date' => 'date:Y-m-d',
     ];
+
+    /** How long a police report is good for, from the day it was issued. */
+    public const POLICE_VALID_MONTHS = 6;
+
+    /** Less than this left on a police report, and the file is warned about. */
+    public const POLICE_WARN_MONTHS = 2;
+
+    /** A passport is expected to have at least this long left on it. */
+    public const PASSPORT_WANTED_YEARS = 3;
 
     /** Whether the pass held elsewhere has been looked up, and what was found. */
     protected bool $holderResolved = false;
@@ -73,7 +83,7 @@ class Candidate extends Model
         return $this->hasMany(CandidateDocument::class);
     }
 
-    /** Set once the candidate passes: they belong to this foreign agency alone. */
+    /** Set once the candidate passes: they belong to this foreign company alone. */
     public function lockedCompany(): BelongsTo
     {
         return $this->belongsTo(ForeignCompany::class, 'locked_company_id');
@@ -292,6 +302,75 @@ class Candidate extends Model
         return $this->documents()->where('type', $type)->orderByDesc('id')->get();
     }
 
+    /**
+     * Why the passport is a problem, or null when it is fine.
+     *
+     * Short validity never stops a file being saved - plenty of candidates
+     * travel on a passport with a year or two left - but it is said out loud
+     * every time the file is opened, so nobody is surprised at the embassy.
+     */
+    public function passportWarning(): ?string
+    {
+        if (! $this->passport_expiry) {
+            return null;
+        }
+
+        $expiry = $this->passport_expiry;
+
+        if ($expiry->isPast()) {
+            return 'The passport expired on '.$expiry->format('j M Y').'.';
+        }
+
+        if ($expiry->lt(now()->addYears(self::PASSPORT_WANTED_YEARS))) {
+            return 'The passport is valid until '.$expiry->format('j M Y').', which is less than '
+                .self::PASSPORT_WANTED_YEARS.' years away.';
+        }
+
+        return null;
+    }
+
+    /** The day the police report runs out: six months after it was issued. */
+    public function policeExpiry(): ?\Carbon\CarbonInterface
+    {
+        return $this->police_issued_date?->copy()->addMonths(self::POLICE_VALID_MONTHS);
+    }
+
+    /**
+     * Why the police report is a problem, or null when it is fine. As with
+     * the passport, it is a warning and never stops the file being saved.
+     */
+    public function policeWarning(): ?string
+    {
+        if ($this->police_status !== 'received' || ! $this->police_issued_date) {
+            return null;
+        }
+
+        $expiry = $this->policeExpiry();
+
+        if ($expiry->isPast()) {
+            return 'The police report expired on '.$expiry->format('j M Y').'.';
+        }
+
+        if ($expiry->lt(now()->addMonths(self::POLICE_WARN_MONTHS))) {
+            return 'The police report expires on '.$expiry->format('j M Y').', which is less than '
+                .self::POLICE_WARN_MONTHS.' months away.';
+        }
+
+        return null;
+    }
+
+    /** The police report as the screens show it. */
+    public function policeReport(): array
+    {
+        return [
+            'status' => $this->police_status ?? 'not_applied',
+            'referenceNo' => $this->police_reference_no,
+            'issuedDate' => $this->police_issued_date?->toDateString(),
+            'expiresOn' => $this->policeExpiry()?->toDateString(),
+            'warning' => $this->policeWarning(),
+        ];
+    }
+
     /** camelCase shape, matching the rest of the API. */
     public function toPublic(bool $withDocuments = false): array
     {
@@ -306,6 +385,8 @@ class Candidate extends Model
             'age' => $this->date_of_birth?->age,
             'passportNo' => $this->passport_no,
             'passportExpiry' => $this->passport_expiry?->toDateString(),
+            'passportWarning' => $this->passportWarning(),
+            'policeReport' => $this->policeReport(),
             'profession' => $this->profession,
             'testResults' => $this->test_results,
             'nicNo' => $this->nic_no,

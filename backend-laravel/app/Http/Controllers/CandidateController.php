@@ -359,7 +359,7 @@ class CandidateController extends Controller
         } else {
             if ($candidate->locked_company_id) {
                 throw new ApiException(409, $candidate->name.' passed a skill test with '
-                    .($candidate->lockedCompany?->name ?? 'a foreign agency').', so the pass cannot be switched off here.');
+                    .($candidate->lockedCompany?->name ?? 'a foreign company').', so the pass cannot be switched off here.');
             }
 
             if (in_array($candidate->status, Candidate::LOCKED_STATUSES, true)) {
@@ -428,6 +428,51 @@ class CandidateController extends Controller
         };
 
         return ApiResponse::ok($candidate->fresh()->load(['documents', 'jobRole', 'jobRoles'])->toPublic(true), $message);
+    }
+
+    /**
+     * PATCH /candidates/{id}/police-report
+     *
+     * Applied needs the reference number; received needs the date it was
+     * issued as well, which is what the six-month validity runs from. A
+     * report with little left on it is saved and warned about, not refused.
+     */
+    public function policeReport(Request $request, $id)
+    {
+        $candidate = $this->find($request, $id);
+        $this->refuseBlocked($candidate);
+
+        $data = $request->validate([
+            'status' => ['required', Rule::in(['not_applied', 'applied', 'received'])],
+            'referenceNo' => ['nullable', 'string', 'max:60', 'required_unless:status,not_applied'],
+            'issuedDate' => ['nullable', 'date', 'before_or_equal:today', 'required_if:status,received'],
+        ], [
+            'status.in' => 'Choose whether the police report is applied for or received.',
+            'referenceNo.required_unless' => 'Enter the police report reference number.',
+            'issuedDate.required_if' => 'Enter the date the police report was issued.',
+            'issuedDate.before_or_equal' => 'The police report cannot have been issued in the future.',
+        ]);
+
+        $candidate->update([
+            'police_status' => $data['status'],
+            // Nothing applied for yet means nothing on record either.
+            'police_reference_no' => $data['status'] === 'not_applied' ? null : trim($data['referenceNo']),
+            'police_issued_date' => $data['status'] === 'received' ? $data['issuedDate'] : null,
+        ]);
+
+        $candidate->refresh();
+
+        $message = match ($data['status']) {
+            'applied' => 'Police report applied for under '.$candidate->police_reference_no.'.',
+            'received' => 'Police report '.$candidate->police_reference_no.' received. It is valid until '
+                .$candidate->policeExpiry()->format('j M Y').'.',
+            default => 'The police report has been cleared from this file.',
+        };
+
+        return ApiResponse::ok(
+            $candidate->load(['documents', 'jobRole', 'jobRoles'])->toPublic(true),
+            $candidate->policeWarning() ? $message.' '.$candidate->policeWarning() : $message
+        );
     }
 
     /** DELETE /candidates/{id} */
@@ -518,8 +563,9 @@ class CandidateController extends Controller
             'lastName' => ['nullable', 'string', 'max:75', ...($request->isMethod('POST') ? ['required_with:firstName'] : [])],
             'name' => [$request->isMethod('POST') ? 'required_without:firstName' : 'sometimes', 'string', 'min:3', 'max:150'],
             'fatherName' => ['nullable', 'string', 'max:150'],
-            // The passport has to be valid on the day it is entered.
-            'passportExpiry' => ['nullable', 'date', 'after:today'],
+            // Any date is accepted: a passport with little left on it is
+            // warned about on every screen, never refused.
+            'passportExpiry' => ['nullable', 'date'],
             'profession' => ['nullable', 'string', 'max:120'],
             'testResults' => ['nullable', 'string', 'max:255'],
             'passportNo' => [$required, 'string', 'max:30', 'regex:/^[A-Za-z0-9]+$/', $scoped('passport_no')],
@@ -544,7 +590,6 @@ class CandidateController extends Controller
             'name.required_without' => 'Enter the first and last name.',
             'firstName.required_with' => 'Enter the first name.',
             'lastName.required_with' => 'Enter the last name.',
-            'passportExpiry.after' => 'The passport has expired. Enter a passport that is still valid.',
             'nicNo.required' => 'NIC number is required.',
             'nicNo.regex' => 'Enter a valid NIC (9 digits plus V/X, or 12 digits).',
             'passportNo.unique' => 'A candidate with this passport number already exists.',

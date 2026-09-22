@@ -1,12 +1,14 @@
 <?php
 
 use App\Http\Controllers\AgencyController;
+use App\Http\Controllers\AgreementController;
 use App\Http\Controllers\AgencyProfileController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CandidateController;
 use App\Http\Controllers\CandidateDocumentController;
 use App\Http\Controllers\CoordinatorController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\EmployerAgreementController;
 use App\Http\Controllers\ForeignCompanyController;
 use App\Http\Controllers\JobRoleController;
 use App\Http\Controllers\NotificationController;
@@ -64,6 +66,10 @@ Route::prefix('agencies')->middleware('auth.jwt')->group(function () {
 Route::prefix('agency-profile')->middleware('auth.jwt')->group(function () {
     Route::get('/', [AgencyProfileController::class, 'show']);
     Route::put('/', [AgencyProfileController::class, 'update']);
+    // The signature and the seal, added on the edit screen alone.
+    Route::post('/marks', [AgencyProfileController::class, 'uploadMark']);
+    Route::get('/marks/{type}', [AgencyProfileController::class, 'showMark']);
+    Route::delete('/marks/{type}', [AgencyProfileController::class, 'deleteMark']);
     // A new phone or email is saved only once the code sent to it comes back.
     Route::post('/contact', [AgencyProfileController::class, 'requestContactChange'])->middleware('throttle:10,15,contact-change');
     Route::post('/contact/resend', [AgencyProfileController::class, 'resendContactCode'])->middleware('throttle:12,15,contact-resend');
@@ -82,6 +88,8 @@ Route::prefix('candidates')->middleware('auth.jwt')->group(function () {
     // The agency's own switch: passing opens the file for documents and ties
     // the person to that agency.
     Route::patch('/{id}/pass', [CandidateController::class, 'pass'])->middleware('can.perm:candidates,edit');
+    // Applied / received, with the reference number and the date issued.
+    Route::patch('/{id}/police-report', [CandidateController::class, 'policeReport'])->middleware('can.perm:candidates,edit');
     // Submitting the profile is a coordinator's call (or the Main Admin's),
     // checked in the controller; an agency never submits.
     Route::patch('/{id}/status', [CandidateController::class, 'updateStatus'])->middleware('can.page:candidates');
@@ -163,6 +171,54 @@ Route::prefix('tests')->middleware('auth.jwt')->group(function () {
     Route::get('/', [SkillTestController::class, 'index']);
     Route::post('/', [SkillTestController::class, 'store'])->middleware('can.page:companies');
     Route::patch('/{id}/result', [SkillTestController::class, 'result'])->middleware('can.page:companies');
+});
+
+// --- Agreements --------------------------------------------------------------
+// The Main Admin, a coordinator the page is opened to, and foreign companies
+// upload agreement PDFs and fill them in English, Hebrew and Sinhala; local
+// agencies read the ones passed to them. can.page holds the coordinator to
+// the page; the controller sorts out everyone else.
+Route::middleware(['auth.jwt', 'can.page:agreements'])->group(function () {
+    Route::get('/agreement-templates', [AgreementController::class, 'templates']);
+    Route::post('/agreement-templates', [AgreementController::class, 'uploadTemplate']);
+    // The admin side's blank agreements, for a foreign company to download.
+    Route::get('/agreement-templates/blank', [AgreementController::class, 'blankTemplates']);
+    Route::get('/agreement-templates/blank/{id}/file', [AgreementController::class, 'blankTemplateFile']);
+    Route::get('/agreement-templates/{id}/file', [AgreementController::class, 'templateFile']);
+    Route::delete('/agreement-templates/{id}', [AgreementController::class, 'deleteTemplate']);
+
+    // Before /agreements/{id}, so "translate" is never read as an id.
+    Route::post('/agreements/translate', [AgreementController::class, 'translate'])->middleware('throttle:60,1,translate');
+    Route::get('/agreements/recipients', [AgreementController::class, 'recipients']);
+    Route::get('/agreements', [AgreementController::class, 'index']);
+    Route::post('/agreements', [AgreementController::class, 'store']);
+    Route::get('/agreements/{id}', [AgreementController::class, 'show']);
+    Route::get('/agreements/{id}/file', [AgreementController::class, 'file']);
+    // A foreign company sends its agreement to the admin side, which passes
+    // it to one local agency - only then does that agency see it.
+    // The company's name, salary, seal and signature stay its to change, even once sent.
+    Route::patch('/agreements/{id}/details', [AgreementController::class, 'details']);
+    Route::put('/agreements/{id}/salary', [AgreementController::class, 'details']);
+    // The company seal and the signature, printed at the foot of every page.
+    Route::post('/agreements/{id}/marks', [AgreementController::class, 'uploadMark']);
+    Route::get('/agreements/{id}/marks/{type}', [AgreementController::class, 'mark']);
+    Route::post('/agreements/{id}/send-to-admin', [AgreementController::class, 'sendToAdmin']);
+    Route::post('/agreements/{id}/send-to-agency', [AgreementController::class, 'sendToAgency']);
+    // The local agency puts one of its candidates on it: passed ones first.
+    Route::get('/agreements/{id}/candidates', [AgreementController::class, 'candidates']);
+    Route::post('/agreements/{id}/assign', [AgreementController::class, 'assign']);
+    Route::put('/agreements/{id}', [AgreementController::class, 'update']);
+    Route::delete('/agreements/{id}', [AgreementController::class, 'destroy']);
+});
+
+// The employer part of the agreement, submitted by a foreign company from its
+// own login; the Main Admin and coordinators with the page read what came in.
+// can.page holds only coordinators, so agency logins pass it; the controller
+// keeps everyone but foreign companies from submitting.
+Route::middleware(['auth.jwt', 'can.page:agreements'])->group(function () {
+    Route::get('/employer-agreement/draft', [EmployerAgreementController::class, 'draft']);
+    Route::post('/employer-agreement', [EmployerAgreementController::class, 'store']);
+    Route::get('/employer-agreements', [EmployerAgreementController::class, 'index']);
 });
 
 // --- Verification (authenticated) -------------------------------------------

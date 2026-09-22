@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Card, CardHeader, CardBody, CardFooter } from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
@@ -6,9 +6,18 @@ import { PageLoader } from '../../components/ui/Spinner';
 import OtpForm from '../../components/auth/OtpForm';
 import { useToast } from '../../components/ui/Toast';
 import { useAuth } from '../../context/AuthContext';
-import { IconBuilding, IconUsers, IconMail, IconPhone, IconEdit } from '../../components/ui/Icons';
+import {
+  IconBuilding,
+  IconUsers,
+  IconMail,
+  IconPhone,
+  IconEdit,
+  IconPlus,
+  IconRefresh,
+} from '../../components/ui/Icons';
 import { agencyProfileApi } from '../../lib/api';
-import { alertError } from '../../lib/alert';
+import BlankAgreements from '../agreements/BlankAgreements';
+import { alertError, confirmAction } from '../../lib/alert';
 
 const PHONE_RE = /^[0-9+\s-]{9,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -17,13 +26,29 @@ const detailsFrom = (profile) => ({
   name: profile.name || '',
   contact: profile.contact || '',
   address: profile.address || '',
+  // A foreign company files these as well; a local agency leaves them empty.
+  registrationNo: profile.registrationNo || '',
+  lawyerName: profile.lawyer?.name || '',
+  lawyerIdNo: profile.lawyer?.idNo || '',
+  lawyerPosition: profile.lawyer?.position || '',
 });
 
 /** Field rules, mirroring the server so the same wording appears either way. */
-function validateDetails(values) {
+function validateDetails(values, foreign) {
   const errors = {};
 
-  if (!values.name.trim()) errors.name = 'Agency name is required.';
+  if (foreign) {
+    if (!values.registrationNo.trim())
+      errors.registrationNo = "Enter the company's registration number.";
+    if (!values.lawyerName.trim()) errors.lawyerName = "Enter the company lawyer's name.";
+    else if (values.lawyerName.trim().length < 3)
+      errors.lawyerName = 'Name must be at least 3 characters.';
+    if (!values.lawyerIdNo.trim()) errors.lawyerIdNo = "Enter the company lawyer's ID number.";
+    if (!values.lawyerPosition.trim())
+      errors.lawyerPosition = "Enter the company lawyer's position.";
+  }
+
+  if (!values.name.trim()) errors.name = 'Name is required.';
   else if (values.name.trim().length < 3) errors.name = 'Name must be at least 3 characters.';
 
   if (!values.contact.trim()) errors.contact = 'A contact person is required.';
@@ -76,7 +101,7 @@ function DetailsCard({ profile, onSaved }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const found = validateDetails(values);
+    const found = validateDetails(values, profile.type === 'foreign');
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
@@ -95,16 +120,21 @@ function DetailsCard({ profile, onSaved }) {
   };
 
   const status = profile.status ? profile.status[0].toUpperCase() + profile.status.slice(1) : '';
+  // An agency of type foreign is a foreign company wherever it is read.
+  const foreign = profile.type === 'foreign';
 
   return (
     <Card>
-      <CardHeader title="Agency details" subtitle="Saved as soon as you press Save changes." />
+      <CardHeader
+        title={foreign ? 'Company details' : 'Agency details'}
+        subtitle="Saved as soon as you press Save changes."
+      />
 
       <form onSubmit={handleSubmit} noValidate>
         <CardBody className="grid gap-x-8 gap-y-6 p-6 sm:grid-cols-2 sm:p-8">
           <div className="rounded-lg bg-gray-50 px-4 py-3 sm:col-span-2">
             <dl className="grid gap-4 text-sm sm:grid-cols-3">
-              <Fact label="Agency code" value={profile.code} />
+              <Fact label={foreign ? 'Company code' : 'Agency code'} value={profile.code} />
               <Fact label="Login username" value={profile.username} />
               <Fact label="Status" value={status} />
             </dl>
@@ -112,7 +142,7 @@ function DetailsCard({ profile, onSaved }) {
           </div>
 
           <Input
-            label="Agency name"
+            label={foreign ? 'Company name' : 'Agency name'}
             name="name"
             required
             value={values.name}
@@ -131,6 +161,53 @@ function DetailsCard({ profile, onSaved }) {
             icon={IconUsers}
             hint={!errors.contact ? 'Also the name you sign in under.' : undefined}
           />
+
+          {/* A foreign company files these; a local agency is not asked. */}
+          {foreign && (
+            <>
+              <Input
+                label="Registration No"
+                name="registrationNo"
+                required
+                value={values.registrationNo}
+                onChange={handleChange}
+                error={errors.registrationNo}
+                className="sm:col-span-2"
+              />
+
+              <fieldset className="grid gap-5 rounded-lg border border-gray-200 p-4 sm:col-span-2 sm:grid-cols-3">
+                <legend className="px-1 text-sm font-semibold text-gray-900">Company lawyer</legend>
+
+                <Input
+                  label="Lawyer name"
+                  name="lawyerName"
+                  required
+                  value={values.lawyerName}
+                  onChange={handleChange}
+                  error={errors.lawyerName}
+                  icon={IconUsers}
+                />
+
+                <Input
+                  label="Lawyer ID No"
+                  name="lawyerIdNo"
+                  required
+                  value={values.lawyerIdNo}
+                  onChange={handleChange}
+                  error={errors.lawyerIdNo}
+                />
+
+                <Input
+                  label="Position"
+                  name="lawyerPosition"
+                  required
+                  value={values.lawyerPosition}
+                  onChange={handleChange}
+                  error={errors.lawyerPosition}
+                />
+              </fieldset>
+            </>
+          )}
 
           <div className="sm:col-span-2">
             <label htmlFor="address" className="field-label">
@@ -297,13 +374,175 @@ function ContactRow({ field, label, icon: Icon, current, placeholder, onSaved })
             >
               Use a different {noun}
             </button>
-            <button type="button" onClick={cancel} className="font-medium text-gray-600 hover:text-gray-900">
+            <button
+              type="button"
+              onClick={cancel}
+              className="font-medium text-gray-600 hover:text-gray-900"
+            >
               Cancel
             </button>
           </div>
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * One picture: the signature, or the seal.
+ *
+ * The file sits on a private disk, so it is fetched with the session token
+ * and shown from a blob URL rather than linked to. Uploading a new one
+ * replaces what was there - there is no history to keep.
+ */
+function MarkBox({ type, label, hint, mark, onSaved }) {
+  const { toast } = useToast();
+  const inputRef = useRef(null);
+  const [url, setUrl] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const uploaded = Boolean(mark?.uploaded);
+
+  useEffect(() => {
+    if (!uploaded) {
+      setUrl(null);
+      return undefined;
+    }
+
+    let objectUrl = null;
+    let cancelled = false;
+
+    agencyProfileApi
+      .markUrl(type)
+      .then((next) => {
+        if (cancelled) {
+          if (next) URL.revokeObjectURL(next);
+          return;
+        }
+        objectUrl = next;
+        setUrl(next);
+      })
+      .catch(() => {});
+
+    // The blob is held by this page alone, so it goes when the box does.
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [type, uploaded, mark?.uploadedAt]);
+
+  const upload = async (file) => {
+    setBusy(true);
+    try {
+      const { data, message } = await agencyProfileApi.uploadMark(type, file);
+      onSaved(data);
+      toast(message || label + ' uploaded.');
+    } catch (err) {
+      alertError(
+        err.errors?.file || err.message || 'Could not upload the ' + type + '.',
+        'Upload failed',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    const sure = await confirmAction({
+      title: 'Remove the ' + type + '?',
+      text: 'It is deleted from the server. You can upload a new one at any time.',
+      confirmText: 'Remove',
+      danger: true,
+    });
+    if (!sure) return;
+
+    setBusy(true);
+    try {
+      const { data, message } = await agencyProfileApi.removeMark(type);
+      onSaved(data);
+      toast(message || label + ' removed.');
+    } catch (err) {
+      alertError(err.message || 'Could not remove the ' + type + '.', 'Not removed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-gray-200 p-4">
+      <p className="text-sm font-semibold text-gray-900">{label}</p>
+      <p className="mt-0.5 text-xs text-gray-500">{hint}</p>
+
+      <div className="mt-3 flex h-28 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50">
+        {uploaded ? (
+          url ? (
+            <img src={url} alt={label} className="max-h-24 max-w-full object-contain" />
+          ) : (
+            <span className="text-xs text-gray-400">Loading...</span>
+          )
+        ) : (
+          <span className="text-xs text-gray-400">Nothing uploaded yet</span>
+        )}
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        accept=".jpg,.jpeg,.png,.webp"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) upload(file);
+          e.target.value = ''; // allow re-picking the same file
+        }}
+      />
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={uploaded ? 'secondary' : 'primary'}
+          icon={uploaded ? IconRefresh : IconPlus}
+          loading={busy}
+          onClick={() => inputRef.current?.click()}
+        >
+          {uploaded ? 'Replace' : 'Upload'}
+        </Button>
+        {uploaded && (
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={remove}>
+            Remove
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The signature and the seal, both added here and nowhere else. */
+function MarksCard({ profile, onSaved }) {
+  return (
+    <Card>
+      <CardHeader
+        title="Signature and seal"
+        subtitle="Pictures used on this account's paperwork. A new upload replaces the one before it."
+      />
+      <CardBody className="grid gap-5 p-6 sm:grid-cols-2 sm:p-8">
+        <MarkBox
+          type="signature"
+          label="Signature"
+          hint="A scan of the authorised signature."
+          mark={profile.marks?.signature}
+          onSaved={onSaved}
+        />
+        <MarkBox
+          type="seal"
+          label="Seal"
+          hint="The rubber stamp or company seal."
+          mark={profile.marks?.seal}
+          onSaved={onSaved}
+        />
+      </CardBody>
+    </Card>
   );
 }
 
@@ -317,7 +556,9 @@ export default function AgencyProfile() {
     agencyProfileApi
       .get()
       .then(({ data }) => !cancelled && setProfile(data))
-      .catch((err) => !cancelled && setLoadError(err.message || 'Could not load the agency details.'));
+      .catch(
+        (err) => !cancelled && setLoadError(err.message || 'Could not load the agency details.'),
+      );
     return () => {
       cancelled = true;
     };
@@ -353,6 +594,11 @@ export default function AgencyProfile() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <DetailsCard profile={profile} onSaved={applySaved} />
+
+      {/* A foreign company downloads the admin's blank agreement here. */}
+      {profile.type === 'foreign' && <BlankAgreements />}
+
+      <MarksCard profile={profile} onSaved={applySaved} />
 
       <Card>
         <CardHeader

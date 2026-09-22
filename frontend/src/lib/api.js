@@ -108,7 +108,8 @@ async function send(path, { method, body, headers }) {
     const error = new Error(
       sessionEnded
         ? 'Your session has ended. Please sign in again.'
-        : payload?.message || (unreachable ? OFFLINE_MESSAGE : 'Request failed (' + res.status + ')')
+        : payload?.message ||
+            (unreachable ? OFFLINE_MESSAGE : 'Request failed (' + res.status + ')'),
     );
     error.status = res.status;
     error.errors = payload?.errors;
@@ -140,7 +141,8 @@ export const authApi = {
    * The admin is seeded and agency logins are issued from the admin panel.
    */
   async login({ username, password, remember }) {
-    if (!USE_MOCK) return request('/auth/login', { method: 'POST', body: { username, password, remember } });
+    if (!USE_MOCK)
+      return request('/auth/login', { method: 'POST', body: { username, password, remember } });
     await delay();
     if (password.length < 6) {
       const e = new Error('Invalid username or password.');
@@ -162,7 +164,8 @@ export const authApi = {
 
   /** Step 2: phone code accepted -> hands back the email challenge, no token. */
   async verifyOtp({ challengeId, code }) {
-    if (!USE_MOCK) return request('/auth/verify-otp', { method: 'POST', body: { challengeId, code } });
+    if (!USE_MOCK)
+      return request('/auth/verify-otp', { method: 'POST', body: { challengeId, code } });
     await delay();
     if (mockStage !== 'phone') {
       const e = new Error('Wrong verification step for this session.');
@@ -187,13 +190,14 @@ export const authApi = {
         resendCooldown: 59,
         devCode: mockOtp,
       },
-      'Phone number verified. Now confirm your email address.'
+      'Phone number verified. Now confirm your email address.',
     );
   },
 
   /** Step 3: email code accepted -> session token issued. */
   async verifyEmail({ challengeId, code }) {
-    if (!USE_MOCK) return request('/auth/verify-email', { method: 'POST', body: { challengeId, code } });
+    if (!USE_MOCK)
+      return request('/auth/verify-email', { method: 'POST', body: { challengeId, code } });
     await delay();
     if (mockStage !== 'email') {
       const e = new Error('Verify your phone number before confirming your email.');
@@ -211,7 +215,12 @@ export const authApi = {
       verified: 'email',
       nextStep: 'dashboard',
       token: 'mock.jwt.token',
-      admin: { id: 'US-2001', name: 'Ishara Bandara', email: 'admin@example.com', role: 'Main Admin' },
+      admin: {
+        id: 'US-2001',
+        name: 'Ishara Bandara',
+        email: 'admin@example.com',
+        role: 'Main Admin',
+      },
     });
   },
 
@@ -221,7 +230,7 @@ export const authApi = {
     mockOtp = newCode();
     return ok(
       { resentAt: new Date().toISOString(), channel: mockStage, cooldown: 59, devCode: mockOtp },
-      'A new code has been sent.'
+      'A new code has been sent.',
     );
   },
 
@@ -241,12 +250,13 @@ export const authApi = {
         resendCooldown: 59,
         devCode: mockOtp,
       },
-      'A verification code has been sent.'
+      'A verification code has been sent.',
     );
   },
 
   async resendResetCode({ challengeId }) {
-    if (!USE_MOCK) return request('/auth/forgot-password/resend', { method: 'POST', body: { challengeId } });
+    if (!USE_MOCK)
+      return request('/auth/forgot-password/resend', { method: 'POST', body: { challengeId } });
     await delay(400);
     mockOtp = newCode();
     return ok({ cooldown: 59, devCode: mockOtp }, 'A new code has been sent.');
@@ -254,7 +264,11 @@ export const authApi = {
 
   /** Code accepted -> a short-lived token that lets the new password be set. */
   async verifyResetCode({ challengeId, code }) {
-    if (!USE_MOCK) return request('/auth/forgot-password/verify', { method: 'POST', body: { challengeId, code } });
+    if (!USE_MOCK)
+      return request('/auth/forgot-password/verify', {
+        method: 'POST',
+        body: { challengeId, code },
+      });
     await delay();
     if (code !== mockOtp) {
       const e = new Error('That code is incorrect.');
@@ -278,7 +292,12 @@ export const authApi = {
   async me() {
     if (!USE_MOCK) return request('/auth/me');
     await delay(200);
-    return ok({ id: 'US-2001', name: 'Ishara Bandara', email: 'admin@example.com', role: 'Main Admin' });
+    return ok({
+      id: 'US-2001',
+      name: 'Ishara Bandara',
+      email: 'admin@example.com',
+      role: 'Main Admin',
+    });
   },
 };
 
@@ -286,7 +305,9 @@ export const authApi = {
 export const agencyApi = {
   async list({ status = 'all', search = '', type = 'all' } = {}) {
     if (!USE_MOCK) {
-      return request('/agencies?status=' + status + '&type=' + type + '&search=' + encodeURIComponent(search));
+      return request(
+        '/agencies?status=' + status + '&type=' + type + '&search=' + encodeURIComponent(search),
+      );
     }
     await delay(350);
     const term = search.trim().toLowerCase();
@@ -297,7 +318,7 @@ export const agencyApi = {
         (!term ||
           a.name.toLowerCase().includes(term) ||
           a.username.toLowerCase().includes(term) ||
-          a.code.toLowerCase().includes(term))
+          a.code.toLowerCase().includes(term)),
     );
     return ok(rows);
   },
@@ -351,7 +372,8 @@ export const agencyApi = {
   },
 
   async updateStatus(id, status) {
-    if (!USE_MOCK) return request('/agencies/' + id + '/status', { method: 'PATCH', body: { status } });
+    if (!USE_MOCK)
+      return request('/agencies/' + id + '/status', { method: 'PATCH', body: { status } });
     await delay(400);
     agencies = agencies.map((a) => (a.id === id ? { ...a, status } : a));
     return ok(agencies.find((a) => a.id === id));
@@ -386,15 +408,20 @@ export const agencyApi = {
 
 // --- Users ------------------------------------------------------------------
 export const userApi = {
-  async list({ role = 'all', status = 'all', search = '' } = {}) {
-    if (!USE_MOCK) return request('/users?role=' + role + '&status=' + status + '&search=' + encodeURIComponent(search));
+  /** `agencyType` is local, foreign or main (no agency); `agency` one agency's id. */
+  async list({ role = 'all', status = 'all', search = '', agencyType = 'all', agency = 'all' } = {}) {
+    if (!USE_MOCK)
+      return request(
+        '/users?role=' + role + '&status=' + status + '&search=' + encodeURIComponent(search) +
+          '&agencyType=' + agencyType + '&agency=' + encodeURIComponent(agency),
+      );
     await delay(350);
     const term = search.trim().toLowerCase();
     const rows = users.filter(
       (u) =>
         (role === 'all' || u.role === role) &&
         (status === 'all' || u.status === status) &&
-        (!term || u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term))
+        (!term || u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)),
     );
     return ok(rows);
   },
@@ -414,7 +441,8 @@ export const userApi = {
   },
 
   async updateStatus(id, status) {
-    if (!USE_MOCK) return request('/users/' + id + '/status', { method: 'PATCH', body: { status } });
+    if (!USE_MOCK)
+      return request('/users/' + id + '/status', { method: 'PATCH', body: { status } });
     await delay(300);
     users = users.map((u) => (u.id === id ? { ...u, status } : u));
     return ok(users.find((u) => u.id === id));
@@ -445,7 +473,13 @@ export const roleApi = {
       e.status = 409;
       throw e;
     }
-    const record = { id: 'RL-' + (roles.length + 1).toString().padStart(2, '0'), slug, users: 0, system: false, ...payload };
+    const record = {
+      id: 'RL-' + (roles.length + 1).toString().padStart(2, '0'),
+      slug,
+      users: 0,
+      system: false,
+      ...payload,
+    };
     roles = [...roles, record];
     permissions = {
       ...permissions,
@@ -453,7 +487,7 @@ export const roleApi = {
         ['agencies', 'users', 'roles', 'reports', 'billing', 'settings'].map((m) => [
           m,
           { view: false, create: false, edit: false, delete: false },
-        ])
+        ]),
       ),
     };
     return ok(record);
@@ -473,7 +507,11 @@ export const roleApi = {
   },
 
   async savePermissions(slug, matrix) {
-    if (!USE_MOCK) return request('/roles/' + slug + '/permissions', { method: 'PUT', body: { permissions: matrix } });
+    if (!USE_MOCK)
+      return request('/roles/' + slug + '/permissions', {
+        method: 'PUT',
+        body: { permissions: matrix },
+      });
     await delay(600);
     permissions = { ...permissions, [slug]: clone(matrix) };
     return ok(permissions[slug], 'Permissions updated.');
@@ -606,18 +644,21 @@ export const verificationApi = {
           pending,
           nextSignInAsks: active ? [] : ['phone', 'email'],
         };
-      })
+      }),
     );
   },
 
   async listEmails({ status = 'all', search = '' } = {}) {
-    if (!USE_MOCK) return request('/verification/emails?status=' + status + '&search=' + encodeURIComponent(search));
+    if (!USE_MOCK)
+      return request(
+        '/verification/emails?status=' + status + '&search=' + encodeURIComponent(search),
+      );
     await delay(350);
     const term = search.trim().toLowerCase();
     const rows = emails.filter(
       (e) =>
         (status === 'all' || e.status === status) &&
-        (!term || e.email.toLowerCase().includes(term) || e.name.toLowerCase().includes(term))
+        (!term || e.email.toLowerCase().includes(term) || e.name.toLowerCase().includes(term)),
     );
     return ok(rows);
   },
@@ -633,7 +674,10 @@ export const verificationApi = {
     if (!USE_MOCK) return request('/verification/emails/' + id + '/verify', { method: 'PATCH' });
     await delay(400);
     emails = emails.map((e) => (e.id === id ? { ...e, status: 'verified' } : e));
-    return ok(emails.find((e) => e.id === id), 'Email marked as verified.');
+    return ok(
+      emails.find((e) => e.id === id),
+      'Email marked as verified.',
+    );
   },
 
   /** Drops the request. The account the link was sent for is untouched. */
@@ -676,7 +720,7 @@ export const notificationsApi = {
           body: 'New agency registration. Contact: ' + a.contact + '.',
           at: new Date(a.createdAt).toISOString(),
           link: '/agencies',
-        }))
+        })),
     );
   },
 };
@@ -772,10 +816,14 @@ export const candidateApi = {
   async list({ search = '', status = 'all', agencyId = '', poolStatus = 'all' } = {}) {
     requireLiveApi();
     return request(
-      '/candidates?search=' + encodeURIComponent(search) +
-        '&status=' + status +
-        '&poolStatus=' + poolStatus +
-        '&agencyId=' + encodeURIComponent(agencyId)
+      '/candidates?search=' +
+        encodeURIComponent(search) +
+        '&status=' +
+        status +
+        '&poolStatus=' +
+        poolStatus +
+        '&agencyId=' +
+        encodeURIComponent(agencyId),
     );
   },
 
@@ -818,6 +866,18 @@ export const candidateApi = {
   async documents(id) {
     requireLiveApi();
     return request('/candidates/' + id + '/documents');
+  },
+
+  /**
+   * Where the police report has got to: applied (reference number), or
+   * received (reference number and the date it was issued).
+   */
+  async savePoliceReport(id, { status, referenceNo, issuedDate }) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/police-report', {
+      method: 'PATCH',
+      body: { status, referenceNo, issuedDate },
+    });
   },
 
   /** Every version ever uploaded for one document type. */
@@ -875,7 +935,7 @@ export const candidateApi = {
   downloadAll: (candidateId, candidateName) =>
     downloadFile(
       '/candidates/' + candidateId + '/documents/download-all',
-      (candidateName || 'candidate') + '-documents.zip'
+      (candidateName || 'candidate') + '-documents.zip',
     ),
 };
 
@@ -896,6 +956,69 @@ export const agencyProfileApi = {
     return request('/agency-profile', { method: 'PUT', body: payload });
   },
 
+  /**
+   * The signature or the seal, as a picture. Uploading one replaces what was
+   * there: a seal is simply the current seal, with no history to keep.
+   */
+  async uploadMark(type, file) {
+    requireLiveApi();
+
+    const form = new FormData();
+    form.append('type', type);
+    form.append('file', file);
+
+    const done = trackRequest();
+    showLoading('Uploading the ' + type + '...');
+    let res;
+    try {
+      res = await fetch(BASE_URL + '/agency-profile/marks', {
+        method: 'POST',
+        // No Content-Type: the browser sets the multipart boundary itself.
+        headers: { Authorization: 'Bearer ' + tokenStore.get() },
+        body: form,
+      });
+    } catch {
+      const error = new Error(OFFLINE_MESSAGE);
+      error.status = 0;
+      throw error;
+    } finally {
+      hideLoading();
+      done();
+    }
+
+    const payload = await res.json().catch(() => null);
+
+    if (!res.ok || payload?.success === false) {
+      const error = new Error(payload?.message || 'Upload failed (' + res.status + ')');
+      error.status = res.status;
+      error.errors = payload?.errors;
+      throw error;
+    }
+
+    return payload;
+  },
+
+  /**
+   * The picture itself, as a blob URL the page can show. The file sits on a
+   * private disk, so it is fetched with the token rather than linked to.
+   * Whoever calls this revokes the URL when the page is done with it.
+   */
+  async markUrl(type) {
+    requireLiveApi();
+
+    const res = await fetch(BASE_URL + '/agency-profile/marks/' + type, {
+      headers: { Authorization: 'Bearer ' + tokenStore.get() },
+    });
+    if (!res.ok) return null;
+
+    return URL.createObjectURL(await res.blob());
+  },
+
+  async removeMark(type) {
+    requireLiveApi();
+    return request('/agency-profile/marks/' + type, { method: 'DELETE' });
+  },
+
   /** Sends a code to the new value; nothing changes until it is entered. */
   async requestContactChange(field, value) {
     requireLiveApi();
@@ -909,6 +1032,250 @@ export const agencyProfileApi = {
 
   async verifyContactChange(challengeId, code) {
     requireLiveApi();
-    return request('/agency-profile/contact/verify', { method: 'POST', body: { challengeId, code } });
+    return request('/agency-profile/contact/verify', {
+      method: 'POST',
+      body: { challengeId, code },
+    });
+  },
+};
+
+/**
+ * A multipart upload with the loading dialog up until the server answers.
+ * Unwrapped like request(): the payload, or an Error carrying the field errors.
+ */
+async function uploadForm(path, form, label) {
+  const done = trackRequest();
+  showLoading(label);
+  let res;
+  try {
+    res = await fetch(BASE_URL + path, {
+      method: 'POST',
+      // No Content-Type: the browser sets the multipart boundary itself.
+      headers: { Authorization: 'Bearer ' + tokenStore.get() },
+      body: form,
+    });
+  } catch {
+    const error = new Error(OFFLINE_MESSAGE);
+    error.status = 0;
+    throw error;
+  } finally {
+    hideLoading();
+    done();
+  }
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || payload?.success === false) {
+    const error = new Error(payload?.message || 'Upload failed (' + res.status + ')');
+    error.status = res.status;
+    error.errors = payload?.errors;
+    throw error;
+  }
+  return payload;
+}
+
+// --- Agreements (Main Admin) -------------------------------------------------
+/**
+ * The uploaded agreement PDFs, and the copies filled from them in English,
+ * Hebrew and Sinhala. Live API only.
+ */
+export const agreementApi = {
+  async templates() {
+    requireLiveApi();
+    return request('/agreement-templates');
+  },
+
+  /** With saved, the PDF is only kept for starting agreements from later. */
+  async uploadTemplate({ name, layout, file, saved = false }) {
+    requireLiveApi();
+
+    const form = new FormData();
+    form.append('name', name);
+    form.append('layout', layout);
+    form.append('file', file);
+    if (saved) form.append('saved', '1');
+
+    return uploadForm('/agreement-templates', form, 'Uploading ' + (file?.name || 'the agreement') + '...');
+  },
+
+  /** The company seal or the signature (type 'seal' | 'signature'), printed on every page. */
+  async uploadMark(id, type, file) {
+    requireLiveApi();
+
+    const form = new FormData();
+    form.append('type', type);
+    form.append('file', file);
+
+    return uploadForm('/agreements/' + id + '/marks', form, 'Uploading the ' + type + '...');
+  },
+
+  /** The seal or the signature as a picture, for the filled PDF. */
+  async markBlob(id, type) {
+    requireLiveApi();
+    const res = await fetch(BASE_URL + '/agreements/' + id + '/marks/' + type, {
+      headers: { Authorization: 'Bearer ' + tokenStore.get() },
+    });
+    if (!res.ok) throw new Error('Could not load the ' + type + '.');
+    return res.blob();
+  },
+
+  /**
+   * The original PDF as a blob URL, to open in a new tab. It sits on a
+   * private disk, so it is fetched with the token rather than linked to.
+   */
+  async templateFileUrl(id) {
+    requireLiveApi();
+    const res = await fetch(BASE_URL + '/agreement-templates/' + id + '/file', {
+      headers: { Authorization: 'Bearer ' + tokenStore.get() },
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.message || 'Could not open the PDF.');
+    }
+    return URL.createObjectURL(await res.blob());
+  },
+
+  /** The admin side's blank agreements, which a foreign company downloads. */
+  async blankTemplates() {
+    requireLiveApi();
+    return request('/agreement-templates/blank');
+  },
+
+  /** One blank agreement's PDF, as a blob. */
+  async blankTemplateBlob(id) {
+    requireLiveApi();
+    const res = await fetch(BASE_URL + '/agreement-templates/blank/' + id + '/file', {
+      headers: { Authorization: 'Bearer ' + tokenStore.get() },
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.message || 'Could not download the PDF.');
+    }
+    return res.blob();
+  },
+
+  async removeTemplate(id) {
+    requireLiveApi();
+    return request('/agreement-templates/' + id, { method: 'DELETE' });
+  },
+
+  /**
+   * A company's own, or those passed to a local agency. On the admin side:
+   * its own, or - given `company` ("all" or an id), `status` or
+   * `localAgency` - what foreign companies have sent it.
+   */
+  async list({ company, status, localAgency } = {}) {
+    requireLiveApi();
+    const query = new URLSearchParams(
+      Object.entries({ company, status, localAgency }).filter(([, value]) => value)
+    ).toString();
+    return request('/agreements' + (query ? '?' + query : ''));
+  },
+
+  /** The foreign companies that have sent agreements, and the local agencies to pass them to. */
+  async recipients() {
+    requireLiveApi();
+    return request('/agreements/recipients');
+  },
+
+  /** The original PDF behind an agreement, for any side that may read it, as bytes. */
+  async fileBytes(id) {
+    requireLiveApi();
+    const res = await fetch(BASE_URL + '/agreements/' + id + '/file', {
+      headers: { Authorization: 'Bearer ' + tokenStore.get() },
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.message || 'Could not open the PDF.');
+    }
+    return res.arrayBuffer();
+  },
+
+  /** What the company keeps up to date at any stage: { title?, salary? }. */
+  async updateDetails(id, details) {
+    requireLiveApi();
+    return request('/agreements/' + id + '/details', { method: 'PATCH', body: details });
+  },
+
+  /** The monthly salary in NIS, in place of the amount clause 3a prints. */
+  async setSalary(id, salary) {
+    requireLiveApi();
+    return request('/agreements/' + id + '/salary', { method: 'PUT', body: { salary } });
+  },
+
+  /** A foreign company hands its checked agreement to the admin side. */
+  async sendToAdmin(id) {
+    requireLiveApi();
+    return request('/agreements/' + id + '/send-to-admin', { method: 'POST' });
+  },
+
+  /** The local agency's candidates for an agreement it was sent: passed ones first. */
+  async candidates(id) {
+    requireLiveApi();
+    return request('/agreements/' + id + '/candidates');
+  },
+
+  /** The local agency puts a candidate on the agreement, filling its employee part. */
+  async assign(id, candidateId) {
+    requireLiveApi();
+    return request('/agreements/' + id + '/assign', { method: 'POST', body: { candidateId } });
+  },
+
+  /** The admin side passes a company's agreement to one local agency. */
+  async sendToAgency(id, agencyId) {
+    requireLiveApi();
+    return request('/agreements/' + id + '/send-to-agency', { method: 'POST', body: { agencyId } });
+  },
+
+  async create(templateId, title) {
+    requireLiveApi();
+    return request('/agreements', { method: 'POST', body: { templateId, title } });
+  },
+
+  async get(id) {
+    requireLiveApi();
+    return request('/agreements/' + id);
+  },
+
+  async update(id, payload) {
+    requireLiveApi();
+    return request('/agreements/' + id, { method: 'PUT', body: payload });
+  },
+
+  async remove(id) {
+    requireLiveApi();
+    return request('/agreements/' + id, { method: 'DELETE' });
+  },
+
+  /**
+   * Hebrew and Sinhala for each English text, in the same order. A read,
+   * as far as the screen is concerned, so it only moves the top bar.
+   */
+  async translate(texts) {
+    requireLiveApi();
+    return request('/agreements/translate', { method: 'POST', body: { texts }, background: true });
+  },
+};
+
+// --- Employer agreement (foreign company) -------------------------------------
+/**
+ * The employer part of the agreement, submitted by a foreign company from its
+ * own login. The English comes from the company record on the server; only
+ * the Hebrew and Sinhala of the translated fields are sent. Live API only.
+ */
+export const employerAgreementApi = {
+  async draft() {
+    requireLiveApi();
+    return request('/employer-agreement/draft');
+  },
+
+  async submit(values) {
+    requireLiveApi();
+    return request('/employer-agreement', { method: 'POST', body: { values } });
+  },
+
+  /** A company's own submissions; for the Main Admin and coordinators, every one. */
+  async list() {
+    requireLiveApi();
+    return request('/employer-agreements');
   },
 };

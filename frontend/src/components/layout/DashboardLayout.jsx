@@ -2,12 +2,16 @@ import { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
+import { useAuth } from '../../context/AuthContext';
+import PdfViewerHost from '../../pages/agreements/PdfViewer';
 
 // Header copy per route, so the topbar always reflects the current screen.
 const PAGE_META = [
   { match: /^\/dashboard/, title: 'Dashboard', subtitle: 'Overview of agencies, users and activity' },
+  { match: /^\/agreements\/\d+/, title: 'Employment Agreement', subtitle: 'The employer part in English, Hebrew and Sinhala' },
+  { match: /^\/agreements/, title: 'Employment Agreements', subtitle: 'Agreements from foreign companies, in English, Hebrew and Sinhala' },
   { match: /^\/agency\/profile/, title: 'Agency Details', subtitle: 'Your agency details and the phone and email used to sign in' },
-  { match: /^\/agencies\/create/, title: 'Create Agency', subtitle: 'Register a local or foreign agency and issue its login' },
+  { match: /^\/agencies\/create/, title: 'Create Agency', subtitle: 'Register a local or foreign company and issue its login' },
   { match: /^\/agencies/, title: 'Agency Management', subtitle: 'Review pending, active and deactivated agencies' },
   { match: /^\/candidates\/all/, title: 'Candidate List', subtitle: 'Every candidate across all agencies, and where each one stands' },
   { match: /^\/candidates\/register/, title: 'Register Candidate', subtitle: 'Capture the candidate details; documents follow once they pass' },
@@ -26,7 +30,12 @@ const PAGE_META = [
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { pathname } = useLocation();
-  const meta = PAGE_META.find((m) => m.match.test(pathname)) || { title: 'Dashboard' };
+  const { admin } = useAuth();
+  let meta = PAGE_META.find((m) => m.match.test(pathname)) || { title: 'Dashboard' };
+  // A foreign company reads its own details as a company's.
+  if (meta.match?.test('/agency/profile') && admin?.agency?.type === 'foreign') {
+    meta = { title: 'Company Details', subtitle: 'Your company details and the phone and email used to sign in' };
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -42,6 +51,8 @@ export default function DashboardLayout() {
           <Outlet />
         </main>
       </div>
+      {/* The agreement PDFs open here, over whichever page asked. */}
+      <PdfViewerHost />
     </div>
   );
 }

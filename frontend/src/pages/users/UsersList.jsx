@@ -5,19 +5,44 @@ import Button from '../../components/ui/Button';
 import Badge, { StatusBadge } from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import { IconSearch, IconTrash } from '../../components/ui/Icons';
-import { userApi, roleApi } from '../../lib/api';
+import { userApi, roleApi, agencyApi } from '../../lib/api';
+
+/** Where a login belongs: the main system, a local agency or a foreign company. */
+const AGENCY_TYPES = [
+  { value: 'all', label: 'All accounts' },
+  { value: 'local', label: 'Local agencies' },
+  { value: 'foreign', label: 'Foreign companies' },
+  { value: 'main', label: 'Main system' },
+];
 
 export default function UsersList() {
   const { toast } = useToast();
   const [rows, setRows] = useState([]);
   const [roles, setRoles] = useState([]);
-  const [filters, setFilters] = useState({ role: 'all', status: 'all', search: '' });
+  const [agencies, setAgencies] = useState([]);
+  const [filters, setFilters] = useState({ role: 'all', status: 'all', search: '', agencyType: 'all', agency: 'all' });
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
 
   useEffect(() => {
     roleApi.list().then(({ data }) => setRoles(data)).catch(() => {});
   }, []);
+
+  // The agencies of the kind chosen, to narrow to one of them.
+  useEffect(() => {
+    if (!['local', 'foreign'].includes(filters.agencyType)) {
+      setAgencies([]);
+      return;
+    }
+    let live = true;
+    agencyApi
+      .list({ type: filters.agencyType })
+      .then(({ data }) => live && setAgencies(Array.isArray(data) ? data : []))
+      .catch(() => live && setAgencies([]));
+    return () => {
+      live = false;
+    };
+  }, [filters.agencyType]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,7 +61,9 @@ export default function UsersList() {
     return () => clearTimeout(t);
   }, [load, filters.search]);
 
-  const setFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
+  const setFilter = (key, value) =>
+    // A new kind of agency starts again from all of its agencies.
+    setFilters((f) => ({ ...f, [key]: value, ...(key === 'agencyType' ? { agency: 'all' } : {}) }));
 
   const toggleStatus = async (user) => {
     const next = user.status === 'active' ? 'deactivated' : 'active';
@@ -83,7 +110,19 @@ export default function UsersList() {
     },
     { key: 'phone', header: 'Phone' },
     { key: 'role', header: 'Role', render: (row) => <Badge tone="blue">{row.role}</Badge> },
-    { key: 'agency', header: 'Agency' },
+    {
+      key: 'agency',
+      header: 'Agency',
+      render: (row) =>
+        row.agency ? (
+          <div>
+            <p className="text-gray-900">{row.agency}</p>
+            <p className="text-xs text-gray-500">{row.agencyType === 'foreign' ? 'Foreign company' : 'Local agency'}</p>
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400">Main system</span>
+        ),
+    },
     { key: 'lastLogin', header: 'Last Login' },
     { key: 'status', header: 'Status', render: (row) => <StatusBadge status={row.status} /> },
     {
@@ -133,11 +172,43 @@ export default function UsersList() {
             >
               <option value="all">All roles</option>
               {roles.map((r) => (
-                <option key={r.id} value={r.name}>
+                // The server matches the role by its slug.
+                <option key={r.id} value={r.slug}>
                   {r.name}
                 </option>
               ))}
             </select>
+
+            <select
+              value={filters.agencyType}
+              onChange={(e) => setFilter('agencyType', e.target.value)}
+              className={selectClass}
+              aria-label="Filter by agency type"
+            >
+              {AGENCY_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+
+            {['local', 'foreign'].includes(filters.agencyType) && (
+              <select
+                value={filters.agency}
+                onChange={(e) => setFilter('agency', e.target.value)}
+                className={selectClass}
+                aria-label={filters.agencyType === 'foreign' ? 'Filter by foreign company' : 'Filter by local agency'}
+              >
+                <option value="all">
+                  {filters.agencyType === 'foreign' ? 'All foreign companies' : 'All local agencies'}
+                </option>
+                {agencies.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.code})
+                  </option>
+                ))}
+              </select>
+            )}
 
             <select
               value={filters.status}

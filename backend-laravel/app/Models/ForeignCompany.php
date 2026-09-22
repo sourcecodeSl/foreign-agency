@@ -7,9 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * A foreign agency: the overseas employer that runs skill tests and hires,
- * e.g. in Israel. It is called a foreign agency everywhere the user reads it;
- * the class and table keep the older word so the schema does not move.
+ * A foreign company: the overseas employer that runs skill tests and hires,
+ * e.g. in Israel. Not to be confused with an agency of type foreign, which
+ * registers its own candidates and signs in - both read as "foreign company"
+ * on screen.
  *
  * Each one belongs to the coordinator (foreign agent) who brought it in: the
  * coordinator sees only their own, the Main Admin sees them all.

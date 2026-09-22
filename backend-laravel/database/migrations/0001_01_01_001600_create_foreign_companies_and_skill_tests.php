@@ -15,8 +15,8 @@ use Illuminate\Support\Facades\Schema;
  *
  * Agencies are left as they are. An earlier version of this migration moved
  * "foreign" agencies into foreign_companies, deleted them and dropped
- * agencies.type/country; 0001_01_01_001700 put the columns back because a
- * foreign agency is still an agency. On a database that has not run this yet
+ * agencies.type/country; 0001_01_01_001700 put the columns back because an
+ * agency of type foreign is still an agency. On a database that has not run this yet
  * (the live site) that step would only lose agencies and their logins, so it
  * is gone.
  */

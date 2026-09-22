@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * One skill test: a candidate tried for one job role, with one foreign
  * agency, on one day, under a test number of its own.
  *
- * Passing locks the candidate to that foreign agency. Failing leaves them in
+ * Passing locks the candidate to that foreign company. Failing leaves them in
  * the pool, free to be tested again for another role or another agency - and
  * that next attempt is always a new test, never an edit of this one, so the
  * history of what was tried stays readable.

@@ -12,6 +12,7 @@ const setPassed = vi.fn();
 const updateStatus = vi.fn();
 const bookTest = vi.fn();
 const recordResult = vi.fn();
+const savePolice = vi.fn();
 
 const DOCUMENT_TYPES = [
   'passport_copy',
@@ -69,6 +70,7 @@ vi.mock('../lib/api', () => ({
     setPassed: (...args) => setPassed(...args),
     updateStatus: (...args) => updateStatus(...args),
     remove: vi.fn(),
+    savePoliceReport: (...args) => savePolice(...args),
   },
   companyApi: { list: async () => ({ data: [{ id: 5, name: 'Herzl Construction' }] }) },
   jobRoleApi: {
@@ -112,6 +114,7 @@ beforeEach(() => {
   updateStatus.mockReset().mockResolvedValue({ message: "Kamal Perera's profile has been submitted." });
   bookTest.mockReset().mockResolvedValue({ message: 'Booked.' });
   recordResult.mockReset().mockResolvedValue({ message: 'Recorded.' });
+  savePolice.mockReset().mockResolvedValue({ message: 'Police report saved.' });
   // Everything except the passport copy is still outstanding.
   missing = DOCUMENT_TYPES.filter((t) => t !== 'passport_copy');
 });
@@ -337,7 +340,7 @@ describe('skill tests on one candidate file', () => {
     expect(screen.getByText('Tiler, Shuttering Carpenter')).toBeTruthy();
 
     await waitFor(() => expect(screen.getByRole('option', { name: 'Herzl Construction' })).toBeTruthy());
-    await user.selectOptions(screen.getByLabelText(/foreign agency/i), '5');
+    await user.selectOptions(screen.getByLabelText(/foreign company/i), '5');
     await user.selectOptions(screen.getByLabelText(/^job category$/i), '2');
     // A trade already failed is marked in the list.
     expect(screen.getByRole('option', { name: 'Tiler (failed before)' })).toBeTruthy();
@@ -354,7 +357,7 @@ describe('skill tests on one candidate file', () => {
     renderDetail();
 
     await waitFor(() => expect(screen.getByRole('option', { name: 'Herzl Construction' })).toBeTruthy());
-    await user.selectOptions(screen.getByLabelText(/foreign agency/i), '5');
+    await user.selectOptions(screen.getByLabelText(/foreign company/i), '5');
     await user.selectOptions(screen.getByLabelText(/^job category$/i), '2');
     await user.click(screen.getByRole('button', { name: /book test/i }));
 
@@ -371,5 +374,76 @@ describe('skill tests on one candidate file', () => {
 
     expect(await screen.findByText('TST-1001')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /book test/i })).toBeNull();
+  });
+});
+
+describe('the passport warning and the police report', () => {
+  beforeEach(() => {
+    roleSlug = 'agency_owner';
+    candidate = {
+      ...BASE,
+      poolStatus: 'pool',
+      passportExpiry: '2027-03-01',
+      passportWarning: 'The passport is valid until 1 Mar 2027, which is less than 3 years away.',
+      policeReport: { status: 'not_applied' },
+    };
+  });
+
+  it('keeps the passport warning on screen without blocking anything', async () => {
+    renderDetail();
+
+    expect(await screen.findByText('Check the passport')).toBeTruthy();
+    expect(screen.getByText(/less than 3 years away/)).toBeTruthy();
+  });
+
+  it('asks for the reference number when the report is applied for', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+
+    await screen.findByText('Police report');
+    await user.selectOptions(screen.getByLabelText(/status/i), 'applied');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(await screen.findByText('Enter the police report reference number.')).toBeTruthy();
+    expect(savePolice).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText(/reference no/i), 'PR/2026/8891');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(savePolice).toHaveBeenCalledTimes(1));
+    expect(savePolice.mock.calls[0][1]).toMatchObject({ status: 'applied', referenceNo: 'PR/2026/8891' });
+  });
+
+  it('takes the issued date once the report is received', async () => {
+    const user = userEvent.setup();
+    renderDetail();
+
+    await screen.findByText('Police report');
+    await user.selectOptions(screen.getByLabelText(/status/i), 'received');
+    await user.type(screen.getByLabelText(/reference no/i), 'PR/2026/8891');
+    await user.type(screen.getByLabelText(/issued date/i), '2026-06-01');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(savePolice).toHaveBeenCalledTimes(1));
+    expect(savePolice.mock.calls[0][1]).toMatchObject({
+      status: 'received',
+      referenceNo: 'PR/2026/8891',
+      issuedDate: '2026-06-01',
+    });
+  });
+
+  it('shows the warning when the report is nearly out of date', async () => {
+    candidate.policeReport = {
+      status: 'received',
+      referenceNo: 'PR/2026/1200',
+      issuedDate: '2026-05-01',
+      expiresOn: '2026-11-01',
+      warning: 'The police report expires on 1 Nov 2026, which is less than 2 months away.',
+    };
+    renderDetail();
+
+    expect(await screen.findByText(/less than 2 months away/)).toBeTruthy();
+    // Still editable: the warning never stops the details being saved.
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeTruthy();
   });
 });

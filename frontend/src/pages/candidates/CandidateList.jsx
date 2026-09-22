@@ -26,7 +26,7 @@ const POOL_FILTERS = [
 
 /**
  * Every candidate across every agency, with where each one stands in the
- * testing pool and which foreign agency holds them once they have passed.
+ * testing pool and which foreign company holds them once they have passed.
  *
  * The by-agency screen stays as it is; this is the master list the admin and
  * coordinators work from.

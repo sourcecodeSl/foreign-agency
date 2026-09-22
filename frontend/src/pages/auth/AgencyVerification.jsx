@@ -151,7 +151,7 @@ export default function AgencyVerification() {
           <p className="text-xs text-gray-500">
             {row.code}
             {row.owner?.username ? ' · ' + row.owner.username : ''}
-            {row.type === 'foreign' ? ' · Foreign agency' : ''}
+            {row.type === 'foreign' ? ' · Foreign company' : ''}
           </p>
           {row.owner ? (
             <p className="text-xs text-gray-500">Owner: {row.owner.name}</p>

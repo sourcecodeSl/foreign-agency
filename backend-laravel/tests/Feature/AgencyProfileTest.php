@@ -7,6 +7,8 @@ use App\Models\OtpChallenge;
 use App\Models\User;
 use App\Support\Jwt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -122,6 +124,107 @@ class AgencyProfileTest extends TestCase
         $this->owner()->getJson('/api/v1/auth/me')
             ->assertOk()
             ->assertJsonPath('data.agency.name', 'Skyline Global');
+    }
+
+    public function test_a_foreign_company_edits_its_registration_number_and_its_lawyer(): void
+    {
+        $this->agency->update(['type' => 'foreign', 'country' => 'Israel']);
+
+        // The company details are part of the edit, and required for a company.
+        $this->owner()->putJson('/api/v1/agency-profile', [
+            'name' => 'Skyline Global',
+            'contact' => 'Ruwan Silva',
+            'address' => '12 Herzl Street, Tel Aviv',
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['registrationNo', 'lawyerName', 'lawyerIdNo', 'lawyerPosition']);
+
+        $this->owner()->putJson('/api/v1/agency-profile', [
+            'name' => 'Skyline Global',
+            'contact' => 'Ruwan Silva',
+            'address' => '12 Herzl Street, Tel Aviv',
+            'registrationNo' => '514236789',
+            'lawyerName' => 'Ruth Levin',
+            'lawyerIdNo' => '038512477',
+            'lawyerPosition' => 'Company Secretary',
+        ])->assertOk()
+            ->assertJsonPath('data.registrationNo', '514236789')
+            ->assertJsonPath('data.lawyer.name', 'Ruth Levin')
+            ->assertJsonPath('data.lawyer.position', 'Company Secretary');
+
+        // A local agency is asked for none of it.
+        $this->agency->fresh()->update(['type' => 'local']);
+        $this->owner()->putJson('/api/v1/agency-profile', [
+            'name' => 'Skyline Global',
+            'contact' => 'Ruwan Silva',
+            'address' => '221B Baker Street, Colombo 03',
+        ])->assertOk();
+    }
+
+    public function test_the_signature_and_the_seal_are_uploaded_replaced_and_removed(): void
+    {
+        Storage::fake('local');
+
+        // Nothing until one is uploaded.
+        $this->owner()->getJson('/api/v1/agency-profile')
+            ->assertOk()
+            ->assertJsonPath('data.marks.signature.uploaded', false)
+            ->assertJsonPath('data.marks.seal.uploaded', false);
+
+        $this->owner()->getJson('/api/v1/agency-profile/marks/signature')->assertStatus(404);
+
+        $this->owner()->postJson('/api/v1/agency-profile/marks', [
+            'type' => 'signature',
+            'file' => UploadedFile::fake()->create('signature.png', 20, 'image/png'),
+        ])->assertOk()->assertJsonPath('data.marks.signature.uploaded', true);
+
+        $first = $this->agency->fresh()->signature_path;
+        Storage::disk('local')->assertExists($first);
+
+        $this->owner()->postJson('/api/v1/agency-profile/marks', [
+            'type' => 'seal',
+            'file' => UploadedFile::fake()->create('seal.png', 20, 'image/png'),
+        ])->assertOk()->assertJsonPath('data.marks.seal.uploaded', true);
+
+        // The picture itself comes back for the screen to show.
+        $this->owner()->get('/api/v1/agency-profile/marks/signature')->assertOk();
+
+        // Replacing one clears away the file it replaced.
+        $this->owner()->postJson('/api/v1/agency-profile/marks', [
+            'type' => 'signature',
+            'file' => UploadedFile::fake()->create('signature-new.png', 20, 'image/png'),
+        ])->assertOk();
+
+        $second = $this->agency->fresh()->signature_path;
+        $this->assertNotSame($first, $second);
+        Storage::disk('local')->assertMissing($first);
+
+        // A PDF is not a picture.
+        $this->owner()->postJson('/api/v1/agency-profile/marks', [
+            'type' => 'signature',
+            'file' => UploadedFile::fake()->create('signature.pdf', 10, 'application/pdf'),
+        ])->assertStatus(422)->assertJsonValidationErrors(['file']);
+
+        $this->owner()->deleteJson('/api/v1/agency-profile/marks/signature')
+            ->assertOk()
+            ->assertJsonPath('data.marks.signature.uploaded', false);
+
+        Storage::disk('local')->assertMissing($second);
+        // The seal is untouched by the signature going.
+        $this->assertNotNull($this->agency->fresh()->seal_path);
+    }
+
+    public function test_only_the_owner_touches_the_signature_and_the_seal(): void
+    {
+        Storage::fake('local');
+
+        $staff = $this->login('agent', 'skyline.agent', 'agent@skyline.lk', '0712000009');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($this->tokenFor($staff))
+            ->postJson('/api/v1/agency-profile/marks', [
+                'type' => 'signature',
+                'file' => UploadedFile::fake()->create('signature.png', 20, 'image/png'),
+            ])->assertStatus(403);
     }
 
     public function test_details_are_validated(): void

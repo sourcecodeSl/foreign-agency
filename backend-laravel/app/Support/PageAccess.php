@@ -39,7 +39,7 @@ final class PageAccess
         'agencies.create' => [
             'label' => 'Create Agency',
             'section' => 'Agency Management',
-            'description' => 'Register a new local or foreign agency and issue its login.',
+            'description' => 'Register a new local or foreign company and issue its login.',
             'grants' => ['agencies' => ['create']],
         ],
         'candidates' => [
@@ -52,11 +52,18 @@ final class PageAccess
             'grants' => ['agencies' => ['view'], 'candidates' => ['view', 'create']],
         ],
         'companies' => [
-            'label' => 'Foreign Agencies',
+            'label' => 'Foreign Companies',
             'section' => 'Foreign Agent Management',
-            'description' => 'The overseas agencies this coordinator manages, their skill tests and passed candidates.',
+            'description' => 'The overseas companies this coordinator manages, their skill tests and passed candidates.',
             // Booking a test reads the candidate pool and the agency names.
             'grants' => ['agencies' => ['view'], 'candidates' => ['view']],
+        ],
+        'agreements' => [
+            'label' => 'Employment Agreements',
+            'section' => 'Agreements',
+            'description' => 'Upload the agreement PDF and fill copies of it in English, Hebrew and Sinhala.',
+            // Guarded by can.page; the agreements sit outside the matrix.
+            'grants' => [],
         ],
         'verification' => [
             'label' => 'Email Verification',

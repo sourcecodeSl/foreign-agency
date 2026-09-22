@@ -40,8 +40,26 @@ class Agency extends Model
             'name' => $this->name,
             'code' => $this->code,
             'type' => $this->type ?? 'local',
+            // Filed by a foreign company; a local agency leaves them empty.
+            'registrationNo' => $this->registration_no,
+            'lawyer' => [
+                'name' => $this->lawyer_name,
+                'idNo' => $this->lawyer_id_no,
+                'position' => $this->lawyer_position,
+            ],
+            // Pictures on a private disk, so the path never leaves the server.
+            'marks' => [
+                'signature' => [
+                    'uploaded' => (bool) $this->signature_path,
+                    'uploadedAt' => $this->signature_uploaded_at,
+                ],
+                'seal' => [
+                    'uploaded' => (bool) $this->seal_path,
+                    'uploadedAt' => $this->seal_uploaded_at,
+                ],
+            ],
             'address' => $this->address,
-            // Agencies from before foreign agencies existed are all Sri Lankan.
+            // Agencies from before foreign companies existed are all Sri Lankan.
             'country' => $this->country ?? (($this->type ?? 'local') === 'local' ? 'Sri Lanka' : null),
             'username' => $this->username,
             'contact' => $this->contact,

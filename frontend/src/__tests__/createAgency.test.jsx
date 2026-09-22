@@ -21,7 +21,7 @@ describe('creating an agency', () => {
     renderForm();
 
     // Everything except the contact person.
-    await user.type(screen.getByLabelText(/^name/i), 'Skyline Marketing');
+    await user.type(screen.getByLabelText(/agency name/i), 'Skyline Marketing');
     await user.type(screen.getByLabelText(/address/i), '221B Baker Street, Colombo 03');
     await user.type(screen.getByLabelText(/email/i), 'owner@skyline.lk');
     await user.type(screen.getByLabelText(/phone/i), '0771234567');
@@ -39,7 +39,7 @@ describe('creating an agency', () => {
     const user = userEvent.setup();
     renderForm();
 
-    await user.type(screen.getByLabelText(/^name/i), 'Skyline Marketing');
+    await user.type(screen.getByLabelText(/agency name/i), 'Skyline Marketing');
     await user.type(screen.getByLabelText(/contact person/i), 'Nadia Perera');
     await user.type(screen.getByLabelText(/address/i), '221B Baker Street, Colombo 03');
     await user.type(screen.getByLabelText(/email/i), 'owner@skyline.lk');

@@ -30,16 +30,16 @@ describe('agency listing by type', () => {
     expect(screen.queryByText('Agencies')).toBeNull();
 
     await user.selectOptions(filter, 'foreign');
-    expect(await screen.findByText('Foreign Agencies')).toBeTruthy();
+    expect(await screen.findByText('Foreign Companies')).toBeTruthy();
 
     // The demo rows are all local, so the tab is empty and says so.
-    expect(await screen.findByText('No pending foreign agencies found.')).toBeTruthy();
+    expect(await screen.findByText('No pending foreign companies found.')).toBeTruthy();
   });
 
   it('opens on the kind the menu link asked for', async () => {
     renderList('/agencies?type=foreign');
 
-    expect(await screen.findByText('Foreign Agencies')).toBeTruthy();
+    expect(await screen.findByText('Foreign Companies')).toBeTruthy();
     expect(screen.getByLabelText(/agency type/i).value).toBe('foreign');
   });
 });

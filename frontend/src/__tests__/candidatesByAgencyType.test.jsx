@@ -54,7 +54,7 @@ describe('candidates by agency', () => {
 
     await waitFor(() => expect(within(picker).queryByText(/skyline marketing/i)).toBeNull());
     expect(within(picker).getByText(/horizon manpower/i)).toBeTruthy();
-    expect(within(picker).getByText('Select a foreign agency...')).toBeTruthy();
+    expect(within(picker).getByText('Select a foreign company...')).toBeTruthy();
     expect(listAgencies).toHaveBeenLastCalledWith({ status: 'all', type: 'foreign' });
   });
 
@@ -74,7 +74,7 @@ describe('candidates by agency', () => {
 
     await user.selectOptions(screen.getByLabelText(/agency type/i), 'foreign');
 
-    // Nothing is listed until a foreign agency is picked.
+    // Nothing is listed until a foreign company is picked.
     await waitFor(() => expect(picker.value).toBe(''));
     expect(await screen.findByText(/no agency selected/i)).toBeTruthy();
   });

@@ -16,14 +16,7 @@ import { candidateApi, jobRoleApi, agencyApi } from '../../lib/api';
 import { alertError, confirmAction, escapeHtml } from '../../lib/alert';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
 import { nicBirthDate, ageOn } from '../../lib/nic';
-import { formatDate } from './shared';
-
-/** Tomorrow as YYYY-MM-DD: a passport has to be valid past today. */
-const tomorrow = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
-};
+import { formatDate, passportWarning } from './shared';
 
 const EMPTY = {
   agencyType: '',
@@ -63,9 +56,8 @@ function validate(values, forAgency) {
   else if (!/^[A-Za-z0-9]+$/.test(values.passportNo.trim()))
     errors.passportNo = 'Letters and numbers only.';
 
+  // Short validity is warned about beside the field, never refused.
   if (!values.passportExpiry) errors.passportExpiry = 'Passport validity is required.';
-  else if (values.passportExpiry < tomorrow())
-    errors.passportExpiry = 'The passport has expired. Enter a passport that is still valid.';
 
   // Required: the NIC is how a person is known across agencies.
   if (!values.nicNo.trim()) errors.nicNo = 'NIC number is required.';
@@ -147,6 +139,7 @@ export default function RegisterCandidate() {
   }, [forAgency, toast]);
 
   const birthDate = nicBirthDate(values.nicNo);
+  const passportNote = passportWarning(values.passportExpiry);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -322,7 +315,7 @@ export default function RegisterCandidate() {
                   >
                     <option value="">Select local or foreign...</option>
                     <option value="local">Local agency</option>
-                    <option value="foreign">Foreign agency</option>
+                    <option value="foreign">Foreign company</option>
                   </select>
                   {errors.agencyType ? (
                     <p className="field-error">{errors.agencyType}</p>
@@ -413,18 +406,29 @@ export default function RegisterCandidate() {
               error={errors.passportNo}
             />
 
-            <Input
-              label="Passport validity"
-              name="passportExpiry"
-              type="date"
-              required
-              min={tomorrow()}
-              value={values.passportExpiry}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              error={errors.passportExpiry}
-              hint={!errors.passportExpiry ? 'The date the passport expires.' : undefined}
-            />
+            <div>
+              <Input
+                label="Passport validity"
+                name="passportExpiry"
+                type="date"
+                required
+                value={values.passportExpiry}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={errors.passportExpiry}
+                hint={
+                  !errors.passportExpiry && !passportNote
+                    ? 'The date the passport expires.'
+                    : undefined
+                }
+              />
+              {/* Saved either way - the warning simply never goes away. */}
+              {passportNote && (
+                <p role="status" className="mt-1.5 text-xs font-medium text-amber-700">
+                  {passportNote} The candidate can still be registered.
+                </p>
+              )}
+            </div>
 
             <Input
               label="NIC number"

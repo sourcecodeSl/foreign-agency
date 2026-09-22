@@ -12,6 +12,7 @@ export const PAGE_PATHS = {
   agencies: '/agencies',
   'agencies.create': '/agencies/create',
   candidates: '/candidates',
+  agreements: '/agreements',
   verification: '/verification/emails',
 };
 

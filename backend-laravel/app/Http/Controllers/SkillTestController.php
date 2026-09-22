@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 /**
- * Skill tests: who is being tried for which role, with which foreign agency,
+ * Skill tests: who is being tried for which role, with which foreign company,
  * and how it went.
  *
  * The rules that keep the pool honest all live here:
@@ -23,9 +23,9 @@ use Illuminate\Support\Facades\Validator;
  *    which is how a candidate who failed as a Tiler in the morning can be put
  *    up as a Shuttering Carpenter the same day without a second profile;
  *  - every attempt carries its own test number, so the history reads straight;
- *  - a pass locks the candidate to that foreign agency, and no other one can
+ *  - a pass locks the candidate to that foreign company, and no other one can
  *    test them afterwards;
- *  - a fail returns them to the pool, free for any foreign agency's next test.
+ *  - a fail returns them to the pool, free for any foreign company's next test.
  */
 class SkillTestController extends Controller
 {
@@ -56,20 +56,20 @@ class SkillTestController extends Controller
         return $agencyId;
     }
 
-    /** A coordinator tests only with the foreign agencies they manage. */
+    /** A coordinator tests only with the foreign companies they manage. */
     private function companyFor(Request $request, $companyId): ForeignCompany
     {
         $company = ForeignCompany::find($companyId);
         if (! $company) {
-            throw new ApiException(422, 'That foreign agency was not found.', [
-                'companyId' => 'Choose a foreign agency.',
+            throw new ApiException(422, 'That foreign company was not found.', [
+                'companyId' => 'Choose a foreign company.',
             ]);
         }
 
         $auth = $request->attributes->get('auth_user');
         if (($auth['roleSlug'] ?? null) === PageAccess::ROLE
             && (int) $company->coordinator_id !== (int) ($auth['sub'] ?? 0)) {
-            throw new ApiException(403, 'That foreign agency is managed by another coordinator.');
+            throw new ApiException(403, 'That foreign company is managed by another coordinator.');
         }
 
         if ($company->status !== 'active') {
@@ -114,7 +114,7 @@ class SkillTestController extends Controller
     }
 
     /**
-     * POST /tests - put a candidate up for a role with a foreign agency.
+     * POST /tests - put a candidate up for a role with a foreign company.
      *
      * The candidate record is never duplicated: a second attempt is a second
      * row here, under a new test number, against the same person.
@@ -130,7 +130,7 @@ class SkillTestController extends Controller
             'scheduledFor' => 'nullable|date',
         ], [
             'candidateId.required' => 'Choose a candidate.',
-            'companyId.required' => 'Choose a foreign agency.',
+            'companyId.required' => 'Choose a foreign company.',
             'jobRoleId.required' => 'Choose the job role being tested.',
             'scheduledFor.date' => 'Enter a valid test date.',
         ])->validate();
@@ -147,13 +147,13 @@ class SkillTestController extends Controller
             throw new ApiException(422, 'That job role was not found.', ['jobRoleId' => 'Choose a job role.']);
         }
 
-        // Passing ties a candidate to one foreign agency for good; nobody else
+        // Passing ties a candidate to one foreign company for good; nobody else
         // tests them after that.
         if ($candidate->pool_status === 'passed') {
-            // Either a skill test locked them to a foreign agency, or their
+            // Either a skill test locked them to a foreign company, or their
             // agency switched the pass on itself.
             throw new ApiException(409, $candidate->lockedCompany
-                ? $candidate->name.' has already passed for '.$candidate->lockedCompany->name.' and is locked to that foreign agency.'
+                ? $candidate->name.' has already passed for '.$candidate->lockedCompany->name.' and is locked to that foreign company.'
                 : $candidate->name.' has already been marked as passed by their agency.');
         }
 
@@ -215,7 +215,7 @@ class SkillTestController extends Controller
 
         $test = $this->find($request, $id);
 
-        // A coordinator records results only for their own foreign agencies.
+        // A coordinator records results only for their own foreign companies.
         $this->companyFor($request, $test->company_id);
 
         if ($test->status !== SkillTest::OPEN) {
@@ -248,7 +248,7 @@ class SkillTestController extends Controller
                 $candidate->passed_at = now();
                 $candidate->passed_by = $actor;
             } else {
-                // Back in the pool, ready for another foreign agency's test.
+                // Back in the pool, ready for another foreign company's test.
                 $candidate->pool_status = 'pool';
             }
 

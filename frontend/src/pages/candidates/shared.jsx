@@ -16,7 +16,8 @@ export const isReviewer = (roleSlug) => roleSlug === 'main_admin' || roleSlug ==
 
 /** Books skill tests and records results: the Main Admin, or a coordinator with the companies page. */
 export const canRunTests = (account) =>
-  account?.roleSlug === 'main_admin' || (account?.roleSlug === COORDINATOR && canOpen(account, 'companies'));
+  account?.roleSlug === 'main_admin' ||
+  (account?.roleSlug === COORDINATOR && canOpen(account, 'companies'));
 
 export const canRegister = (roleSlug) => Boolean(roleSlug) && roleSlug !== 'auditor';
 
@@ -33,21 +34,34 @@ export function submitState(candidate, missingCount) {
     return { submitted: true, locked: true, reason: 'The profile has been approved.' };
   }
   if (candidate?.status === 'submitted') {
-    return { submitted: true, locked: false, reason: 'Submitted. Switch off to send it back to the agency.' };
+    return {
+      submitted: true,
+      locked: false,
+      reason: 'Submitted. Switch off to send it back to the agency.',
+    };
   }
   if (candidate?.poolStatus !== 'passed') {
-    return { submitted: false, locked: true, reason: 'Only a candidate who has passed can be submitted.' };
+    return {
+      submitted: false,
+      locked: true,
+      reason: 'Only a candidate who has passed can be submitted.',
+    };
   }
   if (missingCount > 0) {
     return {
       submitted: false,
       locked: true,
       reason:
-        missingCount + (missingCount === 1 ? ' document is' : ' documents are') +
+        missingCount +
+        (missingCount === 1 ? ' document is' : ' documents are') +
         ' still to be attached. Submitting opens once every document is in.',
     };
   }
-  return { submitted: false, locked: false, reason: 'Every document is in. Check them, then switch on to submit.' };
+  return {
+    submitted: false,
+    locked: false,
+    reason: 'Every document is in. Check them, then switch on to submit.',
+  };
 }
 
 /**
@@ -111,6 +125,36 @@ export function SourceTag({ registeredBy }) {
       {!fromAgency && registeredBy?.name ? ' · ' + registeredBy.name : ''}
     </span>
   );
+}
+
+/** A passport is expected to have at least this long left on it. */
+export const PASSPORT_WANTED_YEARS = 3;
+
+/**
+ * Why the passport is a problem, or null when it is fine. Mirrors
+ * Candidate::passportWarning() on the server: short validity is always said
+ * out loud, and never stops the file being saved.
+ */
+export function passportWarning(expiry) {
+  if (!expiry) return null;
+
+  const today = new Date();
+  const wanted = new Date();
+  wanted.setFullYear(wanted.getFullYear() + PASSPORT_WANTED_YEARS);
+
+  if (expiry < today.toISOString().slice(0, 10)) {
+    return 'The passport expired on ' + formatDate(expiry) + '.';
+  }
+  if (expiry < wanted.toISOString().slice(0, 10)) {
+    return (
+      'The passport is valid until ' +
+      formatDate(expiry) +
+      ', which is less than ' +
+      PASSPORT_WANTED_YEARS +
+      ' years away.'
+    );
+  }
+  return null;
 }
 
 export function formatDate(iso) {

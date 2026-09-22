@@ -45,7 +45,7 @@ export default function SkillTests({ candidate, canRun, onChanged }) {
         setCompanies(Array.isArray(c.data) ? c.data : []);
         setRoles(Array.isArray(r.data) ? r.data : []);
       })
-      .catch((err) => toast(err.message || 'Could not load the foreign agencies.', 'error'));
+      .catch((err) => toast(err.message || 'Could not load the foreign companies.', 'error'));
   }, [canRun, toast]);
 
   const tests = candidate.tests || [];
@@ -79,7 +79,7 @@ export default function SkillTests({ candidate, canRun, onChanged }) {
   const book = async (e) => {
     e.preventDefault();
     const found = {};
-    if (!form.companyId) found.companyId = 'Choose a foreign agency.';
+    if (!form.companyId) found.companyId = 'Choose a foreign company.';
     if (!form.jobRoleId) found.jobRoleId = 'Choose the job category being tested.';
     setErrors(found);
     if (Object.keys(found).length) return;
@@ -124,7 +124,7 @@ export default function SkillTests({ candidate, canRun, onChanged }) {
       title: (passing ? 'Pass ' : 'Fail ') + test.testNo + '?',
       html: passing
         ? escapeHtml(candidate.name) + ' passes as ' + escapeHtml(test.jobRole) + ' and is locked to ' +
-          escapeHtml(test.companyName) + '. No other foreign agency can test them after this.'
+          escapeHtml(test.companyName) + '. No other foreign company can test them after this.'
         : escapeHtml(candidate.name) + ' goes back to the pool. They can be booked again straight away, ' +
           'for another job category, under a new test number.',
       confirmText: passing ? 'Record pass' : 'Record fail',
@@ -172,7 +172,7 @@ export default function SkillTests({ candidate, canRun, onChanged }) {
             <form onSubmit={book} noValidate className="grid items-start gap-3 sm:grid-cols-[1fr_1fr_10rem_auto]">
               <div>
                 <label htmlFor="test-company" className="field-label">
-                  Foreign agency
+                  Foreign company
                 </label>
                 <select
                   id="test-company"

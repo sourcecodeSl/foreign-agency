@@ -8,6 +8,7 @@ import {
   IconShield,
   IconX,
   IconMail,
+  IconDocument,
 } from '../ui/Icons';
 
 /**
@@ -39,8 +40,15 @@ const ADMIN_NAV = [
       { to: '/users/coordinators', label: 'Coordinators & Access', icon: IconShield, mainAdminOnly: true },
       // One listing, opened on one kind of agency. New agencies are added from
       // the button on that page, which is why Create Agency is not a link here.
-      { to: '/agencies?type=foreign', label: 'Foreign Agency', icon: IconBuilding, page: 'agencies' },
+      { to: '/agencies?type=foreign', label: 'Foreign Company', icon: IconBuilding, page: 'agencies' },
       { to: '/agencies?type=local', label: 'Local Agency', icon: IconBuilding, page: 'agencies' },
+    ],
+  },
+  {
+    section: 'Agreements',
+    items: [
+      // The Main Admin, and a coordinator the page is opened to.
+      { to: '/agreements', label: 'Employment Agreements', icon: IconDocument, page: 'agreements', adminSideOnly: true },
     ],
   },
   {
@@ -76,6 +84,24 @@ const AGENCY_OWNER_NAV = [
   },
 ];
 
+// A foreign company is a company, not an agency, to its own owner.
+const COMPANY_OWNER_NAV = [
+  ...AGENCY_NAV,
+  {
+    section: 'Company',
+    items: [{ to: '/agency/profile', label: 'Company Details', icon: IconBuilding }],
+  },
+];
+
+// A foreign company uploads, fills and sends its agreements; a local agency
+// reads the ones the admin has sent it.
+const AGREEMENTS_NAV = [
+  {
+    section: 'Agreements',
+    items: [{ to: '/agreements', label: 'Employment Agreements', icon: IconDocument }],
+  },
+];
+
 /**
  * The admin menu for whoever is reading it: the Main Admin sees all of it, an
  * auditor all but the coordinator list, and a coordinator only the pages
@@ -85,7 +111,11 @@ function adminNavFor(admin) {
   return ADMIN_NAV.map((group) => ({
     ...group,
     items: group.items.filter(
-      (item) => (!item.mainAdminOnly || admin?.roleSlug === 'main_admin') && canOpen(admin, item.page)
+      (item) =>
+        (!item.mainAdminOnly || admin?.roleSlug === 'main_admin') &&
+        // The auditor reads the admin side but has no business filling agreements.
+        (!item.adminSideOnly || ['main_admin', COORDINATOR].includes(admin?.roleSlug)) &&
+        canOpen(admin, item.page)
     ),
   })).filter((group) => group.items.length > 0);
 }
@@ -129,9 +159,14 @@ export default function Sidebar({ open, onClose }) {
   const isAgency = Boolean(admin?.roleSlug) && !isGlobalRole(admin.roleSlug);
   const nav = !isAgency
     ? adminNavFor(admin)
-    : admin.roleSlug === 'agency_owner'
-    ? AGENCY_OWNER_NAV
-    : AGENCY_NAV;
+    : [
+        ...(admin.roleSlug !== 'agency_owner'
+          ? AGENCY_NAV
+          : admin.agency?.type === 'foreign'
+            ? COMPANY_OWNER_NAV
+            : AGENCY_OWNER_NAV),
+        ...(admin.agency ? AGREEMENTS_NAV : []),
+      ];
 
   return (
     <>
@@ -156,16 +191,16 @@ export default function Sidebar({ open, onClose }) {
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 px-5">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 text-sm font-bold text-white">
-              AA
+              {isAgency ? 'AA' : 'CA'}
             </div>
             <div className="leading-tight">
               <p className="text-sm font-semibold text-gray-900">
-                {isAgency ? admin?.agency?.name || 'Agency' : 'Agency Admin'}
+                {isAgency ? admin?.agency?.name || 'Agency' : 'Coordinator Admin'}
               </p>
               <p className="text-xs text-gray-500">
                 {isAgency
                   ? admin?.agency?.type === 'foreign'
-                    ? 'Foreign Agency Portal'
+                    ? 'Foreign Company Portal'
                     : 'Candidate Portal'
                   : admin?.roleSlug === COORDINATOR
                   ? 'Coordinator'

@@ -8,10 +8,10 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Agencies are local or foreign again.
  *
- * A foreign agency is still an agency: it registers its own candidates and
- * signs in like any other. It is not a foreign company - those are the
- * overseas employers that run skill tests and hire, and they live in
- * foreign_companies.
+ * An agency of type foreign is still an agency: it registers its own
+ * candidates and signs in like any other. It is not a foreign_companies row -
+ * those are the overseas employers that run skill tests and hire. Both read
+ * as "foreign company" on screen, so the code names the table it means.
  */
 return new class extends Migration
 {

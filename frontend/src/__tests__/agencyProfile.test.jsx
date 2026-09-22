@@ -12,6 +12,9 @@ const updateProfile = vi.fn();
 const requestChange = vi.fn();
 const resendCode = vi.fn();
 const verifyChange = vi.fn();
+const uploadMark = vi.fn();
+const markUrl = vi.fn();
+const removeMark = vi.fn();
 
 vi.mock('../lib/api', () => ({
   agencyProfileApi: {
@@ -20,6 +23,9 @@ vi.mock('../lib/api', () => ({
     requestContactChange: (...args) => requestChange(...args),
     resendContactCode: (...args) => resendCode(...args),
     verifyContactChange: (...args) => verifyChange(...args),
+    uploadMark: (...args) => uploadMark(...args),
+    markUrl: (...args) => markUrl(...args),
+    removeMark: (...args) => removeMark(...args),
   },
 }));
 
@@ -58,6 +64,12 @@ describe('agency details', () => {
     resendCode.mockReset();
     verifyChange.mockReset();
     refresh.mockReset().mockResolvedValue({});
+    uploadMark.mockReset();
+    markUrl.mockReset().mockResolvedValue('blob:signature');
+    removeMark.mockReset();
+    // jsdom has no object URLs.
+    URL.createObjectURL = vi.fn(() => 'blob:mark');
+    URL.revokeObjectURL = vi.fn();
   });
 
   it('saves the edited details', async () => {
@@ -74,11 +86,14 @@ describe('agency details', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() =>
-      expect(updateProfile).toHaveBeenCalledWith({
-        name: 'Skyline Global',
-        contact: 'Nadia Perera',
-        address: '221B Baker Street, Colombo 03',
-      })
+      // A local agency also posts the company fields, left empty.
+      expect(updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Skyline Global',
+          contact: 'Nadia Perera',
+          address: '221B Baker Street, Colombo 03',
+        })
+      )
     );
     // The sidebar shows the agency name, so the session is re-read.
     await waitFor(() => expect(refresh).toHaveBeenCalled());
@@ -126,5 +141,64 @@ describe('agency details', () => {
 
     expect(await within(email).findByText('Enter a valid email address.')).toBeTruthy();
     expect(requestChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('the signature and the seal', () => {
+  beforeEach(() => {
+    getProfile.mockReset().mockResolvedValue({
+      data: { ...PROFILE, marks: { signature: { uploaded: false }, seal: { uploaded: false } } },
+    });
+    uploadMark.mockReset();
+    markUrl.mockReset().mockResolvedValue('blob:mark');
+    removeMark.mockReset();
+    refresh.mockReset().mockResolvedValue({});
+    URL.createObjectURL = vi.fn(() => 'blob:mark');
+    URL.revokeObjectURL = vi.fn();
+  });
+
+  it('uploads a signature picture from the edit screen', async () => {
+    const user = userEvent.setup();
+    uploadMark.mockResolvedValue({
+      data: {
+        ...PROFILE,
+        marks: { signature: { uploaded: true, uploadedAt: '2026-09-21' }, seal: { uploaded: false } },
+      },
+      message: 'Signature uploaded.',
+    });
+    renderPage();
+
+    await screen.findByText('Signature and seal');
+    expect(screen.getAllByText('Nothing uploaded yet')).toHaveLength(2);
+
+    const file = new File(['x'], 'signature.png', { type: 'image/png' });
+    const boxes = screen.getAllByRole('button', { name: /^upload$/i });
+    // The hidden file input that belongs to the signature box.
+    const input = boxes[0].closest('div').parentElement.querySelector('input[type="file"]');
+    await user.upload(input, file);
+
+    await waitFor(() => expect(uploadMark).toHaveBeenCalledWith('signature', file));
+    // Once uploaded the picture is fetched with the token and shown.
+    await waitFor(() => expect(markUrl).toHaveBeenCalledWith('signature'));
+    expect(await screen.findByRole('img', { name: 'Signature' })).toBeTruthy();
+  });
+
+  it('offers to replace or remove a picture already uploaded', async () => {
+    getProfile.mockResolvedValue({
+      data: {
+        ...PROFILE,
+        marks: {
+          signature: { uploaded: true, uploadedAt: '2026-09-21' },
+          seal: { uploaded: false },
+        },
+      },
+    });
+    renderPage();
+
+    await screen.findByText('Signature and seal');
+    expect(await screen.findByRole('button', { name: /replace/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /remove/i })).toBeTruthy();
+    // The seal has nothing yet, so it only offers an upload.
+    expect(screen.getByRole('button', { name: /^upload$/i })).toBeTruthy();
   });
 });

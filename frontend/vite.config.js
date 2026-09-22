@@ -17,6 +17,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // Bundled when the dev server starts: pdf-lib is loaded only on the first
+    // "View PDF", and finding it then would make Vite reload the page.
+    optimizeDeps: { include: ['pdf-lib'] },
     server: {
       port: 5173,
       proxy: {

@@ -23,6 +23,9 @@ import CandidatesList from './pages/candidates/CandidatesList';
 import CandidateList from './pages/candidates/CandidateList';
 import RegisterCandidate from './pages/candidates/RegisterCandidate';
 import CandidateDetail from './pages/candidates/CandidateDetail';
+import Agreements from './pages/agreements/Agreements';
+import AgreementEditor from './pages/agreements/AgreementEditor';
+import EmployerAgreement from './pages/agreements/EmployerAgreement';
 
 /** Sends each role to the screen it belongs on. */
 function HomeRedirect() {
@@ -39,6 +42,28 @@ function PageGate({ page, children }) {
   const { admin, homePath } = useAuth();
 
   return canOpen(admin, page) ? children : <Navigate to={homePath} replace />;
+}
+
+/**
+ * The agreements: the Main Admin, a coordinator the page is opened to, a
+ * foreign company (its own), and a local agency (those sent to it). The API
+ * holds each to its own too.
+ */
+function AgreementsGate({ children }) {
+  const { admin, homePath } = useAuth();
+  const allowed =
+    admin?.roleSlug === 'main_admin' ||
+    (admin?.roleSlug === 'coordinator' && canOpen(admin, 'agreements')) ||
+    Boolean(admin?.agency);
+
+  return allowed ? children : <Navigate to={homePath} replace />;
+}
+
+/** A foreign company's own login: the employer part of the agreement is theirs to submit. */
+function ForeignCompanyGate({ children }) {
+  const { admin, homePath } = useAuth();
+
+  return admin?.agency?.type === 'foreign' ? children : <Navigate to={homePath} replace />;
 }
 
 export default function App() {
@@ -76,6 +101,9 @@ export default function App() {
               <Route path="/users/permissions" element={<PageGate page={null}><UserPermissions /></PageGate>} />
               <Route path="/users/coordinators" element={<PageGate page={null}><Coordinators /></PageGate>} />
               <Route path="/verification/emails" element={<PageGate page="verification"><EmailVerification /></PageGate>} />
+              <Route path="/agreements" element={<AgreementsGate><Agreements /></AgreementsGate>} />
+              <Route path="/agreements/:id" element={<AgreementsGate><AgreementEditor /></AgreementsGate>} />
+              <Route path="/employer-agreement" element={<ForeignCompanyGate><EmployerAgreement /></ForeignCompanyGate>} />
               <Route path="/no-access" element={<NoAccess />} />
             </Route>
 

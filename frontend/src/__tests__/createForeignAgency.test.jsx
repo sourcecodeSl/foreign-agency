@@ -15,17 +15,25 @@ function renderForm() {
   );
 }
 
-describe('creating a foreign agency', () => {
-  it('asks where it is based, then issues its own login', async () => {
+describe('creating a foreign company', () => {
+  // Types its way through a long form, which runs past the 5s default when
+  // the whole suite is running at once.
+  it('asks where it is based, then issues its own login', { timeout: 20000 }, async () => {
     const user = userEvent.setup();
     renderForm();
 
-    // Local is the default; a foreign agency is picked explicitly.
+    // Local is the default; a foreign company is picked explicitly.
     expect(screen.getByLabelText(/local agency/i).checked).toBe(true);
     expect(screen.queryByLabelText(/^country/i)).toBeNull();
 
-    await user.click(screen.getByLabelText(/foreign agency/i));
-    await user.type(screen.getByLabelText(/^name/i), 'Horizon Manpower');
+    await user.click(screen.getByLabelText(/foreign company/i));
+
+    // A foreign record is worded as a company and files more than an agency.
+    await user.type(screen.getByLabelText(/company name/i), 'Horizon Manpower');
+    await user.type(screen.getByLabelText(/registration no/i), '514236789');
+    await user.type(screen.getByLabelText(/lawyer name/i), 'Ruth Levin');
+    await user.type(screen.getByLabelText(/lawyer id no/i), '038512477');
+    await user.type(screen.getByLabelText(/^position/i), 'Company Secretary');
     await user.type(screen.getByLabelText(/contact person/i), 'Avi Cohen');
     await user.type(screen.getByLabelText(/address/i), '12 Herzl Street, Tel Aviv');
     await user.type(screen.getByLabelText(/email/i), 'owner@horizon.example');
@@ -35,15 +43,23 @@ describe('creating a foreign agency', () => {
 
     await user.click(screen.getByRole('button', { name: /create agency/i }));
 
-    expect(await screen.findByText('Enter the country this agency is based in.')).toBeTruthy();
+    expect(await screen.findByText('Enter the country this company is based in.')).toBeTruthy();
     expect(screen.getByText(/no credentials yet/i)).toBeTruthy();
 
     await user.type(screen.getByLabelText(/^country/i), 'Israel');
     await user.click(screen.getByRole('button', { name: /create agency/i }));
 
-    await waitFor(() => expect(screen.getByText(/\(foreign agency\) was created/i)).toBeTruthy(), {
+    await waitFor(() => expect(screen.getByText(/\(foreign company\) was created/i)).toBeTruthy(), {
       timeout: 4000,
     });
     expect(screen.getByText('horizon.owner')).toBeTruthy();
+  });
+
+  it('asks an agency for none of the company details', async () => {
+    renderForm();
+
+    expect(screen.getByLabelText(/agency name/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/registration no/i)).toBeNull();
+    expect(screen.queryByLabelText(/lawyer name/i)).toBeNull();
   });
 });

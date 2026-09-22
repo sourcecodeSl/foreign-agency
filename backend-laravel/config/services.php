@@ -35,6 +35,12 @@ return [
         ],
     ],
 
+    // Agreements are printed in English, Hebrew and Sinhala; the words that
+    // need translating go through Google Cloud Translation (Basic, v2).
+    'google_translate' => [
+        'key' => env('GOOGLE_TRANSLATE_API_KEY'),
+    ],
+
     'ozonesender' => [
         'endpoint' => env('OZONE_SMS_ENDPOINT', 'https://api.ozonesender.com/v1/send/'),
         'user_id' => env('OZONE_SMS_USER_ID'),

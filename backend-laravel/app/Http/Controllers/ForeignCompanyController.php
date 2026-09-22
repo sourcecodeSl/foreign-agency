@@ -13,12 +13,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 /**
- * Foreign agencies - the overseas employers that run skill tests and hire -
+ * Foreign companies - the overseas employers that run skill tests and hire -
  * each managed by the coordinator (foreign agent) who brought it in.
  *
  * These are separate records from the agencies that register candidates and
- * sign in, even where one is marked foreign. The class and table keep the
- * word company so the schema does not move.
+ * sign in, even where one is of type foreign and reads the same on screen.
  *
  * A coordinator sees and edits only their own; the Main Admin sees every one
  * and may hand it to a different coordinator. Agency logins have no business
@@ -27,11 +26,11 @@ use Illuminate\Support\Facades\Validator;
 class ForeignCompanyController extends Controller
 {
     private const MESSAGES = [
-        'name.required' => 'Foreign agency name is required.',
+        'name.required' => 'Foreign company name is required.',
         'name.min' => 'The name must be at least 2 characters.',
-        'country.required' => 'Say which country the foreign agency is in.',
+        'country.required' => 'Say which country the foreign company is in.',
         'contactEmail.email' => 'Enter a valid email address.',
-        'coordinatorId.integer' => 'Choose the coordinator who manages this foreign agency.',
+        'coordinatorId.integer' => 'Choose the coordinator who manages this foreign company.',
         'status.in' => 'Unknown status.',
     ];
 
@@ -51,7 +50,7 @@ class ForeignCompanyController extends Controller
     private function requireReader(Request $request): void
     {
         if (! in_array($this->role($request), PageAccess::CROSS_AGENCY_ROLES, true)) {
-            throw new ApiException(403, 'Foreign agencies are managed by the Main Admin and coordinators.');
+            throw new ApiException(403, 'Foreign companies are managed by the Main Admin and coordinators.');
         }
     }
 
@@ -59,11 +58,11 @@ class ForeignCompanyController extends Controller
     private function requireWriter(Request $request): void
     {
         if (! in_array($this->role($request), ['main_admin', PageAccess::ROLE], true)) {
-            throw new ApiException(403, 'Foreign agencies are managed by the Main Admin and coordinators.');
+            throw new ApiException(403, 'Foreign companies are managed by the Main Admin and coordinators.');
         }
     }
 
-    /** A coordinator is held to their own foreign agencies; the Main Admin is not. */
+    /** A coordinator is held to their own foreign companies; the Main Admin is not. */
     private function scopeCoordinatorId(Request $request): ?int
     {
         return $this->role($request) === PageAccess::ROLE ? $this->userId($request) : null;
@@ -73,12 +72,12 @@ class ForeignCompanyController extends Controller
     {
         $company = ForeignCompany::find($id);
         if (! $company) {
-            throw new ApiException(404, 'Foreign agency not found.');
+            throw new ApiException(404, 'Foreign company not found.');
         }
 
         $scope = $this->scopeCoordinatorId($request);
         if ($scope !== null && (int) $company->coordinator_id !== $scope) {
-            throw new ApiException(403, 'That foreign agency is managed by another coordinator.');
+            throw new ApiException(403, 'That foreign company is managed by another coordinator.');
         }
 
         return $company;
@@ -174,7 +173,7 @@ class ForeignCompanyController extends Controller
     }
 
     /**
-     * Whose foreign agency this is. A coordinator always owns what they create; the
+     * Whose foreign company this is. A coordinator always owns what they create; the
      * Main Admin says who manages it, and may leave it unassigned.
      */
     private function coordinatorFor(Request $request, ?ForeignCompany $company = null): ?int
@@ -259,10 +258,10 @@ class ForeignCompanyController extends Controller
     }
 
     /**
-     * GET /companies/{id}/candidates - this foreign agency's roster.
+     * GET /companies/{id}/candidates - this foreign company's roster.
      *
      * Only candidates who passed a test here: passing locks a candidate to one
-     * foreign agency, and no other one's pipeline may show them.
+     * foreign company, and no other one's pipeline may show them.
      */
     public function candidates(Request $request, string $id)
     {

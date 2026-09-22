@@ -11,6 +11,8 @@ use App\Services\OtpService;
 use App\Services\SmsService;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
@@ -25,6 +27,9 @@ class AgencyProfileController extends Controller
 {
     /** Marks a challenge as a contact change, so it is never a sign-in step. */
     private const PURPOSE = 'contact_change';
+
+    /** The pictures an agency puts on its paperwork, added on this screen. */
+    private const MARKS = ['signature', 'seal'];
 
     /** The signed-in owner and the agency it runs. */
     private function owner(Request $request): array
@@ -106,11 +111,23 @@ class AgencyProfileController extends Controller
     {
         [$owner, $agency] = $this->owner($request);
 
+        // A foreign company also files its registration number and its lawyer.
+        $foreign = ($agency->type ?? 'local') === 'foreign';
+        $forCompany = $foreign ? 'required' : 'nullable';
+
         $data = Validator::make($request->all(), [
             'name' => 'required|string|min:3|max:150',
             'contact' => 'required|string|min:3|max:120',
             'address' => 'required|string|min:8|max:255',
+            'registrationNo' => $forCompany.'|string|max:60',
+            'lawyerName' => $forCompany.'|string|min:3|max:150',
+            'lawyerIdNo' => $forCompany.'|string|max:40',
+            'lawyerPosition' => $forCompany.'|string|max:120',
         ], [
+            'registrationNo.required' => "Enter the company's registration number.",
+            'lawyerName.required' => "Enter the company lawyer's name.",
+            'lawyerIdNo.required' => "Enter the company lawyer's ID number.",
+            'lawyerPosition.required' => "Enter the company lawyer's position.",
             'name.required' => 'Agency name is required.',
             'name.min' => 'Name must be at least 3 characters.',
             'contact.required' => 'A contact person is required.',
@@ -123,6 +140,18 @@ class AgencyProfileController extends Controller
             $agency->name = trim($data['name']);
             $agency->contact = trim($data['contact']);
             $agency->address = trim($data['address']);
+
+            foreach ([
+                'registrationNo' => 'registration_no',
+                'lawyerName' => 'lawyer_name',
+                'lawyerIdNo' => 'lawyer_id_no',
+                'lawyerPosition' => 'lawyer_position',
+            ] as $input => $column) {
+                if (array_key_exists($input, $data)) {
+                    $agency->{$column} = $data[$input] === null ? null : trim($data[$input]);
+                }
+            }
+
             $agency->save();
 
             // Copied onto every login when the agency was created, so a rename
@@ -135,6 +164,99 @@ class AgencyProfileController extends Controller
         });
 
         return ApiResponse::ok($this->payload($owner, $agency), 'Agency details saved.');
+    }
+
+    /**
+     * POST /agency-profile/marks - the signature or the seal, as a picture.
+     *
+     * Replacing one overwrites what was there: unlike a candidate document,
+     * there is no history to keep - a seal is simply the current seal.
+     */
+    public function uploadMark(Request $request)
+    {
+        [$owner, $agency] = $this->owner($request);
+
+        $request->validate([
+            'type' => ['required', 'in:'.implode(',', self::MARKS)],
+            'file' => ['required', 'file', 'max:'.config('documents.max_kb'), 'mimes:jpg,jpeg,png,webp'],
+        ], [
+            'type.in' => 'Choose the signature or the seal.',
+            'file.mimes' => 'The signature and the seal are pictures: JPG, PNG or WEBP.',
+            'file.max' => 'The picture may not be larger than '.round(config('documents.max_kb') / 1024).' MB.',
+        ]);
+
+        $type = $request->input('type');
+        $file = $request->file('file');
+        $disk = config('documents.disk');
+
+        $path = $file->storeAs(
+            'agencies/'.$agency->id.'/'.$type,
+            Str::uuid().'.'.$file->getClientOriginalExtension(),
+            ['disk' => $disk]
+        );
+
+        // The local disk is configured with 'throw' => false, so a failed
+        // write comes back as false rather than as an exception.
+        if (! is_string($path) || ! Storage::disk($disk)->exists($path)) {
+            throw new ApiException(500, 'The picture could not be saved on the server. Make sure storage/ is writable (permissions 755).');
+        }
+
+        // The one it replaces is of no further use.
+        $previous = $agency->{$type.'_path'};
+        if ($previous && $previous !== $path) {
+            Storage::disk($disk)->delete($previous);
+        }
+
+        $agency->{$type.'_path'} = $path;
+        $agency->{$type.'_uploaded_at'} = now();
+        $agency->save();
+
+        return ApiResponse::ok(
+            $this->payload($owner, $agency),
+            ($type === 'signature' ? 'Signature' : 'Seal').' uploaded.'
+        );
+    }
+
+    /** GET /agency-profile/marks/{type} - the picture itself, to show on screen. */
+    public function showMark(Request $request, string $type)
+    {
+        [, $agency] = $this->owner($request);
+
+        if (! in_array($type, self::MARKS, true)) {
+            throw new ApiException(404, 'Unknown picture.');
+        }
+
+        $path = $agency->{$type.'_path'};
+        $disk = config('documents.disk');
+
+        if (! $path || ! Storage::disk($disk)->exists($path)) {
+            throw new ApiException(404, 'No '.$type.' has been uploaded.');
+        }
+
+        return Storage::disk($disk)->response($path);
+    }
+
+    /** DELETE /agency-profile/marks/{type} */
+    public function deleteMark(Request $request, string $type)
+    {
+        [$owner, $agency] = $this->owner($request);
+
+        if (! in_array($type, self::MARKS, true)) {
+            throw new ApiException(404, 'Unknown picture.');
+        }
+
+        if ($path = $agency->{$type.'_path'}) {
+            Storage::disk(config('documents.disk'))->delete($path);
+        }
+
+        $agency->{$type.'_path'} = null;
+        $agency->{$type.'_uploaded_at'} = null;
+        $agency->save();
+
+        return ApiResponse::ok(
+            $this->payload($owner, $agency),
+            ($type === 'signature' ? 'Signature' : 'Seal').' removed.'
+        );
     }
 
     /** POST /agency-profile/contact - sends a code to the new phone or email. */

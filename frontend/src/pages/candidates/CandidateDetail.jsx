@@ -19,6 +19,7 @@ import { confirmAction, escapeHtml } from '../../lib/alert';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
 import { SourceTag, canRunTests, formatDate, isReviewer, isSettled, submitState } from './shared';
 import SkillTests from './SkillTests';
+import PoliceReport from './PoliceReport';
 
 const STATUS_TONE = { draft: 'gray', submitted: 'blue', approved: 'green', rejected: 'red' };
 
@@ -174,10 +175,7 @@ export default function CandidateDetail() {
 
   const load = useCallback(async () => {
     try {
-      const [detail, docs] = await Promise.all([
-        candidateApi.get(id),
-        candidateApi.documents(id),
-      ]);
+      const [detail, docs] = await Promise.all([candidateApi.get(id), candidateApi.documents(id)]);
       setCandidate(detail.data);
       setDocuments(docs.data.documents);
       setRequired(docs.data.required);
@@ -232,8 +230,13 @@ export default function CandidateDetail() {
     const sure = await confirmAction({
       title: 'Remove ' + candidate.name + '?',
       html:
-        'Passport <code>' + escapeHtml(candidate.passportNo) + '</code> is removed from the register. ' +
-        'The ' + attachedCount + ' attached document' + (attachedCount === 1 ? '' : 's') +
+        'Passport <code>' +
+        escapeHtml(candidate.passportNo) +
+        '</code> is removed from the register. ' +
+        'The ' +
+        attachedCount +
+        ' attached document' +
+        (attachedCount === 1 ? '' : 's') +
         ' stay on the server, so the record can be restored if this was a mistake.',
       confirmText: 'Remove Candidate',
       danger: true,
@@ -294,29 +297,37 @@ export default function CandidateDetail() {
   const passed = candidate.poolStatus === 'passed';
   // Valid when registered, but a passport can run out while the file is open.
   const passportExpired =
-    Boolean(candidate.passportExpiry) && candidate.passportExpiry < new Date().toISOString().slice(0, 10);
+    Boolean(candidate.passportExpiry) &&
+    candidate.passportExpiry < new Date().toISOString().slice(0, 10);
   const settled = isSettled(candidate);
   // Only the agency attaches, and only while the file is open: passed, and
   // not yet submitted by the coordinator.
   const canAttach = isAgency && Boolean(candidate.documentsOpen);
+  // Whoever works the file keeps the police report up to date; a blocked file
+  // is shut to everybody, and the read-only auditor only reads.
+  const canEditPolice = !candidate.blocked && admin?.roleSlug !== 'auditor';
 
   // The submit switch opens only once a passed candidate's documents are all in.
   const submit = submitState(candidate, missing.length);
   const submittedOn = candidate.submittedAt
-    ? 'Submitted on ' + formatDate(candidate.submittedAt) +
-      (candidate.submittedBy ? ' by ' + candidate.submittedBy : '') + '.'
+    ? 'Submitted on ' +
+      formatDate(candidate.submittedAt) +
+      (candidate.submittedBy ? ' by ' + candidate.submittedBy : '') +
+      '.'
     : 'Submitted.';
   let submitNote;
   if (reviewer) {
-    submitNote = submit.submitted && !submit.locked
-      ? submittedOn + ' Switch off to send it back to the agency.'
-      : submit.reason;
+    submitNote =
+      submit.submitted && !submit.locked
+        ? submittedOn + ' Switch off to send it back to the agency.'
+        : submit.reason;
   } else if (submit.submitted) {
     submitNote = submittedOn;
   } else if (passed && complete) {
     submitNote = 'Every document is in. A coordinator checks them and submits the profile.';
   } else {
-    submitNote = 'A coordinator submits the profile once the candidate has passed and every document is attached.';
+    submitNote =
+      'A coordinator submits the profile once the candidate has passed and every document is attached.';
   }
 
   // Why the switch is where it is, and why it may not move.
@@ -349,11 +360,14 @@ export default function CandidateDetail() {
   if (candidate.blocked) {
     documentsNote = 'This file is blocked, so no documents can be attached.';
   } else if (!isAgency) {
-    documentsNote = 'Attached by the agency. Every version is kept, so nothing here was ever replaced.';
+    documentsNote =
+      'Attached by the agency. Every version is kept, so nothing here was ever replaced.';
   } else if (!passed) {
-    documentsNote = 'Documents are attached once the candidate has passed. Switch on Passed above first.';
+    documentsNote =
+      'Documents are attached once the candidate has passed. Switch on Passed above first.';
   } else if (settled) {
-    documentsNote = 'The coordinator has checked these documents and submitted the profile, so they are settled.';
+    documentsNote =
+      'The coordinator has checked these documents and submitted the profile, so they are settled.';
   } else {
     documentsNote = 'Attaching a file never replaces an older one — every version is kept.';
   }
@@ -375,11 +389,28 @@ export default function CandidateDetail() {
         </div>
       )}
 
+      {/* Short validity never blocks anything, but it is never hidden either. */}
+      {candidate.passportWarning && (
+        <div
+          role="alert"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900"
+        >
+          <p className="font-semibold">Check the passport</p>
+          <p className="mt-1">
+            {candidate.passportWarning} Passport {candidate.passportNo} is on this file.
+          </p>
+        </div>
+      )}
+
       {/* --- details --- */}
       <Card>
         <CardHeader
           title={candidate.name}
-          subtitle={'Passport ' + candidate.passportNo + (candidate.nicNo ? ' · NIC ' + candidate.nicNo : '')}
+          subtitle={
+            'Passport ' +
+            candidate.passportNo +
+            (candidate.nicNo ? ' · NIC ' + candidate.nicNo : '')
+          }
           action={
             <div className="flex flex-wrap items-center gap-2">
               {candidate.blocked ? (
@@ -421,7 +452,9 @@ export default function CandidateDetail() {
               [
                 'Passport validity',
                 candidate.passportExpiry ? (
-                  <span className={passportExpired ? 'font-medium text-red-600' : undefined}>
+                  <span
+                    className={candidate.passportWarning ? 'font-medium text-amber-700' : undefined}
+                  >
                     {formatDate(candidate.passportExpiry)}
                     {passportExpired ? ' · expired' : ''}
                   </span>
@@ -512,6 +545,9 @@ export default function CandidateDetail() {
         </div>
       </Card>
 
+      {/* --- the police report, beside the document it is uploaded with --- */}
+      <PoliceReport candidate={candidate} readOnly={!canEditPolice} onChanged={load} />
+
       {/* --- documents --- */}
       <Card>
         <CardHeader
@@ -558,7 +594,6 @@ export default function CandidateDetail() {
           The ZIP contains one folder per document type, holding the latest file of each.
         </div>
       </Card>
-
     </div>
   );
 }

@@ -148,11 +148,97 @@ class CandidateJobCategoryTest extends TestCase
             ->assertJsonPath('data.name', 'Kamal Silva');
     }
 
-    public function test_an_expired_passport_is_refused(): void
+    public function test_a_passport_with_little_left_on_it_is_saved_with_a_warning(): void
     {
-        $this->register(['passportExpiry' => now()->subDay()->toDateString()])
+        // Short, but still usable: saved, and said out loud every time.
+        $soon = now()->addYear()->toDateString();
+        $this->register(['passportExpiry' => $soon])
+            ->assertCreated()
+            ->assertJsonPath('data.candidate.passportExpiry', $soon)
+            ->assertJsonPath('data.candidate.passportWarning',
+                'The passport is valid until '.now()->addYear()->format('j M Y').', which is less than 3 years away.');
+
+        // Already expired is a warning too, never a refusal.
+        $this->register(['passportExpiry' => now()->subDay()->toDateString()], 'N5550002')
+            ->assertCreated()
+            ->assertJsonPath('data.candidate.passportWarning',
+                'The passport expired on '.now()->subDay()->format('j M Y').'.');
+
+        // Four years out, nothing to say.
+        $this->register(['passportExpiry' => now()->addYears(4)->toDateString()], 'N5550003')
+            ->assertCreated()
+            ->assertJsonPath('data.candidate.passportWarning', null);
+    }
+
+    public function test_the_police_report_is_applied_for_then_received(): void
+    {
+        $id = $this->register()->assertCreated()->json('data.candidate.id');
+        $url = '/api/v1/candidates/'.$id.'/police-report';
+
+        $this->assertSame('not_applied', $this->getJson('/api/v1/candidates/'.$id)->json('data.policeReport.status'));
+
+        // Applied needs the reference number.
+        $this->patchJson($url, ['status' => 'applied'])
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['passportExpiry']);
+            ->assertJsonValidationErrors(['referenceNo']);
+
+        $this->patchJson($url, ['status' => 'applied', 'referenceNo' => 'PR/2026/8891'])
+            ->assertOk()
+            ->assertJsonPath('data.policeReport.status', 'applied')
+            ->assertJsonPath('data.policeReport.referenceNo', 'PR/2026/8891')
+            ->assertJsonPath('data.policeReport.expiresOn', null);
+
+        // Received needs the date it was issued as well.
+        $this->patchJson($url, ['status' => 'received', 'referenceNo' => 'PR/2026/8891'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['issuedDate']);
+
+        $issued = now()->subMonth();
+        $this->patchJson($url, [
+            'status' => 'received',
+            'referenceNo' => 'PR/2026/8891',
+            'issuedDate' => $issued->toDateString(),
+        ])
+            ->assertOk()
+            // Six months from the day it was issued.
+            ->assertJsonPath('data.policeReport.expiresOn', $issued->copy()->addMonths(6)->toDateString())
+            ->assertJsonPath('data.policeReport.warning', null);
+    }
+
+    public function test_a_police_report_close_to_expiry_is_saved_with_a_warning(): void
+    {
+        $id = $this->register()->assertCreated()->json('data.candidate.id');
+        $url = '/api/v1/candidates/'.$id.'/police-report';
+
+        // Issued five months ago: one month left, under the two-month mark.
+        $issued = now()->subMonths(5);
+        $expires = $issued->copy()->addMonths(6);
+
+        $this->patchJson($url, [
+            'status' => 'received',
+            'referenceNo' => 'PR/2026/1200',
+            'issuedDate' => $issued->toDateString(),
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.policeReport.warning',
+                'The police report expires on '.$expires->format('j M Y').', which is less than 2 months away.');
+
+        // Issued seven months ago: gone, still saved.
+        $this->patchJson($url, [
+            'status' => 'received',
+            'referenceNo' => 'PR/2026/1200',
+            'issuedDate' => now()->subMonths(7)->toDateString(),
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.policeReport.warning',
+                'The police report expired on '.now()->subMonths(7)->addMonths(6)->format('j M Y').'.');
+
+        // A report cannot have been issued in the future.
+        $this->patchJson($url, [
+            'status' => 'received',
+            'referenceNo' => 'PR/2026/1200',
+            'issuedDate' => now()->addDay()->toDateString(),
+        ])->assertStatus(422)->assertJsonValidationErrors(['issuedDate']);
     }
 
     public function test_the_nic_gives_the_date_of_birth(): void

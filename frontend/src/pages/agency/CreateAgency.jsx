@@ -4,13 +4,23 @@ import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import CopyButton from '../../components/ui/CopyButton';
 import { useToast } from '../../components/ui/Toast';
-import { IconBuilding, IconRefresh, IconCheck, IconUsers, IconMail } from '../../components/ui/Icons';
+import {
+  IconBuilding,
+  IconRefresh,
+  IconCheck,
+  IconUsers,
+  IconMail,
+} from '../../components/ui/Icons';
 import { agencyApi } from '../../lib/api';
 
 const EMPTY = {
   type: 'local',
   country: '',
   name: '',
+  registrationNo: '',
+  lawyerName: '',
+  lawyerIdNo: '',
+  lawyerPosition: '',
   contact: '',
   address: '',
   email: '',
@@ -22,22 +32,42 @@ const EMPTY = {
 // Both kinds are approved, sign in and register candidates the same way.
 const AGENCY_TYPES = [
   { id: 'local', label: 'Local agency', description: 'A recruitment agency in Sri Lanka.' },
-  { id: 'foreign', label: 'Foreign agency', description: 'An agency based overseas, such as in Israel.' },
+  {
+    id: 'foreign',
+    label: 'Foreign company',
+    description: 'A company based overseas, such as in Israel.',
+  },
 ];
 
 /** Field-level rules. Returns a { field: message } map; empty means valid. */
 function validate(values) {
   const errors = {};
+  const foreign = values.type === 'foreign';
 
-  if (!values.name.trim()) errors.name = 'Agency name is required.';
+  if (!values.name.trim())
+    errors.name = foreign ? 'Company name is required.' : 'Agency name is required.';
   else if (values.name.trim().length < 3) errors.name = 'Name must be at least 3 characters.';
+
+  // What a foreign company files: its registration number and its lawyer.
+  if (foreign) {
+    if (!values.registrationNo.trim())
+      errors.registrationNo = "Enter the company's registration number.";
+
+    if (!values.lawyerName.trim()) errors.lawyerName = "Enter the company lawyer's name.";
+    else if (values.lawyerName.trim().length < 3)
+      errors.lawyerName = 'Name must be at least 3 characters.';
+
+    if (!values.lawyerIdNo.trim()) errors.lawyerIdNo = "Enter the company lawyer's ID number.";
+    if (!values.lawyerPosition.trim())
+      errors.lawyerPosition = "Enter the company lawyer's position.";
+  }
 
   if (!values.contact.trim()) errors.contact = 'Contact person is required.';
   else if (values.contact.trim().length < 3)
     errors.contact = 'Contact name must be at least 3 characters.';
 
-  if (values.type === 'foreign' && !values.country.trim())
-    errors.country = 'Enter the country this agency is based in.';
+  if (foreign && !values.country.trim())
+    errors.country = 'Enter the country this company is based in.';
 
   if (!values.address.trim()) errors.address = 'Address is required.';
   else if (values.address.trim().length < 8) errors.address = 'Please enter the full address.';
@@ -64,12 +94,7 @@ function validate(values) {
 
 /** Generates a reasonably strong password the admin can hand over. */
 function generatePassword(length = 12) {
-  const sets = [
-    'ABCDEFGHJKLMNPQRSTUVWXYZ',
-    'abcdefghijkmnopqrstuvwxyz',
-    '23456789',
-    '!@#$%*?',
-  ];
+  const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%*?'];
   const all = sets.join('');
   const pick = (chars) => chars[Math.floor(Math.random() * chars.length)];
   const chars = sets.map(pick);
@@ -84,6 +109,9 @@ export default function CreateAgency() {
   const [touched, setTouched] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState(null); // credentials returned by the API
+
+  // A foreign record is a company: it is worded that way and files more.
+  const foreign = values.type === 'foreign';
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -114,6 +142,10 @@ export default function CreateAgency() {
     setTouched({
       country: true,
       name: true,
+      registrationNo: true,
+      lawyerName: true,
+      lawyerIdNo: true,
+      lawyerPosition: true,
       contact: true,
       address: true,
       email: true,
@@ -141,7 +173,7 @@ export default function CreateAgency() {
       toast(
         data.credentialsEmail?.delivered
           ? 'Agency created. Login details emailed to ' + data.credentialsEmail.to + '.'
-          : 'Agency created successfully. Credentials are ready to share.'
+          : 'Agency created successfully. Credentials are ready to share.',
       );
     } catch (err) {
       toast(err.message || 'Could not create the agency.', 'error');
@@ -153,7 +185,11 @@ export default function CreateAgency() {
   // The exact text placed on the clipboard by "Copy Details".
   const credentialText = () =>
     [
-      'Agency: ' + created.agencyName + ' (' + created.agencyCode + ')',
+      (created.agencyType === 'foreign' ? 'Company: ' : 'Agency: ') +
+        created.agencyName +
+        ' (' +
+        created.agencyCode +
+        ')',
       'Login URL: ' + created.loginUrl,
       'Username: ' + created.username,
       'Password: ' + created.password,
@@ -167,14 +203,18 @@ export default function CreateAgency() {
       <div className="lg:col-span-2">
         <Card>
           <CardHeader
-            title="Agency Details"
-            subtitle="These credentials are issued to the agency owner on creation."
+            title={foreign ? 'Company Details' : 'Agency Details'}
+            subtitle={
+              'These credentials are issued to the ' +
+              (foreign ? 'company' : 'agency') +
+              ' owner on creation.'
+            }
           />
           <form onSubmit={handleSubmit} noValidate>
             <CardBody className="grid gap-5 sm:grid-cols-2">
               <fieldset className="sm:col-span-2">
                 <legend className="field-label">
-                  Agency type <span className="text-red-500">*</span>
+                  Type <span className="text-red-500">*</span>
                 </legend>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {AGENCY_TYPES.map((type) => {
@@ -200,7 +240,9 @@ export default function CreateAgency() {
                           className="mt-1 h-4 w-4 border-gray-300 text-primary-600 focus:ring-primary-500"
                         />
                         <span>
-                          <span className="block text-sm font-semibold text-gray-900">{type.label}</span>
+                          <span className="block text-sm font-semibold text-gray-900">
+                            {type.label}
+                          </span>
                           <span className="block text-xs text-gray-500">{type.description}</span>
                         </span>
                       </label>
@@ -220,12 +262,12 @@ export default function CreateAgency() {
                   onBlur={handleBlur}
                   error={errors.country}
                   className="sm:col-span-2"
-                  hint={!errors.country ? 'Where the agency is based.' : undefined}
+                  hint={!errors.country ? 'Where the company is based.' : undefined}
                 />
               )}
 
               <Input
-                label="Name"
+                label={foreign ? 'Company name' : 'Agency name'}
                 name="name"
                 required
                 placeholder="e.g. Skyline Marketing Pvt Ltd"
@@ -234,8 +276,70 @@ export default function CreateAgency() {
                 onBlur={handleBlur}
                 error={errors.name}
                 icon={IconBuilding}
-                className="sm:col-span-2"
+                className={foreign ? '' : 'sm:col-span-2'}
               />
+
+              {/* Filed by a foreign company only. */}
+              {foreign && (
+                <Input
+                  label="Registration No"
+                  name="registrationNo"
+                  required
+                  placeholder="e.g. 514236789"
+                  value={values.registrationNo}
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  error={errors.registrationNo}
+                  hint={
+                    !errors.registrationNo
+                      ? 'As it appears on the company registration.'
+                      : undefined
+                  }
+                />
+              )}
+
+              {/* The lawyer who acts for the company. */}
+              {foreign && (
+                <fieldset className="grid gap-5 rounded-lg border border-gray-200 p-4 sm:col-span-2 sm:grid-cols-3">
+                  <legend className="px-1 text-sm font-semibold text-gray-900">
+                    Company lawyer
+                  </legend>
+
+                  <Input
+                    label="Lawyer name"
+                    name="lawyerName"
+                    required
+                    placeholder="e.g. Ruth Levin"
+                    value={values.lawyerName}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    error={errors.lawyerName}
+                    icon={IconUsers}
+                  />
+
+                  <Input
+                    label="Lawyer ID No"
+                    name="lawyerIdNo"
+                    required
+                    placeholder="e.g. 038512477"
+                    value={values.lawyerIdNo}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    error={errors.lawyerIdNo}
+                  />
+
+                  <Input
+                    label="Position"
+                    name="lawyerPosition"
+                    required
+                    placeholder="e.g. Company Secretary"
+                    value={values.lawyerPosition}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    error={errors.lawyerPosition}
+                  />
+                </fieldset>
+              )}
 
               <Input
                 label="Contact Person"
@@ -249,7 +353,9 @@ export default function CreateAgency() {
                 icon={IconUsers}
                 className="sm:col-span-2"
                 hint={
-                  !errors.contact ? 'Who to call at the agency. The owner login is created under this name.' : undefined
+                  !errors.contact
+                    ? 'Who to call at the agency. The owner login is created under this name.'
+                    : undefined
                 }
               />
 
@@ -266,7 +372,9 @@ export default function CreateAgency() {
                   onChange={handleChange}
                   onBlur={handleBlur}
                   aria-invalid={errors.address ? true : undefined}
-                  className={'field-input resize-none ' + (errors.address ? 'field-input-error' : '')}
+                  className={
+                    'field-input resize-none ' + (errors.address ? 'field-input-error' : '')
+                  }
                 />
                 {errors.address && <p className="field-error">{errors.address}</p>}
               </div>
@@ -359,7 +467,9 @@ export default function CreateAgency() {
         <Card className="sticky top-24">
           <CardHeader
             title="Generated Credentials"
-            subtitle={created ? 'Share these with the agency owner.' : 'Shown after the agency is created.'}
+            subtitle={
+              created ? 'Share these with the agency owner.' : 'Shown after the agency is created.'
+            }
           />
           <CardBody>
             {!created ? (
@@ -376,9 +486,11 @@ export default function CreateAgency() {
                   <IconCheck className="mt-0.5 h-4 w-4 shrink-0" />
                   <p>
                     <span className="font-semibold">{created.agencyName}</span>
-                    {created.agencyType === 'foreign' ? ' (foreign agency)' : ' (local agency)'} was created and is
-                    now awaiting approval. These credentials work only once you approve it in the
-                    Agency List.
+                    {created.agencyType === 'foreign'
+                      ? ' (foreign company)'
+                      : ' (local agency)'}{' '}
+                    was created and is now awaiting approval. These credentials work only once you
+                    approve it in the Agency List.
                   </p>
                 </div>
 
@@ -405,11 +517,17 @@ export default function CreateAgency() {
 
                 <dl className="divide-y divide-gray-100 rounded-lg border border-gray-200">
                   {[
-                    ['Agency Code', created.agencyCode],
+                    [
+                      created.agencyType === 'foreign' ? 'Company Code' : 'Agency Code',
+                      created.agencyCode,
+                    ],
                     ['Username', created.username],
                     ['Password', created.password],
                   ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between gap-3 px-3.5 py-3">
+                    <div
+                      key={label}
+                      className="flex items-center justify-between gap-3 px-3.5 py-3"
+                    >
                       <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">
                         {label}
                       </dt>

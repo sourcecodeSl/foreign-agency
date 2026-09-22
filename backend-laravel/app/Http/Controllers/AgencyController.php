@@ -151,6 +151,12 @@ class AgencyController extends Controller
             // A local agency is in Sri Lanka; a foreign one names its country.
             'type' => 'nullable|in:local,foreign',
             'country' => 'required_if:type,foreign|nullable|string|max:80',
+            // A foreign company files its registration number and the lawyer
+            // who acts for it; a local agency files neither.
+            'registrationNo' => 'required_if:type,foreign|nullable|string|max:60',
+            'lawyerName' => 'required_if:type,foreign|nullable|string|min:3|max:150',
+            'lawyerIdNo' => 'required_if:type,foreign|nullable|string|max:40',
+            'lawyerPosition' => 'required_if:type,foreign|nullable|string|max:120',
             'username' => ['required', 'regex:/^[a-zA-Z0-9._-]{4,20}$/'],
             'password' => ['required', 'string', 'min:8', 'regex:/[A-Z]/', 'regex:/[0-9]/'],
             // Sign-in sends a code to the phone and then to the email, so an
@@ -165,8 +171,12 @@ class AgencyController extends Controller
             'contact.required' => 'A contact person is required.',
             'contact.min' => 'Contact name must be at least 3 characters.',
             'address.min' => 'Please provide the full address.',
-            'type.in' => 'Choose a local or a foreign agency.',
-            'country.required_if' => 'Enter the country a foreign agency is based in.',
+            'type.in' => 'Choose a local or a foreign company.',
+            'country.required_if' => 'Enter the country a foreign company is based in.',
+            'registrationNo.required_if' => "Enter the company's registration number.",
+            'lawyerName.required_if' => "Enter the company lawyer's name.",
+            'lawyerIdNo.required_if' => "Enter the company lawyer's ID number.",
+            'lawyerPosition.required_if' => "Enter the company lawyer's position.",
             'username.regex' => 'Username must be 4-20 characters (letters, numbers, . _ -).',
             'password.min' => 'Password must be at least 8 characters.',
             'password.regex' => 'Password must include an uppercase letter and a number.',
@@ -195,6 +205,8 @@ class AgencyController extends Controller
         $plainPassword = $data['password'] ?: Credentials::generatePassword();
 
         $agency = DB::transaction(function () use ($data, $sequence, $plainPassword, $auth, $type, $country) {
+            $foreign = $type === 'foreign';
+
             $agency = Agency::create([
                 'id' => 'AG-'.$sequence,
                 'name' => $data['name'],
@@ -202,6 +214,10 @@ class AgencyController extends Controller
                 'address' => $data['address'],
                 'type' => $type,
                 'country' => $country,
+                'registration_no' => $foreign ? trim((string) $data['registrationNo']) : null,
+                'lawyer_name' => $foreign ? trim((string) $data['lawyerName']) : null,
+                'lawyer_id_no' => $foreign ? trim((string) $data['lawyerIdNo']) : null,
+                'lawyer_position' => $foreign ? trim((string) $data['lawyerPosition']) : null,
                 'username' => $data['username'],
                 'password_hash' => password_hash($plainPassword, PASSWORD_BCRYPT),
                 'contact' => $data['contact'],
@@ -275,6 +291,20 @@ class AgencyController extends Controller
                 $agency->{$field} = $request->input($field);
             }
         }
+
+        // The registration number and the lawyer, as the create screen asks
+        // for them. Only a foreign company has them to change.
+        foreach ([
+            'registrationNo' => 'registration_no',
+            'lawyerName' => 'lawyer_name',
+            'lawyerIdNo' => 'lawyer_id_no',
+            'lawyerPosition' => 'lawyer_position',
+        ] as $input => $column) {
+            if ($request->has($input)) {
+                $agency->{$column} = $request->input($input);
+            }
+        }
+
         $agency->save();
 
         return ApiResponse::ok($agency->toPublic(), 'Agency updated.');

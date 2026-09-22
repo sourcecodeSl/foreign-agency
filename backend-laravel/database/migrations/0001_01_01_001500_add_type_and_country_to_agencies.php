@@ -7,9 +7,9 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Agencies come in two kinds: local recruitment agencies in Sri Lanka and
- * foreign agencies based overseas. Both are approved, sign in and register
+ * foreign companies based overseas. Both are approved, sign in and register
  * candidates the same way; the type says which side of the corridor an agency
- * sits on, and a foreign agency records its country.
+ * sits on, and a foreign company records its country.
  */
 return new class extends Migration
 {

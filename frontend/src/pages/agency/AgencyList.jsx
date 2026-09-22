@@ -23,8 +23,8 @@ const TYPE_TITLES = {
     subtitle: 'Recruitment agencies in Sri Lanka: approve new ones and manage their status.',
   },
   foreign: {
-    title: 'Foreign Agencies',
-    subtitle: 'Agencies based overseas: approve new ones and manage their status.',
+    title: 'Foreign Companies',
+    subtitle: 'Companies based overseas: approve new ones and manage their status.',
   },
 };
 
@@ -58,7 +58,7 @@ export default function AgencyList() {
   const { toast } = useToast();
   const [tab, setTab] = useState('pending');
   const [search, setSearch] = useState('');
-  // The Foreign Agency and Local Agency links carry ?type=, so the list opens
+  // The Foreign Company and Local Agency links carry ?type=, so the list opens
   // on that kind and the address bar keeps it.
   const [params, setParams] = useSearchParams();
   const type = params.get('type') || 'all';
@@ -330,8 +330,17 @@ export default function AgencyList() {
   // Rendered inside the detail card. A dash keeps the row height steady while
   // the fuller record is still on its way.
   const detailRows = (agency) => [
-    ['Agency Code', agency.code],
-    ['Type', agency.type === 'foreign' ? 'Foreign agency' : 'Local agency'],
+    [agency.type === 'foreign' ? 'Company Code' : 'Agency Code', agency.code],
+    ['Type', agency.type === 'foreign' ? 'Foreign company' : 'Local agency'],
+    // Filed by a foreign company alone, along with its lawyer.
+    ...(agency.type === 'foreign'
+      ? [
+          ['Registration No', agency.registrationNo || '—'],
+          ['Lawyer', agency.lawyer?.name || '—'],
+          ['Lawyer ID No', agency.lawyer?.idNo || '—'],
+          ['Lawyer Position', agency.lawyer?.position || '—'],
+        ]
+      : []),
     ['Country', agency.country || '—'],
     ['Contact Person', agency.contact || '—'],
     ['Email', agency.email || '—'],
@@ -361,7 +370,7 @@ export default function AgencyList() {
             >
               <option value="all">All types</option>
               <option value="local">Local agencies</option>
-              <option value="foreign">Foreign agencies</option>
+              <option value="foreign">Foreign companies</option>
             </select>
             <div className="relative">
               <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -389,7 +398,12 @@ export default function AgencyList() {
         rows={rows}
         loading={loading}
         empty={
-          'No ' + (tab === 'all' ? '' : tab + ' ') + (type === 'all' ? '' : type + ' ') + 'agencies found.'
+          // An agency of type foreign reads as a foreign company everywhere.
+          'No ' +
+          (tab === 'all' ? '' : tab + ' ') +
+          (type === 'all' ? '' : type + ' ') +
+          (type === 'foreign' ? 'companies' : 'agencies') +
+          ' found.'
         }
       />
 

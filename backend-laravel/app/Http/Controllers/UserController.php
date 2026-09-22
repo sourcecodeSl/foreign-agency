@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\ApiException;
+use App\Models\Agency;
 use App\Models\Role;
 use App\Models\User;
 use App\Support\ApiResponse;
@@ -12,16 +13,32 @@ use Illuminate\Support\Facades\Validator;
 
 class UserController extends Controller
 {
-    /** GET /users?role=&status=&search= */
+    /** GET /users?role=&status=&search=&agencyType=local|foreign|main&agency= */
     public function index(Request $request)
     {
         $role = $request->query('role', 'all');
         $status = $request->query('status', 'all');
         $search = trim((string) $request->query('search', ''));
+        // local, foreign, or main (the logins that belong to no agency).
+        $agencyType = $request->query('agencyType', 'all');
+        $agency = (string) $request->query('agency', 'all');
 
         $query = User::query();
         if ($role !== 'all') {
             $query->where('role_slug', $role);
+        }
+        if ($agencyType === 'main') {
+            $query->whereNull('agency_id');
+        } elseif (in_array($agencyType, Agency::TYPES, true)) {
+            // Agencies from before foreign companies existed have no type: they are local.
+            $query->whereIn('agency_id', Agency::query()
+                ->where(fn ($q) => $agencyType === 'local'
+                    ? $q->where('type', 'local')->orWhereNull('type')
+                    : $q->where('type', 'foreign'))
+                ->select('id'));
+        }
+        if ($agency !== 'all' && $agency !== '') {
+            $query->where('agency_id', $agency);
         }
         if ($status !== 'all') {
             $query->where('status', $status);
@@ -35,8 +52,14 @@ class UserController extends Controller
             });
         }
 
-        $rows = $query->orderByDesc('created_at')->orderByDesc('id')->get()
-            ->map(fn (User $u) => $u->toPublic())->values();
+        $users = $query->orderByDesc('created_at')->orderByDesc('id')->get();
+
+        // Whether each login's agency is local or foreign, in one query.
+        $types = Agency::whereIn('id', $users->pluck('agency_id')->filter()->unique())->pluck('type', 'id');
+
+        $rows = $users->map(fn (User $u) => $u->toPublic() + [
+            'agencyType' => $u->agency_id ? ($types[$u->agency_id] ?? 'local') : null,
+        ])->values();
 
         return ApiResponse::ok($rows);
     }

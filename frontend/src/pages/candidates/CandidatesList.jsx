@@ -273,7 +273,7 @@ export default function CandidatesList() {
                 >
                   <option value="all">All agencies</option>
                   <option value="local">Local agencies</option>
-                  <option value="foreign">Foreign agencies</option>
+                  <option value="foreign">Foreign companies</option>
                 </select>
               )}
 
@@ -286,7 +286,7 @@ export default function CandidatesList() {
                 >
                   <option value="">
                     {agencyType === 'foreign'
-                      ? 'Select a foreign agency...'
+                      ? 'Select a foreign company...'
                       : agencyType === 'local'
                       ? 'Select a local agency...'
                       : 'Select an agency...'}
@@ -294,7 +294,7 @@ export default function CandidatesList() {
                   {agencies.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name}
-                      {a.type === 'foreign' ? ' (foreign agency)' : ''}
+                      {a.type === 'foreign' ? ' (foreign company)' : ''}
                     </option>
                   ))}
                 </select>

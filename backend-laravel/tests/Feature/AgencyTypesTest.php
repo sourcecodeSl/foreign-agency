@@ -14,8 +14,9 @@ use Tests\TestCase;
  * create either; each gets its own login and registers its own candidates,
  * and neither sees the other's files.
  *
- * A foreign agency is not a foreign company: companies are the overseas
- * employers that run skill tests, and they live in their own directory.
+ * An agency of type foreign is not a foreign_companies row: those are the
+ * overseas employers that run skill tests, and they live in their own
+ * directory. Both read as "foreign company" on screen.
  */
 class AgencyTypesTest extends TestCase
 {
@@ -52,6 +53,19 @@ class AgencyTypesTest extends TestCase
         return Jwt::sign(User::findOrFail($id)->toPublic());
     }
 
+    /** The registration number and lawyer every foreign company files. */
+    private function company(array $overrides = []): array
+    {
+        return $this->agency($overrides + [
+            'type' => 'foreign',
+            'country' => 'Israel',
+            'registrationNo' => '514236789',
+            'lawyerName' => 'Ruth Levin',
+            'lawyerIdNo' => '038512477',
+            'lawyerPosition' => 'Company Secretary',
+        ]);
+    }
+
     private function agency(array $overrides = []): array
     {
         return $overrides + [
@@ -81,7 +95,7 @@ class AgencyTypesTest extends TestCase
         $coordinator = $this->coordinator();
 
         $created = $this->as($coordinator)
-            ->postJson('/api/v1/agencies', $this->agency(['type' => 'foreign', 'country' => 'Israel']))
+            ->postJson('/api/v1/agencies', $this->company())
             ->assertCreated()
             ->assertJsonPath('data.type', 'foreign')
             ->assertJsonPath('data.country', 'Israel')
@@ -114,7 +128,7 @@ class AgencyTypesTest extends TestCase
         $coordinator = $this->coordinator();
 
         $foreign = $this->as($coordinator)
-            ->postJson('/api/v1/agencies', $this->agency(['type' => 'foreign', 'country' => 'Israel']))
+            ->postJson('/api/v1/agencies', $this->company())
             ->assertCreated()
             ->json('data.id');
 
@@ -149,22 +163,63 @@ class AgencyTypesTest extends TestCase
             ->assertCreated()
             ->json('data.candidate.id');
 
-        // The foreign agency sees neither the local agency's candidates nor the agency itself.
+        // The foreign company sees neither the local agency's candidates nor the agency itself.
         $this->as($foreignOwner)->getJson('/api/v1/candidates')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/v1/candidates/'.$localCandidate)->assertStatus(403);
         $this->getJson('/api/v1/agencies/'.$local)->assertStatus(403);
     }
 
+    public function test_a_foreign_company_files_its_registration_number_and_its_lawyer(): void
+    {
+        $agency = $this->as($this->admin)
+            ->postJson('/api/v1/agencies', $this->company())
+            ->assertCreated()
+            ->assertJsonPath('data.registrationNo', '514236789')
+            ->assertJsonPath('data.lawyer.name', 'Ruth Levin')
+            ->assertJsonPath('data.lawyer.idNo', '038512477')
+            ->assertJsonPath('data.lawyer.position', 'Company Secretary')
+            ->json('data');
+
+        // They can be corrected afterwards, like the rest of the details.
+        $this->putJson('/api/v1/agencies/'.$agency['id'], ['lawyerPosition' => 'Legal Counsel'])
+            ->assertOk()
+            ->assertJsonPath('data.lawyer.position', 'Legal Counsel');
+
+        // A local agency files none of it and keeps them empty.
+        $local = $this->postJson('/api/v1/agencies', $this->agency([
+            'name' => 'Skyline Marketing',
+            'username' => 'skyline.owner',
+            'email' => 'owner@skyline.lk',
+            'phone' => '0771234567',
+        ]))->assertCreated()->json('data');
+
+        $this->assertNull($local['registrationNo']);
+        $this->assertNull($local['lawyer']['name']);
+    }
+
+    public function test_a_foreign_company_without_its_lawyer_is_refused(): void
+    {
+        $this->as($this->admin)
+            ->postJson('/api/v1/agencies', $this->company([
+                'registrationNo' => null,
+                'lawyerName' => null,
+                'lawyerIdNo' => null,
+                'lawyerPosition' => null,
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['registrationNo', 'lawyerName', 'lawyerIdNo', 'lawyerPosition']);
+    }
+
     public function test_a_foreign_agency_needs_its_country_and_the_type_is_checked(): void
     {
         $this->as($this->coordinator())
-            ->postJson('/api/v1/agencies', $this->agency(['type' => 'foreign']))
+            ->postJson('/api/v1/agencies', $this->company(['country' => null]))
             ->assertStatus(422)
-            ->assertJsonPath('errors.country', 'Enter the country a foreign agency is based in.');
+            ->assertJsonPath('errors.country', 'Enter the country a foreign company is based in.');
 
         $this->postJson('/api/v1/agencies', $this->agency(['type' => 'overseas']))
             ->assertStatus(422)
-            ->assertJsonPath('errors.type', 'Choose a local or a foreign agency.');
+            ->assertJsonPath('errors.type', 'Choose a local or a foreign company.');
 
         $this->assertSame(0, Agency::where('username', 'horizon.owner')->count());
     }
