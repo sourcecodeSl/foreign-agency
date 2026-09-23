@@ -127,7 +127,9 @@ class AuthController extends Controller
     /*
      * There is deliberately no register() action. Accounts are never
      * self-created: the Main Admin is seeded and agency logins are issued
-     * from the admin panel via AgencyController::store().
+     * from the admin panel via AgencyController::store(), or applied for from
+     * the sign-in page via AgencyController::register() - which files an
+     * application and still issues no login until an administrator approves it.
      */
 
     /** POST /auth/login - step 1. */

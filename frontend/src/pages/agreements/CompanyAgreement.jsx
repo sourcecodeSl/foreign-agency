@@ -8,7 +8,7 @@ import { useAuth, isGlobalRole } from '../../context/AuthContext';
 import { agreementApi } from '../../lib/api';
 import { alertError, confirmAction } from '../../lib/alert';
 import { formatDate } from '../candidates/shared';
-import { EmployerTable } from './EmployerAgreement';
+import { EmployerTable, openGoogleTranslate } from './EmployerAgreement';
 import { downloadAgreementPdf, openAgreementPdf, parseSalary, MARKS, MarkPicker, markError } from './Agreements';
 
 /** Where a foreign company's agreement has got to, as each side reads it. */
@@ -79,7 +79,10 @@ function SendToAgency({ agreement, onSent }) {
         title="Send to a local agency"
         subtitle={
           agreement.status === 'sent_to_agency'
-            ? 'Sent to ' + agreement.localAgencyName + ' on ' + formatDate(agreement.sentToAgencyAt) +
+            ? 'Sent to ' +
+              agreement.localAgencyName +
+              ' on ' +
+              formatDate(agreement.sentToAgencyAt) +
               '. Sending again moves it to the agency chosen.'
             : 'The local agency sees the agreement only once it is sent here.'
         }
@@ -420,6 +423,13 @@ export default function CompanyAgreement({ agreement, onChange }) {
         />
         {editable && (
           <div className="flex flex-wrap items-center justify-end gap-3 px-5 py-4">
+            {/* Google's own page, to check a value against and correct it here. */}
+            <span className="mr-auto flex flex-wrap items-center gap-2">
+              <Button onClick={() => openGoogleTranslate(agreement.employerSection?.fields, valuesRef.current)}>
+                Google Translate
+              </Button>
+              <span className="text-xs text-gray-500">English, Hebrew, Sinhala</span>
+            </span>
             {unchecked && (
               <p className="text-xs text-amber-800">
                 Highlighted values were filled automatically - check they read right.
@@ -444,7 +454,9 @@ export default function CompanyAgreement({ agreement, onChange }) {
         <Card>
           <CardHeader
             title={'Employee - ' + agreement.candidateName}
-            subtitle={'Assigned by ' + agreement.localAgencyName + ' on ' + formatDate(agreement.candidateAssignedAt) + '.'}
+            subtitle={
+              'Assigned by ' + agreement.localAgencyName + ' on ' + formatDate(agreement.candidateAssignedAt) + '.'
+            }
           />
           <EmployerTable section={agreement.employeeSection} values={agreement.values || {}} />
         </Card>

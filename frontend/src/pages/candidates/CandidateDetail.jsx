@@ -173,6 +173,12 @@ export default function CandidateDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [zipping, setZipping] = useState(false);
 
+  // The pass belongs to the company this candidate is registered for - the
+  // one that tests them - or to the Main Admin. Everyone else reads it.
+  const isTestingCompany =
+    admin?.agency?.type === 'foreign' && admin?.agency?.id === candidate?.company?.id;
+  const canPass = admin?.roleSlug === 'main_admin' || isTestingCompany;
+
   const load = useCallback(async () => {
     try {
       const [detail, docs] = await Promise.all([candidateApi.get(id), candidateApi.documents(id)]);
@@ -346,9 +352,11 @@ export default function CandidateDetail() {
     passNote = 'A skill test is open for this candidate. The coordinator records its result.';
     passLocked = true;
   } else {
-    passNote = isAgency
-      ? 'Switch on once the candidate has passed. Until then no documents are attached, and they may also register with other agencies.'
-      : 'Not passed yet. The agency switches this on once the candidate passes.';
+    passNote = canPass
+      ? 'Switch on once the candidate has passed your test. Until then no documents are attached, and they may also register with other agencies.'
+      : 'Not passed yet. ' +
+        (candidate.company?.name || 'The foreign company they are registered for') +
+        ' records the result.';
   }
   if (passed) {
     passNote += settled
@@ -363,8 +371,9 @@ export default function CandidateDetail() {
     documentsNote =
       'Attached by the agency. Every version is kept, so nothing here was ever replaced.';
   } else if (!passed) {
-    documentsNote =
-      'Documents are attached once the candidate has passed. Switch on Passed above first.';
+    documentsNote = canPass
+      ? 'Documents are attached once the candidate has passed. Switch on Passed above first.'
+      : 'Documents are attached once the candidate has passed their test.';
   } else if (settled) {
     documentsNote =
       'The coordinator has checked these documents and submitted the profile, so they are settled.';
@@ -462,6 +471,7 @@ export default function CandidateDetail() {
                   '—'
                 ),
               ],
+              ['Registered for', candidate.company?.name || '—'],
               ['Profession', candidate.profession || '—'],
               ['Test results', candidate.testResults || '—'],
               ['Mobile', candidate.mobile],
@@ -500,14 +510,14 @@ export default function CandidateDetail() {
       {/* --- skill tests: one file, a new test number for every attempt --- */}
       <SkillTests candidate={candidate} canRun={tester} onChanged={load} />
 
-      {/* --- the pass: the agency's switch, everyone else reads it --- */}
+      {/* --- the pass: the company's switch, everyone else reads it --- */}
       <Card>
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-gray-900">Passed</p>
             <p className="mt-0.5 text-xs text-gray-500">{passNote}</p>
           </div>
-          {isAgency ? (
+          {canPass ? (
             <Switch
               checked={passed}
               onChange={handlePass}

@@ -242,6 +242,8 @@ class SkillTestController extends Controller
             $candidate = $test->candidate;
 
             if ($passed) {
+                // The trade they passed in is what they work as from now on.
+                $candidate->profession = $test->role?->name ?: $candidate->profession;
                 $candidate->pool_status = 'passed';
                 $candidate->locked_company_id = $test->company_id;
                 $candidate->locked_at = now();

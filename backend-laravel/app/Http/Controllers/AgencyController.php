@@ -133,7 +133,9 @@ class AgencyController extends Controller
             ->first();
 
         return ApiResponse::ok($agency->toPublic() + [
-            'phone' => $owner->phone ?? null,
+            // The owner login holds it once there is one; until then it is
+             // the number the agency applied with.
+            'phone' => $owner->phone ?? $agency->phone,
             'candidates' => Candidate::where('agency_id', $agency->id)->count(),
         ]);
     }
@@ -151,12 +153,14 @@ class AgencyController extends Controller
             // A local agency is in Sri Lanka; a foreign one names its country.
             'type' => 'nullable|in:local,foreign',
             'country' => 'required_if:type,foreign|nullable|string|max:80',
-            // A foreign company files its registration number and the lawyer
-            // who acts for it; a local agency files neither.
+            // A foreign company files its registration number here; a local
+            // agency files none of this. The lawyer who acts for the company
+            // may be filled in now or left to the company itself, on Company
+            // Details - the agreement is what actually needs it.
             'registrationNo' => 'required_if:type,foreign|nullable|string|max:60',
-            'lawyerName' => 'required_if:type,foreign|nullable|string|min:3|max:150',
-            'lawyerIdNo' => 'required_if:type,foreign|nullable|string|max:40',
-            'lawyerPosition' => 'required_if:type,foreign|nullable|string|max:120',
+            'lawyerName' => 'nullable|string|min:3|max:150',
+            'lawyerIdNo' => 'nullable|string|max:40',
+            'lawyerPosition' => 'nullable|string|max:120',
             'username' => ['required', 'regex:/^[a-zA-Z0-9._-]{4,20}$/'],
             'password' => ['required', 'string', 'min:8', 'regex:/[A-Z]/', 'regex:/[0-9]/'],
             // Sign-in sends a code to the phone and then to the email, so an
@@ -174,9 +178,7 @@ class AgencyController extends Controller
             'type.in' => 'Choose a local or a foreign company.',
             'country.required_if' => 'Enter the country a foreign company is based in.',
             'registrationNo.required_if' => "Enter the company's registration number.",
-            'lawyerName.required_if' => "Enter the company lawyer's name.",
-            'lawyerIdNo.required_if' => "Enter the company lawyer's ID number.",
-            'lawyerPosition.required_if' => "Enter the company lawyer's position.",
+            'lawyerName.min' => "The lawyer's name must be at least 3 characters.",
             'username.regex' => 'Username must be 4-20 characters (letters, numbers, . _ -).',
             'password.min' => 'Password must be at least 8 characters.',
             'password.regex' => 'Password must include an uppercase letter and a number.',
@@ -215,9 +217,10 @@ class AgencyController extends Controller
                 'type' => $type,
                 'country' => $country,
                 'registration_no' => $foreign ? trim((string) $data['registrationNo']) : null,
-                'lawyer_name' => $foreign ? trim((string) $data['lawyerName']) : null,
-                'lawyer_id_no' => $foreign ? trim((string) $data['lawyerIdNo']) : null,
-                'lawyer_position' => $foreign ? trim((string) $data['lawyerPosition']) : null,
+                // Left empty here, the company fills them in on Company Details.
+                'lawyer_name' => $foreign ? (trim((string) ($data['lawyerName'] ?? '')) ?: null) : null,
+                'lawyer_id_no' => $foreign ? (trim((string) ($data['lawyerIdNo'] ?? '')) ?: null) : null,
+                'lawyer_position' => $foreign ? (trim((string) ($data['lawyerPosition'] ?? '')) ?: null) : null,
                 'username' => $data['username'],
                 'password_hash' => password_hash($plainPassword, PASSWORD_BCRYPT),
                 'contact' => $data['contact'],
@@ -334,7 +337,181 @@ class AgencyController extends Controller
 
         $verb = ['active' => 'activated', 'pending' => 'moved back to pending', 'deactivated' => 'deactivated'][$status];
 
-        return ApiResponse::ok($agency->toPublic(), $agency->name.' has been '.$verb.'.');
+        // An agency that registered itself has no login yet; approving it is
+        // what issues one, and emails it to the address it applied with.
+        $credentials = $status === 'active' ? $this->issueOwnerLogin($agency->fresh()) : null;
+
+        return ApiResponse::ok(
+            $agency->fresh()->toPublic() + ($credentials ? ['credentials' => $credentials] : []),
+            $agency->name.' has been '.$verb.($credentials ? '. Its login has been emailed.' : '.')
+        );
+    }
+
+    /**
+     * GET /agencies/foreign-options - the active foreign companies, by name.
+     *
+     * Read by anybody signed in, local agencies included: a candidate is
+     * registered for one of these, so whoever registers them sees the list.
+     */
+    public function foreignOptions()
+    {
+        $companies = Agency::where('type', 'foreign')
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'code', 'country']);
+
+        return ApiResponse::ok($companies->map(fn (Agency $company) => [
+            'id' => $company->id,
+            'name' => $company->name,
+            'code' => $company->code,
+            'country' => $company->country,
+        ])->values());
+    }
+
+    /**
+     * POST /auth/register - public.
+     *
+     * An agency applies for itself from the sign-in page: its details only,
+     * with no login. It is filed as pending, the same as one the admin
+     * creates, and the administrator issues the credentials on approving it.
+     */
+    public function register(Request $request)
+    {
+        $data = $request->all();
+        Validator::make($data, [
+            'name' => 'required|string|min:3|max:150',
+            'contact' => 'required|string|min:3|max:120',
+            'address' => 'required|string|min:8|max:255',
+            'type' => 'required|in:local,foreign',
+            'country' => 'required_if:type,foreign|nullable|string|max:80',
+            'registrationNo' => 'required_if:type,foreign|nullable|string|max:60',
+            'email' => ['required', 'email', 'max:190'],
+            'phone' => ['required', 'string', 'regex:/^[0-9+\s-]{9,20}$/'],
+        ], [
+            'name.min' => 'Name must be at least 3 characters.',
+            'contact.required' => 'A contact person is required.',
+            'contact.min' => 'Contact name must be at least 3 characters.',
+            'address.min' => 'Please provide the full address.',
+            'type.required' => 'Choose a local agency or a foreign company.',
+            'type.in' => 'Choose a local agency or a foreign company.',
+            'country.required_if' => 'Enter the country your company is based in.',
+            'registrationNo.required_if' => "Enter your company's registration number.",
+            'email.required' => 'An email address is required: the login is sent to it.',
+            'phone.required' => 'A phone number is required for sign-in codes.',
+            'phone.regex' => 'Enter a valid phone number.',
+        ])->validate();
+
+        $email = strtolower(trim($data['email']));
+        $conflicts = [];
+        if (User::emailExists($email) || Agency::whereRaw('LOWER(email) = ?', [$email])->exists()) {
+            $conflicts['email'] = 'That email address is already registered.';
+        }
+        if (User::phoneExists($data['phone'])) {
+            $conflicts['phone'] = 'That phone number is already registered.';
+        }
+        if ($conflicts) {
+            throw new ApiException(409, 'These details are already registered.', $conflicts);
+        }
+
+        $foreign = $data['type'] === 'foreign';
+        $sequence = AppCounter::next('agency');
+
+        $agency = Agency::create([
+            'id' => 'AG-'.$sequence,
+            'name' => trim($data['name']),
+            'code' => Credentials::generateAgencyCode($data['name'], $sequence),
+            'address' => trim($data['address']),
+            'type' => $data['type'],
+            'country' => $foreign ? trim((string) $data['country']) : 'Sri Lanka',
+            'registration_no' => $foreign ? trim((string) $data['registrationNo']) : null,
+            // No login until the administrator approves the application.
+            'username' => null,
+            'password_hash' => null,
+            'contact' => trim($data['contact']),
+            'email' => $email,
+            'phone' => trim($data['phone']),
+            'users' => 0,
+            'status' => 'pending',
+            'created_at' => now()->format('Y-m-d'),
+        ]);
+
+        return ApiResponse::created([
+            'reference' => $agency->code,
+            'name' => $agency->name,
+            'type' => $agency->type,
+            'email' => $agency->email,
+        ], 'Your registration has been received. The administrator will review it and email your login.');
+    }
+
+    /**
+     * A username nobody holds yet, from the agency's own code: SKY-1042
+     * becomes sky-1042, and a second one sky-1042-2.
+     */
+    private function freeUsername(Agency $agency): string
+    {
+        $base = strtolower(preg_replace('/[^a-zA-Z0-9._-]/', '', $agency->code)) ?: 'agency';
+        $base = substr($base, 0, 18);
+
+        $username = $base;
+        for ($i = 2; Agency::where('username', $username)->exists() || User::where('username', $username)->exists(); $i++) {
+            $username = substr($base, 0, 18 - strlen((string) $i)).'-'.$i;
+        }
+
+        return $username;
+    }
+
+    /**
+     * The owner login for an approved application: the agency applied without
+     * one, so it is issued here and emailed, the same details the create-agency
+     * screen shows.
+     *
+     * @return array{username: string, password: string, loginUrl: string, email: array}|null
+     */
+    private function issueOwnerLogin(Agency $agency): ?array
+    {
+        $hasOwner = User::where('agency_id', $agency->id)->where('role_slug', 'agency_owner')->exists();
+        if ($hasOwner) {
+            return null;
+        }
+
+        $username = $agency->username ?: $this->freeUsername($agency);
+        $plainPassword = Credentials::generatePassword();
+        $hash = password_hash($plainPassword, PASSWORD_BCRYPT);
+
+        DB::transaction(function () use ($agency, $username, $hash) {
+            $agency->username = $username;
+            $agency->password_hash = $hash;
+            $agency->users = 1;
+            $agency->save();
+
+            User::create([
+                'name' => $agency->contact,
+                'username' => $username,
+                'email' => strtolower(trim($agency->email)),
+                'phone' => trim((string) $agency->phone),
+                'password_hash' => $hash,
+                'role_slug' => 'agency_owner',
+                'agency_name' => $agency->name,
+                'agency_id' => $agency->id,
+                'status' => 'active',
+            ]);
+        });
+
+        $mail = EmailService::sendAgencyCredentials($agency->email, [
+            'agency' => $agency->name,
+            'code' => $agency->code,
+            'contact' => $agency->contact,
+            'username' => $username,
+            'password' => $plainPassword,
+            'loginUrl' => $this->loginUrl(),
+        ]);
+
+        return [
+            'username' => $username,
+            'password' => $plainPassword,
+            'loginUrl' => $this->loginUrl(),
+            'email' => ['to' => $agency->email, 'delivered' => (bool) $mail['delivered']],
+        ];
     }
 
     /** POST /agencies/:id/credentials/reset */

@@ -44,6 +44,8 @@ class CandidateFlowTest extends TestCase
     }
 
     /** Builds a token directly - the OTP flow is covered by its own test. */
+    private ?string $adminToken = null;
+
     private function tokenFor(string $roleSlug, ?string $agencyId, string $email): string
     {
         $user = User::create([
@@ -59,12 +61,20 @@ class CandidateFlowTest extends TestCase
         return Jwt::sign($user->toPublic());
     }
 
-    /** The agency's own switch; documents are attached only after it. */
+    /**
+     * The admin side's switch; documents are attached only after it. The
+     * agency whose token is handed in carries on working afterwards.
+     */
     private function markPassed(string $token, int $id): void
     {
-        $this->withToken($token)
+        // One admin account, however many candidates a test passes.
+        $this->adminToken ??= $this->tokenFor('main_admin', null, 'flow.admin@example.com');
+
+        $this->withToken($this->adminToken)
             ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
             ->assertOk();
+
+        $this->withToken($token);
     }
 
     private function payload(array $overrides = []): array

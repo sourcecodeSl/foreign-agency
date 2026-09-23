@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardHeader, CardBody, CardFooter } from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
+import DateInput from '../../components/ui/DateInput';
 import Button from '../../components/ui/Button';
 import { useToast } from '../../components/ui/Toast';
 import {
@@ -27,8 +28,7 @@ const EMPTY = {
   passportNo: '',
   passportExpiry: '',
   nicNo: '',
-  profession: '',
-  testResults: '',
+  companyAgencyId: '',
   jobRoleIds: [],
   testIndexNo: '',
   address: '',
@@ -67,9 +67,10 @@ function validate(values, forAgency) {
   else if (!nicBirthDate(values.nicNo))
     errors.nicNo = 'This NIC does not hold a valid date of birth. Check the number.';
 
-  if (!values.profession.trim()) errors.profession = 'Profession is required.';
-
   if (values.jobRoleIds.length === 0) errors.jobRoleIds = 'Choose at least one job category.';
+
+  // Whose test the candidate is registered for; the result is recorded there.
+  if (!values.companyAgencyId) errors.companyAgencyId = 'Choose the foreign company they are tested for.';
 
   // Optional, but kept to what a test sheet number looks like.
   if (values.testIndexNo.trim() && !/^[A-Za-z0-9/-]+$/.test(values.testIndexNo.trim()))
@@ -109,8 +110,17 @@ export default function RegisterCandidate() {
   const [touched, setTouched] = useState({});
   const [saving, setSaving] = useState(false);
   const [roles, setRoles] = useState([]);
+  const [companies, setCompanies] = useState([]);
   const [newRole, setNewRole] = useState(null); // null: the add field is closed
   const [roleBusy, setRoleBusy] = useState(false);
+
+  // The companies whose tests candidates are registered for.
+  useEffect(() => {
+    agencyApi
+      .foreignOptions()
+      .then(({ data }) => setCompanies(Array.isArray(data) ? data : []))
+      .catch((err) => toast(err.message || 'Could not load the foreign companies.', 'error'));
+  }, [toast]);
 
   // The same trades the skill tests are booked against.
   useEffect(() => {
@@ -407,10 +417,9 @@ export default function RegisterCandidate() {
             />
 
             <div>
-              <Input
+              <DateInput
                 label="Passport validity"
                 name="passportExpiry"
-                type="date"
                 required
                 value={values.passportExpiry}
                 onChange={handleChange}
@@ -462,6 +471,38 @@ export default function RegisterCandidate() {
               <p className="mt-1.5 text-xs text-gray-500">
                 Calculated automatically from the NIC number.
               </p>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label htmlFor="companyAgencyId" className="field-label">
+                Foreign company <span className="text-red-500">*</span>
+              </label>
+              <select
+                id="companyAgencyId"
+                name="companyAgencyId"
+                value={values.companyAgencyId}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                className={
+                  'field-input ' +
+                  (touched.companyAgencyId && errors.companyAgencyId ? 'field-input-error' : '')
+                }
+              >
+                <option value="">Select the company...</option>
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.name}
+                    {company.country ? ' - ' + company.country : ''}
+                  </option>
+                ))}
+              </select>
+              {touched.companyAgencyId && errors.companyAgencyId ? (
+                <p className="field-error">{errors.companyAgencyId}</p>
+              ) : (
+                <p className="mt-1.5 text-xs text-gray-500">
+                  Whose test this candidate sits. The company records the result later, from its own list.
+                </p>
+              )}
             </div>
 
             <fieldset
@@ -571,18 +612,6 @@ export default function RegisterCandidate() {
             </fieldset>
 
             <Input
-              label="Profession"
-              name="profession"
-              required
-              placeholder="Tile layer"
-              value={values.profession}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              error={errors.profession}
-              hint={!errors.profession ? 'What the candidate works as today.' : undefined}
-            />
-
-            <Input
               label="Test index No"
               name="testIndexNo"
               placeholder="TI-2026-0148"
@@ -591,23 +620,6 @@ export default function RegisterCandidate() {
               onBlur={handleBlur}
               error={errors.testIndexNo}
               hint={!errors.testIndexNo ? 'Optional. The number on the test sheet.' : undefined}
-            />
-
-            <Input
-              label="Test results"
-              name="testResults"
-              placeholder="NVQ Level 3 - Pass"
-              maxLength={255}
-              value={values.testResults}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              error={errors.testResults}
-              hint={
-                !errors.testResults
-                  ? 'Optional. Trade test or certificate results already held.'
-                  : undefined
-              }
-              className="sm:col-span-2"
             />
 
             <div className="sm:col-span-2">

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardHeader } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
+import Pagination, { usePaged } from '../../components/ui/Pagination';
 import Badge from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import { IconDocument } from '../../components/ui/Icons';
@@ -203,6 +204,7 @@ function Sent({ companies, localAgencies, version }) {
   const [company, setCompany] = useState('all');
   const [local, setLocal] = useState('all');
   const [agreements, setAgreements] = useState(null);
+  const { paged, total, pages, page, pageSize, setPage, setPageSize } = usePaged(agreements || []);
 
   useEffect(() => {
     let live = true;
@@ -246,46 +248,57 @@ function Sent({ companies, localAgencies, version }) {
       ) : agreements.length === 0 ? (
         <p className="py-4 text-sm text-gray-500">Nothing sent for this choice yet.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[40rem] text-left text-sm">
-            <thead className="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="py-2 pr-4 font-medium">Document</th>
-                <th className="py-2 pr-4 font-medium">Foreign company</th>
-                <th className="py-2 pr-4 font-medium">Local agency</th>
-                <th className="py-2 pr-4 font-medium">Candidate</th>
-                <th className="py-2 pr-4 font-medium">Received</th>
-                <th className="py-2 pr-4 font-medium">Sent</th>
-                <th className="py-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {agreements.map((a) => (
-                <tr key={a.id}>
-                  <td className="py-2.5 pr-4 font-medium text-gray-900">{a.title}</td>
-                  <td className="py-2.5 pr-4 text-gray-700">{a.agencyName}</td>
-                  <td className="py-2.5 pr-4 text-gray-700">{a.localAgencyName}</td>
-                  <td className="py-2.5 pr-4 text-gray-700">
-                    {a.candidateName || <span className="text-gray-400">Not assigned yet</span>}
-                  </td>
-                  <td className="py-2.5 pr-4 text-gray-500">{formatDate(a.sentToAdminAt)}</td>
-                  <td className="py-2.5 pr-4 text-gray-500">{formatDate(a.sentToAgencyAt)}</td>
-                  <td className="whitespace-nowrap py-2.5 text-right">
-                    <Button size="sm" variant="ghost" onClick={() => openAgreementPdf(a.id)}>
-                      View PDF
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => downloadAgreementPdf(a.id)}>
-                      Download
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => navigate('/agreements/' + a.id)}>
-                      Open
-                    </Button>
-                  </td>
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[40rem] text-left text-sm">
+              <thead className="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="py-2 pr-4 font-medium">Document</th>
+                  <th className="py-2 pr-4 font-medium">Foreign company</th>
+                  <th className="py-2 pr-4 font-medium">Local agency</th>
+                  <th className="py-2 pr-4 font-medium">Candidate</th>
+                  <th className="py-2 pr-4 font-medium">Received</th>
+                  <th className="py-2 pr-4 font-medium">Sent</th>
+                  <th className="py-2" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {paged.map((a) => (
+                  <tr key={a.id}>
+                    <td className="py-2.5 pr-4 font-medium text-gray-900">{a.title}</td>
+                    <td className="py-2.5 pr-4 text-gray-700">{a.agencyName}</td>
+                    <td className="py-2.5 pr-4 text-gray-700">{a.localAgencyName}</td>
+                    <td className="py-2.5 pr-4 text-gray-700">
+                      {a.candidateName || <span className="text-gray-400">Not assigned yet</span>}
+                    </td>
+                    <td className="py-2.5 pr-4 text-gray-500">{formatDate(a.sentToAdminAt)}</td>
+                    <td className="py-2.5 pr-4 text-gray-500">{formatDate(a.sentToAgencyAt)}</td>
+                    <td className="whitespace-nowrap py-2.5 text-right">
+                      <Button size="sm" variant="ghost" onClick={() => openAgreementPdf(a.id)}>
+                        View PDF
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => downloadAgreementPdf(a.id)}>
+                        Download
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => navigate('/agreements/' + a.id)}>
+                        Open
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            page={page}
+            pages={pages}
+            pageSize={pageSize}
+            total={total}
+            onPage={setPage}
+            onPageSize={setPageSize}
+            label="agreements"
+          />
+        </>
       )}
     </div>
   );
@@ -328,10 +341,22 @@ export default function ForeignCompanyInbox() {
         subtitle="Documents foreign companies have sent. Select them and a local agency to send them on."
       />
       <div role="tablist" className="flex gap-6 border-b border-gray-200 px-5 pt-3">
-        <button type="button" role="tab" aria-selected={tab === 'received'} className={tabClass('received')} onClick={() => setTab('received')}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'received'}
+          className={tabClass('received')}
+          onClick={() => setTab('received')}
+        >
           Received {waiting > 0 && <Badge tone="amber">{waiting}</Badge>}
         </button>
-        <button type="button" role="tab" aria-selected={tab === 'sent'} className={tabClass('sent')} onClick={() => setTab('sent')}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'sent'}
+          className={tabClass('sent')}
+          onClick={() => setTab('sent')}
+        >
           Sent to local agencies
         </button>
       </div>

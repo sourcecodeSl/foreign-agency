@@ -1,0 +1,126 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
+import { ToastProvider } from '../components/ui/Toast';
+import CompanyCandidates from '../pages/candidates/CompanyCandidates';
+
+const list = vi.fn();
+const recordTestResult = vi.fn();
+const foreignOptions = vi.fn();
+
+vi.mock('../lib/api', () => ({
+  candidateApi: {
+    list: (...args) => list(...args),
+    recordTestResult: (...args) => recordTestResult(...args),
+  },
+  agencyApi: { foreignOptions: (...args) => foreignOptions(...args) },
+}));
+
+// Signed in as the foreign company itself.
+let account = { roleSlug: 'agency_owner', agency: { id: 'AG-9100', name: 'Herzl', type: 'foreign' } };
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({ admin: account }),
+  isGlobalRole: (slug) => ['main_admin', 'auditor', 'coordinator'].includes(slug),
+}));
+
+vi.mock('../lib/alert', async (importOriginal) => ({
+  ...(await importOriginal()),
+  alertError: vi.fn(),
+}));
+
+const CANDIDATE = {
+  id: 7,
+  name: 'Kamal Perera',
+  agencyId: 'AG-9001',
+  agencyName: 'Solidrow',
+  passportNo: 'N7788990',
+  createdAt: '2026-09-20',
+  jobRoles: [
+    { id: 1, name: 'Tiler' },
+    { id: 2, name: 'Mason' },
+  ],
+  testResult: null,
+};
+
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={['/candidates']}>
+      <ToastProvider>
+        <CompanyCandidates />
+      </ToastProvider>
+    </MemoryRouter>
+  );
+}
+
+describe("a foreign company's own candidates", () => {
+  beforeEach(() => {
+    account = { roleSlug: 'agency_owner', agency: { id: 'AG-9100', name: 'Herzl', type: 'foreign' } };
+    list.mockReset().mockResolvedValue({ data: [CANDIDATE] });
+    recordTestResult.mockReset().mockResolvedValue({ message: 'Kamal Perera passed as Mason.' });
+    foreignOptions.mockReset().mockResolvedValue({ data: [] });
+  });
+
+  it('lists who a local agency registered for it, naming that agency', async () => {
+    renderPage();
+
+    // Its own list: the company is not asked which company to read.
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ companyAgencyId: undefined, agencyId: 'all' }));
+    expect(screen.queryByLabelText('Foreign company')).toBeNull();
+
+    const row = (await screen.findByText('Kamal Perera')).closest('tr');
+    expect(within(row).getByText('Solidrow')).toBeTruthy();
+    expect(within(row).getByText('Tiler, Mason')).toBeTruthy();
+    expect(within(row).getByText('No result yet')).toBeTruthy();
+  });
+
+  it('records a pass against the trade it was sat in', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: /record result/i }));
+
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByLabelText(/^passed/i));
+    await user.selectOptions(within(dialog).getByLabelText(/job category passed/i), '2');
+    // The test sheet's own wording is the company's to write, not the agency's.
+    await user.type(within(dialog).getByLabelText(/test results/i), 'NVQ Level 3 - Pass');
+    await user.click(within(dialog).getByRole('button', { name: /save result/i }));
+
+    await waitFor(() =>
+      expect(recordTestResult).toHaveBeenCalledWith(7, {
+        result: 'pass',
+        jobRoleId: 2,
+        note: undefined,
+        testResults: 'NVQ Level 3 - Pass',
+      })
+    );
+    // The list is read again, so the new result shows.
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  });
+
+  it('narrows the list to one agency', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Kamal Perera');
+    await user.selectOptions(screen.getByLabelText('Agency'), 'AG-9001');
+
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith({ companyAgencyId: undefined, agencyId: 'AG-9001' })
+    );
+  });
+
+  it('makes the admin pick a company first', async () => {
+    account = { roleSlug: 'main_admin' };
+    foreignOptions.mockResolvedValue({ data: [{ id: 'AG-9100', name: 'Herzl Construction' }] });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText(/pick a company/i)).toBeTruthy();
+    expect(list).not.toHaveBeenCalled();
+
+    await user.selectOptions(screen.getByLabelText('Foreign company'), 'AG-9100');
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ companyAgencyId: 'AG-9100', agencyId: 'all' }));
+  });
+});

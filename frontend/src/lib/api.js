@@ -137,9 +137,19 @@ const ok = (data, message) => ({ success: true, data, message });
 // --- Auth -------------------------------------------------------------------
 export const authApi = {
   /*
-   * There is deliberately no register(): accounts are never self-created.
-   * The admin is seeded and agency logins are issued from the admin panel.
+   * register() files an application only - an agency's own details, with no
+   * login. The admin is seeded, and every agency login is still issued from
+   * the admin panel, on approving the application.
    */
+  async register(payload) {
+    if (!USE_MOCK) return request('/auth/register', { method: 'POST', body: payload });
+    await delay(700);
+    return ok(
+      { reference: 'REG-' + Date.now(), name: payload.name, type: payload.type, email: payload.email },
+      'Your registration has been received.'
+    );
+  },
+
   async login({ username, password, remember }) {
     if (!USE_MOCK)
       return request('/auth/login', { method: 'POST', body: { username, password, remember } });
@@ -303,6 +313,12 @@ export const authApi = {
 
 // --- Agencies ---------------------------------------------------------------
 export const agencyApi = {
+  /** The active foreign companies, for whoever is registering a candidate. */
+  async foreignOptions() {
+    requireLiveApi();
+    return request('/agencies/foreign-options');
+  },
+
   async list({ status = 'all', search = '', type = 'all' } = {}) {
     if (!USE_MOCK) {
       return request(
@@ -539,12 +555,49 @@ export const jobRoleApi = {
   },
 };
 
+// --- Countries --------------------------------------------------------------
+/**
+ * The countries a foreign company may be registered in. The list is read by
+ * anybody, signed in or not - an agency registering itself picks its country
+ * before it has a login. Live API only.
+ */
+export const countryApi = {
+  async list() {
+    requireLiveApi();
+    return request('/countries');
+  },
+
+  /** Main Admin and coordinators only. One removed earlier comes back. */
+  async create(name) {
+    requireLiveApi();
+    return request('/countries', { method: 'POST', body: { name } });
+  },
+
+  /** Takes it off the list; companies registered in it keep it. */
+  async remove(id) {
+    requireLiveApi();
+    return request('/countries/' + id, { method: 'DELETE' });
+  },
+};
+
 // --- Foreign companies ------------------------------------------------------
 /** The overseas employers a candidate is tested for. A coordinator sees their own. Live API only. */
 export const companyApi = {
   async list({ status = 'all' } = {}) {
     requireLiveApi();
     return request('/companies?status=' + status);
+  },
+
+  /** The active companies to pick from, agencies included. */
+  async options() {
+    requireLiveApi();
+    return request('/companies/options');
+  },
+
+  /** Everyone registered for one company's test, however it went. */
+  async registeredCandidates(id) {
+    requireLiveApi();
+    return request('/companies/' + id + '/registered-candidates');
   },
 };
 
@@ -813,7 +866,7 @@ export const candidateApi = {
    * An agency login is scoped to itself and ignores agencyId. A cross-agency
    * role has to name one, and gets an empty list until it does.
    */
-  async list({ search = '', status = 'all', agencyId = '', poolStatus = 'all' } = {}) {
+  async list({ search = '', status = 'all', agencyId = '', poolStatus = 'all', companyAgencyId = '' } = {}) {
     requireLiveApi();
     return request(
       '/candidates?search=' +
@@ -823,8 +876,24 @@ export const candidateApi = {
         '&poolStatus=' +
         poolStatus +
         '&agencyId=' +
-        encodeURIComponent(agencyId),
+        encodeURIComponent(agencyId) +
+        // Set by the admin side to read one foreign company's candidates; a
+        // company login is already scoped to its own.
+        (companyAgencyId ? '&companyAgencyId=' + encodeURIComponent(companyAgencyId) : ''),
     );
+  },
+
+  /**
+   * How the candidate's test went, recorded by the foreign company they were
+   * registered for, or by the admin side. A pass names the job category,
+   * which becomes their profession.
+   */
+  async recordTestResult(id, { result, jobRoleId, note, testResults } = {}) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/test-result', {
+      method: 'PATCH',
+      body: { result, jobRoleId, note, testResults },
+    });
   },
 
   /** Soft delete: the record goes, the uploaded files are kept. */
@@ -1132,25 +1201,6 @@ export const agreementApi = {
       throw new Error(payload?.message || 'Could not open the PDF.');
     }
     return URL.createObjectURL(await res.blob());
-  },
-
-  /** The admin side's blank agreements, which a foreign company downloads. */
-  async blankTemplates() {
-    requireLiveApi();
-    return request('/agreement-templates/blank');
-  },
-
-  /** One blank agreement's PDF, as a blob. */
-  async blankTemplateBlob(id) {
-    requireLiveApi();
-    const res = await fetch(BASE_URL + '/agreement-templates/blank/' + id + '/file', {
-      headers: { Authorization: 'Bearer ' + tokenStore.get() },
-    });
-    if (!res.ok) {
-      const payload = await res.json().catch(() => null);
-      throw new Error(payload?.message || 'Could not download the PDF.');
-    }
-    return res.blob();
   },
 
   async removeTemplate(id) {

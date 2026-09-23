@@ -21,6 +21,23 @@ class CandidateDocumentHistoryTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * The pass is the admin side's switch, so fixtures flip it as the admin
+     * and hand the request back to whoever was signed in before.
+     */
+    private function adminPass(int $id): void
+    {
+        $headers = $this->defaultHeaders;
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken(Jwt::sign(User::where('role_slug', 'main_admin')->firstOrFail()->toPublic()))
+            ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
+            ->assertOk();
+
+        $this->defaultHeaders = $headers;
+        $this->app['auth']->forgetGuards();
+    }
+
     private string $token;
 
     protected function setUp(): void
@@ -66,10 +83,10 @@ class CandidateDocumentHistoryTest extends TestCase
             'email' => 'kamal@example.com',
         ])->assertCreated()->json('data.candidate.id');
 
-        // Documents are attached once the candidate has passed.
-        $this->withToken($this->token)
-            ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
-            ->assertOk();
+        // Documents are attached once the candidate has passed, which the
+        // admin side records.
+        $this->adminPass($id);
+        $this->withToken($this->token);
 
         return $id;
     }

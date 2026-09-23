@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { roleLabel } from '../../lib/access';
 import NotificationBell from './NotificationBell';
 import { IconMenu, IconSearch, IconChevronDown, IconLogout } from '../ui/Icons';
 
@@ -74,7 +75,7 @@ export default function Topbar({ onMenuClick, title, subtitle }) {
                 {admin?.name || 'Main Admin'}
               </span>
               <span className="block text-xs leading-tight text-gray-500">
-                {admin?.role || 'Super Administrator'}
+                {roleLabel(admin) || 'Super Administrator'}
               </span>
             </span>
             <IconChevronDown className="h-4 w-4 text-gray-400" />

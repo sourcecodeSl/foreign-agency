@@ -89,6 +89,21 @@ class Candidate extends Model
         return $this->belongsTo(ForeignCompany::class, 'locked_company_id');
     }
 
+    /**
+     * The foreign company this candidate was registered to be tested for:
+     * an agency of type foreign, which signs in and reads its own list.
+     */
+    public function companyAgency(): BelongsTo
+    {
+        return $this->belongsTo(Agency::class, 'company_agency_id');
+    }
+
+    /** The trade a recorded pass was sat in. */
+    public function testResultRole(): BelongsTo
+    {
+        return $this->belongsTo(JobRole::class, 'test_result_role_id');
+    }
+
     /** The trade this candidate was first registered for. */
     public function jobRole(): BelongsTo
     {
@@ -420,6 +435,19 @@ class Candidate extends Model
             // Where the candidate stands in the testing pool, and the foreign
             // agency that holds them once they have passed.
             'poolStatus' => $this->pool_status ?? 'pool',
+            // Chosen when the candidate was registered: whose test they are
+            // waiting for, and how that company said it went.
+            'company' => $this->company_agency_id ? [
+                'id' => $this->company_agency_id,
+                'name' => $this->companyAgency?->name,
+                'code' => $this->companyAgency?->code,
+            ] : null,
+            'testResult' => $this->test_result ? [
+                'result' => $this->test_result,
+                'jobRole' => $this->testResultRole?->name,
+                'note' => $this->test_result_note,
+                'recordedAt' => $this->test_result_at,
+            ] : null,
             'lockedCompany' => $this->locked_company_id ? [
                 'id' => (int) $this->locked_company_id,
                 'name' => $this->lockedCompany?->name,

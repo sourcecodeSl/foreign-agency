@@ -20,6 +20,23 @@ class CandidateReRegisterTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * The pass is the admin side's switch, so fixtures flip it as the admin
+     * and hand the request back to whoever was signed in before.
+     */
+    private function adminPass(int $id): void
+    {
+        $headers = $this->defaultHeaders;
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken(Jwt::sign(User::where('role_slug', 'main_admin')->firstOrFail()->toPublic()))
+            ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
+            ->assertOk();
+
+        $this->defaultHeaders = $headers;
+        $this->app['auth']->forgetGuards();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -67,7 +84,7 @@ class CandidateReRegisterTest extends TestCase
         Storage::fake('local');
 
         $first = $this->register()->assertCreated()->json('data.candidate');
-        $this->patchJson('/api/v1/candidates/'.$first['id'].'/pass', ['passed' => true])->assertOk();
+        $this->adminPass($first['id']);
 
         $this->postJson('/api/v1/candidates/'.$first['id'].'/documents', [
             'type' => 'medical',

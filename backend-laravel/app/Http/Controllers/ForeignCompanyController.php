@@ -84,6 +84,57 @@ class ForeignCompanyController extends Controller
     }
 
     /** GET /companies?status=&search= */
+    /**
+     * GET /companies/options - the active companies, by name.
+     *
+     * Read by anybody signed in, agencies included: a candidate is registered
+     * for one of these, so the agency registering them has to see the list.
+     * A coordinator is offered the companies they manage.
+     */
+    public function options(Request $request)
+    {
+        $scope = $this->scopeCoordinatorId($request);
+
+        $companies = ForeignCompany::where('status', 'active')
+            ->when($scope !== null, fn ($q) => $q->where('coordinator_id', $scope))
+            ->orderBy('name')
+            ->get(['id', 'name', 'code', 'country', 'city']);
+
+        return ApiResponse::ok($companies->map(fn (ForeignCompany $company) => [
+            'id' => (int) $company->id,
+            'name' => $company->name,
+            'code' => $company->code,
+            'country' => $company->country,
+            'city' => $company->city,
+        ])->values());
+    }
+
+    /**
+     * GET /companies/{id}/registered-candidates - everyone registered for this
+     * company's test, whatever has come of it, each with the agency that
+     * registered them.
+     */
+    public function registeredCandidates(Request $request, string $id)
+    {
+        $this->requireReader($request);
+        $company = $this->find($request, $id);
+
+        $candidates = Candidate::where('company_id', $company->id)
+            ->with(['documents', 'jobRole', 'jobRoles', 'company', 'lockedCompany', 'tests.company', 'tests.role'])
+            ->orderByDesc('id')
+            ->get();
+
+        Candidate::resolveBlocks($candidates);
+
+        // Each row names the agency it came from, in one query for the page.
+        $agencyNames = \App\Models\Agency::whereIn('id', $candidates->pluck('agency_id')->unique())
+            ->pluck('name', 'id');
+
+        return ApiResponse::ok($candidates->map(fn (Candidate $candidate) => $candidate->toPublic(true) + [
+            'agencyName' => $agencyNames[$candidate->agency_id] ?? null,
+        ])->values());
+    }
+
     public function index(Request $request)
     {
         $this->requireReader($request);

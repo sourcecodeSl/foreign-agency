@@ -67,15 +67,22 @@ export default function Login() {
       title="Sign in to your account"
       subtitle="Enter the username and password issued to you."
       footer={
-        <p>
-          Accounts are issued by the administrator.{' '}
-          <a
-            href="mailto:support@agency.local"
-            className="font-medium text-primary-600 hover:text-primary-700"
-          >
-            Contact support
-          </a>
-        </p>
+        <div className="space-y-1">
+          <p>
+            No account yet?{' '}
+            <Link to="/register" className="font-medium text-primary-600 hover:text-primary-700">
+              Register your agency or company
+            </Link>
+          </p>
+          <p>
+            <a
+              href="mailto:support@agency.local"
+              className="font-medium text-primary-600 hover:text-primary-700"
+            >
+              Contact support
+            </a>
+          </p>
+        </div>
       }
     >
       <form onSubmit={handleSubmit} noValidate className="space-y-5">

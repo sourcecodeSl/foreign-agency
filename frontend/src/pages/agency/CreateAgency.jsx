@@ -11,6 +11,7 @@ import {
   IconUsers,
   IconMail,
 } from '../../components/ui/Icons';
+import CountrySelect from '../../components/ui/CountrySelect';
 import { agencyApi } from '../../lib/api';
 
 const EMPTY = {
@@ -48,18 +49,14 @@ function validate(values) {
     errors.name = foreign ? 'Company name is required.' : 'Agency name is required.';
   else if (values.name.trim().length < 3) errors.name = 'Name must be at least 3 characters.';
 
-  // What a foreign company files: its registration number and its lawyer.
+  // What a foreign company files: its registration number. The lawyer is
+  // the company's own to add later, on Company Details.
   if (foreign) {
     if (!values.registrationNo.trim())
       errors.registrationNo = "Enter the company's registration number.";
 
-    if (!values.lawyerName.trim()) errors.lawyerName = "Enter the company lawyer's name.";
-    else if (values.lawyerName.trim().length < 3)
+    if (values.lawyerName.trim() && values.lawyerName.trim().length < 3)
       errors.lawyerName = 'Name must be at least 3 characters.';
-
-    if (!values.lawyerIdNo.trim()) errors.lawyerIdNo = "Enter the company lawyer's ID number.";
-    if (!values.lawyerPosition.trim())
-      errors.lawyerPosition = "Enter the company lawyer's position.";
   }
 
   if (!values.contact.trim()) errors.contact = 'Contact person is required.';
@@ -252,18 +249,19 @@ export default function CreateAgency() {
               </fieldset>
 
               {values.type === 'foreign' && (
-                <Input
-                  label="Country"
-                  name="country"
-                  required
-                  placeholder="e.g. Israel"
-                  value={values.country}
-                  onChange={handleChange}
-                  onBlur={handleBlur}
-                  error={errors.country}
-                  className="sm:col-span-2"
-                  hint={!errors.country ? 'Where the company is based.' : undefined}
-                />
+                <div className="sm:col-span-2">
+                  {/* The same list the registration screen offers, kept here. */}
+                  <CountrySelect
+                    manage
+                    value={values.country}
+                    onChange={(country) => {
+                      setValues((v) => ({ ...v, country }));
+                      setErrors((prev) => ({ ...prev, country: undefined }));
+                    }}
+                    error={touched.country ? errors.country : undefined}
+                    hint="Where the company is based. Add or remove what this list offers."
+                  />
+                </div>
               )}
 
               <Input
@@ -302,13 +300,16 @@ export default function CreateAgency() {
               {foreign && (
                 <fieldset className="grid gap-5 rounded-lg border border-gray-200 p-4 sm:col-span-2 sm:grid-cols-3">
                   <legend className="px-1 text-sm font-semibold text-gray-900">
-                    Company lawyer
+                    Company lawyer <span className="font-normal text-gray-500">(optional)</span>
                   </legend>
+                  <p className="text-xs text-gray-500 sm:col-span-3">
+                    Leave these empty and the company fills them in itself on Company Details, as it does its
+                    seal and signature. They are needed before it can send an agreement.
+                  </p>
 
                   <Input
                     label="Lawyer name"
                     name="lawyerName"
-                    required
                     placeholder="e.g. Ruth Levin"
                     value={values.lawyerName}
                     onChange={handleChange}
@@ -320,7 +321,6 @@ export default function CreateAgency() {
                   <Input
                     label="Lawyer ID No"
                     name="lawyerIdNo"
-                    required
                     placeholder="e.g. 038512477"
                     value={values.lawyerIdNo}
                     onChange={handleChange}
@@ -331,7 +331,6 @@ export default function CreateAgency() {
                   <Input
                     label="Position"
                     name="lawyerPosition"
-                    required
                     placeholder="e.g. Company Secretary"
                     value={values.lawyerPosition}
                     onChange={handleChange}

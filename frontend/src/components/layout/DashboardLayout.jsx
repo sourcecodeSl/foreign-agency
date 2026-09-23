@@ -11,6 +11,7 @@ const PAGE_META = [
   { match: /^\/agreements\/\d+/, title: 'Employment Agreement', subtitle: 'The employer part in English, Hebrew and Sinhala' },
   { match: /^\/agreements/, title: 'Employment Agreements', subtitle: 'Agreements from foreign companies, in English, Hebrew and Sinhala' },
   { match: /^\/agency\/profile/, title: 'Agency Details', subtitle: 'Your agency details and the phone and email used to sign in' },
+  { match: /^\/companies\/candidates/, title: 'Company Candidates', subtitle: "Candidates registered for a foreign company's test, and their results" },
   { match: /^\/agencies\/create/, title: 'Create Agency', subtitle: 'Register a local or foreign company and issue its login' },
   { match: /^\/agencies/, title: 'Agency Management', subtitle: 'Review pending, active and deactivated agencies' },
   { match: /^\/candidates\/all/, title: 'Candidate List', subtitle: 'Every candidate across all agencies, and where each one stands' },

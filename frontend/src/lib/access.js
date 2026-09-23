@@ -12,6 +12,7 @@ export const PAGE_PATHS = {
   agencies: '/agencies',
   'agencies.create': '/agencies/create',
   candidates: '/candidates',
+  companies: '/companies/candidates',
   agreements: '/agreements',
   verification: '/verification/emails',
 };
@@ -23,6 +24,16 @@ export const PAGE_PATHS = {
 export function canOpen(account, page) {
   if (account?.roleSlug !== COORDINATOR) return true;
   return Boolean(page) && (account.pages || []).includes(page);
+}
+
+/**
+ * What the signed-in account is called on screen. A foreign company's owner
+ * reads as the company it is, not as an agency owner.
+ */
+export function roleLabel(account) {
+  if (account?.agency?.type === 'foreign') return 'Foreign Company';
+
+  return account?.role || null;
 }
 
 /** Where a coordinator lands: the first page opened to them, if any. */

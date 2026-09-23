@@ -10,6 +10,7 @@ const listRoles = vi.hoisted(() => vi.fn());
 const listAgencies = vi.hoisted(() => vi.fn());
 const createRole = vi.hoisted(() => vi.fn());
 const removeRole = vi.hoisted(() => vi.fn());
+const listCompanies = vi.hoisted(() => vi.fn());
 
 vi.mock('../lib/api', () => ({
   candidateApi: { create: (...args) => createCandidate(...args) },
@@ -18,7 +19,10 @@ vi.mock('../lib/api', () => ({
     create: (...args) => createRole(...args),
     remove: (...args) => removeRole(...args),
   },
-  agencyApi: { list: (...args) => listAgencies(...args) },
+  agencyApi: {
+    list: (...args) => listAgencies(...args),
+    foreignOptions: (...args) => listCompanies(...args),
+  },
 }));
 
 let roleSlug = 'agency_owner';
@@ -43,11 +47,11 @@ async function fillBasics(user, { nic = '901234567V' } = {}) {
   await user.type(screen.getByLabelText(/last name/i), 'Perera');
   await user.type(screen.getByLabelText(/father's name/i), 'Sunil Perera');
   await user.type(screen.getByLabelText(/passport number/i), 'N7788990');
-  await user.type(screen.getByLabelText(/passport validity/i), '2031-05-01');
+  await user.type(screen.getByLabelText(/passport validity/i), '01/05/2031');
   if (nic) await user.type(screen.getByLabelText(/nic number/i), nic);
-  await user.type(screen.getByLabelText(/profession/i), 'Tile layer');
   await user.type(screen.getByLabelText(/address/i), '12 Temple Road, Negombo');
   await user.type(screen.getByLabelText(/mobile number/i), '0771234567');
+  await user.selectOptions(await screen.findByLabelText(/foreign company/i), 'AG-9100');
 }
 
 describe('registering a candidate', () => {
@@ -60,6 +64,12 @@ describe('registering a candidate', () => {
       ],
     });
     createCandidate.mockReset().mockResolvedValue({ data: { candidate: { id: 7 } } });
+    listCompanies.mockReset().mockResolvedValue({
+      data: [
+        { id: 'AG-9100', name: 'Herzl Construction', country: 'Israel' },
+        { id: 'AG-9101', name: 'Negev Builders', country: 'Israel' },
+      ],
+    });
     listRoles.mockReset().mockResolvedValue({
       data: [
         { id: 1, name: 'Tiler' },
@@ -87,12 +97,16 @@ describe('registering a candidate', () => {
       lastName: 'Perera',
       fatherName: 'Sunil Perera',
       passportExpiry: '2031-05-01',
-      profession: 'Tile layer',
       passportNo: 'N7788990',
       nicNo: '901234567V',
       jobRoleIds: [1, 2],
       testIndexNo: 'TI-2026-0148',
+      // Whose test they sit; the company records the result on its own list.
+      companyAgencyId: 'AG-9100',
     });
+    // The profession is not typed in: passing a test sets it.
+    expect(screen.queryByLabelText(/profession/i)).toBeNull();
+    expect(createCandidate.mock.calls[0][0].profession).toBeUndefined();
     // An agency files under itself, so no agency is sent or asked for.
     expect(createCandidate.mock.calls[0][0]).not.toHaveProperty('agencyId');
     expect(screen.queryByLabelText(/^agency/i)).toBeNull();

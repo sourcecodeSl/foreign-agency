@@ -117,7 +117,7 @@ class CandidatePassFlowTest extends TestCase
         ]);
     }
 
-    public function test_documents_open_only_once_the_agency_switches_the_pass_on(): void
+    public function test_documents_open_only_once_the_pass_is_switched_on(): void
     {
         $id = $this->register($this->alpha)->assertCreated()
             ->assertJsonPath('data.candidate.poolStatus', 'pool')
@@ -128,7 +128,7 @@ class CandidatePassFlowTest extends TestCase
             ->assertStatus(409)
             ->assertJsonPath('message', 'Documents are attached only after the candidate has passed. Mark Kamal Perera as passed first.');
 
-        $this->pass($this->alpha, $id)->assertOk()
+        $this->pass($this->admin, $id)->assertOk()
             ->assertJsonPath('data.poolStatus', 'passed')
             ->assertJsonPath('data.documentsOpen', true);
         $this->assertNotNull(Candidate::find($id)->passed_at);
@@ -136,22 +136,26 @@ class CandidatePassFlowTest extends TestCase
         $this->upload($this->alpha, $id)->assertCreated();
 
         // Switched off again, the file closes to documents once more.
-        $this->pass($this->alpha, $id, false)->assertOk()
+        $this->pass($this->admin, $id, false)->assertOk()
             ->assertJsonPath('data.poolStatus', 'pool')
             ->assertJsonPath('data.documentsOpen', false);
         $this->upload($this->alpha, $id)->assertStatus(409);
     }
 
-    public function test_the_pass_is_the_agencys_switch_alone(): void
+    public function test_the_pass_is_not_the_agencys_to_switch(): void
     {
         $id = $this->register($this->alpha)->assertCreated()->json('data.candidate.id');
 
-        $this->pass($this->admin, $id)->assertStatus(403);
-        $this->pass($this->coordinator, $id)->assertStatus(403);
+        // The agency registers the candidate; it does not test them.
+        $this->pass($this->alpha, $id)->assertStatus(403);
         // Another agency cannot even see the file.
         $this->pass($this->beta, $id)->assertStatus(403);
-
         $this->assertSame('pool', Candidate::find($id)->pool_status);
+
+        // The admin side records it. A coordinator is held by the permission
+        // matrix, which is what decides who may edit a candidate at all.
+        $this->pass($this->coordinator, $id)->assertStatus(403);
+        $this->pass($this->admin, $id)->assertOk()->assertJsonPath('data.poolStatus', 'passed');
     }
 
     public function test_someone_not_yet_passed_may_register_with_another_agency(): void
@@ -165,7 +169,7 @@ class CandidatePassFlowTest extends TestCase
     public function test_a_passed_candidate_cannot_register_with_another_agency(): void
     {
         $id = $this->register($this->alpha)->assertCreated()->json('data.candidate.id');
-        $this->pass($this->alpha, $id)->assertOk();
+        $this->pass($this->admin, $id)->assertOk();
 
         $message = 'The candidate with NIC 901234567V has already passed with another agency, '
             .'so they cannot be registered with another agency.';
@@ -206,7 +210,7 @@ class CandidatePassFlowTest extends TestCase
         // Beta registered first, so Beta's file was there before the pass.
         $this->as($this->beta)->getJson('/api/v1/candidates/'.$betaId)->assertJsonPath('data.blocked', false);
 
-        $this->pass($this->alpha, $alphaId)
+        $this->pass($this->admin, $alphaId)
             ->assertOk()
             ->assertJsonPath('message', 'Kamal Perera is marked as passed. You can now attach the documents. '
                 .'Their file at 1 other agency is now blocked.');
@@ -225,7 +229,7 @@ class CandidatePassFlowTest extends TestCase
 
         // Nothing more happens to a blocked file: no pass, no documents, no edits.
         $blocked = 'Kamal Perera has already passed with another agency, so this file is blocked.';
-        $this->pass($this->beta, $betaId)
+        $this->pass($this->admin, $betaId)
             ->assertStatus(409)
             ->assertJsonPath('message', 'Kamal Perera has already passed with another agency, so they cannot be passed here.');
         $this->upload($this->beta, $betaId)->assertStatus(409)->assertJsonPath('message', $blocked);
@@ -233,15 +237,15 @@ class CandidatePassFlowTest extends TestCase
             ->assertStatus(409)->assertJsonPath('message', $blocked);
 
         // Once Alpha lets the person go, Beta's file opens again.
-        $this->pass($this->alpha, $alphaId, false)->assertOk();
+        $this->pass($this->admin, $alphaId, false)->assertOk();
         $this->as($this->beta)->getJson('/api/v1/candidates/'.$betaId)->assertJsonPath('data.blocked', false);
-        $this->pass($this->beta, $betaId)->assertOk();
+        $this->pass($this->admin, $betaId)->assertOk();
     }
 
     public function test_a_file_cannot_be_edited_into_someone_passed_elsewhere(): void
     {
         $id = $this->register($this->alpha)->assertCreated()->json('data.candidate.id');
-        $this->pass($this->alpha, $id)->assertOk();
+        $this->pass($this->admin, $id)->assertOk();
 
         $other = $this->register($this->beta, ['passportNo' => 'N5555555', 'nicNo' => '905555555V'])
             ->assertCreated()->json('data.candidate.id');
@@ -259,12 +263,12 @@ class CandidatePassFlowTest extends TestCase
         $alphaId = $this->register($this->alpha)->assertCreated()->json('data.candidate.id');
         $betaId = $this->register($this->beta)->assertCreated()->json('data.candidate.id');
 
-        $this->pass($this->alpha, $alphaId)->assertOk();
-        $this->pass($this->beta, $betaId)->assertStatus(409);
+        $this->pass($this->admin, $alphaId)->assertOk();
+        $this->pass($this->admin, $betaId)->assertStatus(409);
 
         // Once Alpha takes them off its register, they are free again.
         $this->as($this->alpha)->deleteJson('/api/v1/candidates/'.$alphaId)->assertOk();
-        $this->pass($this->beta, $betaId)->assertOk();
+        $this->pass($this->admin, $betaId)->assertOk();
     }
 
     public function test_a_file_without_an_nic_cannot_be_passed(): void
@@ -279,7 +283,7 @@ class CandidatePassFlowTest extends TestCase
             'status' => 'draft',
         ])->id;
 
-        $this->pass($this->alpha, $id)
+        $this->pass($this->admin, $id)
             ->assertStatus(422)
             ->assertJsonPath('message', "Add the NIC number to Old File's file before marking them as passed.");
     }
@@ -293,7 +297,7 @@ class CandidatePassFlowTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('message', 'Only a candidate who has passed can be submitted.');
 
-        $this->pass($this->alpha, $id)->assertOk();
+        $this->pass($this->admin, $id)->assertOk();
         foreach (DocumentType::cases() as $type) {
             $this->upload($this->alpha, $id, $type->value)->assertCreated();
         }
@@ -311,13 +315,13 @@ class CandidatePassFlowTest extends TestCase
 
         // The submitted profile is settled: no more documents, and the pass stays.
         $this->upload($this->alpha, $id)->assertStatus(409);
-        $this->pass($this->alpha, $id, false)->assertStatus(409);
+        $this->pass($this->admin, $id, false)->assertStatus(409);
     }
 
     public function test_switching_the_submit_off_sends_the_profile_back_to_the_agency(): void
     {
         $id = $this->register($this->alpha)->assertCreated()->json('data.candidate.id');
-        $this->pass($this->alpha, $id)->assertOk();
+        $this->pass($this->admin, $id)->assertOk();
         foreach (DocumentType::cases() as $type) {
             $this->upload($this->alpha, $id, $type->value)->assertCreated();
         }
@@ -396,7 +400,7 @@ class CandidatePassFlowTest extends TestCase
         $this->upload($this->alpha, $id)->assertCreated();
 
         // ...but the agency cannot undo a result the test recorded.
-        $this->pass($this->alpha, $id, false)
+        $this->pass($this->admin, $id, false)
             ->assertStatus(409)
             ->assertJsonPath('message', 'Kamal Perera passed a skill test with Herzl Construction, so the pass cannot be switched off here.');
     }

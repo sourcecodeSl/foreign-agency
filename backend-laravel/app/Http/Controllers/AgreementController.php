@@ -104,13 +104,11 @@ class AgreementController extends Controller
     }
 
     /** Another company's PDF is answered as not found, the same as one that does not exist. */
-    private function findTemplate(string $id, ?Agency $company, bool $adminOnly = false): AgreementTemplate
+    private function findTemplate(string $id, ?Agency $company): AgreementTemplate
     {
         $query = AgreementTemplate::query();
         if ($company) {
             $query->where('agency_id', $company->id);
-        } elseif ($adminOnly) {
-            $query->whereNull('agency_id');
         }
 
         return $query->find($id) ?? throw new ApiException(404, 'Agreement template not found.');
@@ -249,29 +247,6 @@ class AgreementController extends Controller
     public function templateFile(Request $request, string $id)
     {
         return $this->pdf($this->findTemplate($id, $this->writer($request)));
-    }
-
-    /**
-     * GET /agreement-templates/blank - the admin side's own uploads, for a
-     * foreign company to download blank and fill in by hand.
-     */
-    public function blankTemplates(Request $request)
-    {
-        $this->writer($request);
-
-        return ApiResponse::ok([
-            'templates' => AgreementTemplate::whereNull('agency_id')
-                ->orderByDesc('id')->get()
-                ->map->toPublic()->values(),
-        ]);
-    }
-
-    /** GET /agreement-templates/blank/{id}/file - one of those, as the PDF. */
-    public function blankTemplateFile(Request $request, string $id)
-    {
-        $this->writer($request);
-
-        return $this->pdf($this->findTemplate($id, null, true));
     }
 
     private function pdf(AgreementTemplate $template)

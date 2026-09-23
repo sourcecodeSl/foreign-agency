@@ -157,6 +157,123 @@ class SkillTestFlowTest extends TestCase
         $this->assertSame('Cutting not accurate enough', $failed->result_note);
     }
 
+    public function test_an_agency_registers_a_candidate_for_a_foreign_company_which_records_the_result(): void
+    {
+        // The foreign company that signs in, with its own owner login.
+        Agency::create([
+            'id' => 'AG-9100',
+            'name' => 'Herzl Construction',
+            'code' => 'HER-9100',
+            'type' => 'foreign',
+            'country' => 'Israel',
+            'address' => '12 Herzl Street, Tel Aviv',
+            'username' => 'herzl.owner',
+            'contact' => 'Avi Cohen',
+            'email' => 'owner@herzl.example',
+            'status' => 'active',
+        ]);
+        $companyOwner = User::create([
+            'name' => 'Avi Cohen',
+            'username' => 'herzl.owner',
+            'email' => 'owner@herzl.example',
+            'phone' => '0712000009',
+            'password_hash' => password_hash('Passw0rd1', PASSWORD_BCRYPT),
+            'role_slug' => 'agency_owner',
+            'agency_id' => 'AG-9100',
+            'status' => 'active',
+        ]);
+        $companyToken = Jwt::sign($companyOwner->toPublic());
+
+        // The local agency picks the company it is registering the candidate for.
+        $this->as($this->agencyToken)
+            ->getJson('/api/v1/agencies/foreign-options')
+            ->assertOk()
+            ->assertJsonFragment(['id' => 'AG-9100', 'name' => 'Herzl Construction']);
+
+        $registered = $this->postJson('/api/v1/candidates', [
+            'firstName' => 'Nimal',
+            'lastName' => 'Silva',
+            'passportNo' => 'N1122334',
+            'nicNo' => '901234567V',
+            'address' => '9 Lake Road, Kandy',
+            'mobile' => '0779998887',
+            'companyAgencyId' => 'AG-9100',
+            'jobRoleIds' => [$this->roleId('Tiler'), $this->roleId('Mason')],
+        ])->assertCreated()->json('data.candidate');
+
+        $this->assertSame('AG-9100', $registered['company']['id']);
+
+        // The company reads whoever was registered for it, and which agency sent them.
+        $listed = $this->as($companyToken)->getJson('/api/v1/candidates')->assertOk()->json('data');
+        $this->assertCount(1, $listed);
+        $this->assertSame('Nimal Silva', $listed[0]['name']);
+        $this->assertSame('Solidrow', $listed[0]['agencyName']);
+
+        // It records the result, which names the trade and sets the profession.
+        $this->patchJson('/api/v1/candidates/'.$registered['id'].'/test-result', [
+            'result' => 'pass',
+            'jobRoleId' => $this->roleId('Mason'),
+            'note' => 'Clean work',
+            'testResults' => 'NVQ Level 3 - Pass',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.testResults', 'NVQ Level 3 - Pass')
+            ->assertJsonPath('data.profession', 'Mason')
+            ->assertJsonPath('data.poolStatus', 'passed')
+            ->assertJsonPath('data.testResult.result', 'pass')
+            ->assertJsonPath('data.testResult.jobRole', 'Mason');
+
+        // Another company may not touch a candidate that is not registered for it.
+        $other = Agency::create([
+            'id' => 'AG-9101',
+            'name' => 'Negev Builders',
+            'code' => 'NEG-9101',
+            'type' => 'foreign',
+            'country' => 'Israel',
+            'address' => '5 Negev Road, Beersheba',
+            'username' => 'negev.owner',
+            'contact' => 'Dana Levi',
+            'email' => 'owner@negev.example',
+            'status' => 'active',
+        ]);
+        $otherOwner = User::create([
+            'name' => 'Dana Levi',
+            'username' => 'negev.owner',
+            'email' => 'owner@negev.example',
+            'phone' => '0712000010',
+            'password_hash' => password_hash('Passw0rd1', PASSWORD_BCRYPT),
+            'role_slug' => 'agency_owner',
+            'agency_id' => $other->id,
+            'status' => 'active',
+        ]);
+
+        $this->as(Jwt::sign($otherOwner->toPublic()))
+            ->patchJson('/api/v1/candidates/'.$registered['id'].'/test-result', ['result' => 'fail'])
+            ->assertForbidden();
+        $this->getJson('/api/v1/candidates')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_the_trade_passed_in_becomes_the_candidates_profession(): void
+    {
+        $this->as($this->coordinator);
+        $company = $this->company();
+
+        // Nothing is typed in: the file carries no profession until a pass.
+        $this->assertNull($this->candidate->fresh()->profession);
+
+        $failed = $this->book($company, 'Tiler')->assertCreated()->json('data');
+        $this->decide($failed['id'], 'fail')->assertOk();
+        $this->assertNull($this->candidate->fresh()->profession);
+
+        $passed = $this->book($company, 'Shuttering Carpenter')->assertCreated()->json('data');
+        $this->decide($passed['id'], 'pass')->assertOk();
+
+        $this->assertSame('Shuttering Carpenter', $this->candidate->fresh()->profession);
+        $this->getJson('/api/v1/candidates/'.$this->candidate->id)
+            ->assertOk()
+            ->assertJsonPath('data.profession', 'Shuttering Carpenter');
+    }
+
     public function test_a_second_trade_joins_the_same_file_with_its_own_test_number(): void
     {
         $this->as($this->coordinator);

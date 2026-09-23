@@ -16,7 +16,6 @@ import {
   IconRefresh,
 } from '../../components/ui/Icons';
 import { agencyProfileApi } from '../../lib/api';
-import BlankAgreements from '../agreements/BlankAgreements';
 import { alertError, confirmAction } from '../../lib/alert';
 
 const PHONE_RE = /^[0-9+\s-]{9,20}$/;
@@ -594,9 +593,6 @@ export default function AgencyProfile() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <DetailsCard profile={profile} onSaved={applySaved} />
-
-      {/* A foreign company downloads the admin's blank agreement here. */}
-      {profile.type === 'foreign' && <BlankAgreements />}
 
       <MarksCard profile={profile} onSaved={applySaved} />
 

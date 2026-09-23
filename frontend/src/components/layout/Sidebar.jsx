@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
-import { canOpen, COORDINATOR } from '../../lib/access';
+import { canOpen, roleLabel, COORDINATOR } from '../../lib/access';
 import {
   IconDashboard,
   IconBuilding,
@@ -41,6 +41,8 @@ const ADMIN_NAV = [
       // One listing, opened on one kind of agency. New agencies are added from
       // the button on that page, which is why Create Agency is not a link here.
       { to: '/agencies?type=foreign', label: 'Foreign Company', icon: IconBuilding, page: 'agencies' },
+      // Who each foreign company is testing, and where the result is recorded.
+      { to: '/companies/candidates', label: 'Company Candidates', icon: IconUsers, page: 'companies' },
       { to: '/agencies?type=local', label: 'Local Agency', icon: IconBuilding, page: 'agencies' },
     ],
   },
@@ -75,6 +77,15 @@ const AGENCY_NAV = [
   },
 ];
 
+// A foreign company registers nobody: local agencies register candidates for
+// its test, and it records how each one went.
+const COMPANY_NAV = [
+  {
+    section: 'Candidates',
+    items: [{ to: '/candidates', label: 'Candidates', icon: IconUsers, end: true }],
+  },
+];
+
 // Only the owner edits the agency: its phone and email are the owner's sign-in.
 const AGENCY_OWNER_NAV = [
   ...AGENCY_NAV,
@@ -86,7 +97,7 @@ const AGENCY_OWNER_NAV = [
 
 // A foreign company is a company, not an agency, to its own owner.
 const COMPANY_OWNER_NAV = [
-  ...AGENCY_NAV,
+  ...COMPANY_NAV,
   {
     section: 'Company',
     items: [{ to: '/agency/profile', label: 'Company Details', icon: IconBuilding }],
@@ -160,11 +171,13 @@ export default function Sidebar({ open, onClose }) {
   const nav = !isAgency
     ? adminNavFor(admin)
     : [
-        ...(admin.roleSlug !== 'agency_owner'
-          ? AGENCY_NAV
-          : admin.agency?.type === 'foreign'
+        ...(admin.agency?.type === 'foreign'
+          ? admin.roleSlug === 'agency_owner'
             ? COMPANY_OWNER_NAV
-            : AGENCY_OWNER_NAV),
+            : COMPANY_NAV
+          : admin.roleSlug === 'agency_owner'
+            ? AGENCY_OWNER_NAV
+            : AGENCY_NAV),
         ...(admin.agency ? AGREEMENTS_NAV : []),
       ];
 
@@ -239,7 +252,7 @@ export default function Sidebar({ open, onClose }) {
           <div className="rounded-lg bg-gray-50 p-3">
             <p className="text-xs font-semibold text-gray-900">Signed in as</p>
             <p className="mt-1 truncate text-xs text-gray-500">
-              {admin?.role || 'User'}
+              {roleLabel(admin) || 'User'}
             </p>
           </div>
         </div>

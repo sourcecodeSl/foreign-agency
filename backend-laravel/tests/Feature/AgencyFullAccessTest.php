@@ -23,6 +23,23 @@ class AgencyFullAccessTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * The pass is the admin side's switch, so fixtures flip it as the admin
+     * and hand the request back to whoever was signed in before.
+     */
+    private function adminPass(int $id): void
+    {
+        $headers = $this->defaultHeaders;
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken(Jwt::sign(User::where('role_slug', 'main_admin')->firstOrFail()->toPublic()))
+            ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
+            ->assertOk();
+
+        $this->defaultHeaders = $headers;
+        $this->app['auth']->forgetGuards();
+    }
+
     private string $token;
 
     protected function setUp(): void
@@ -91,8 +108,10 @@ class AgencyFullAccessTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.mobile', '0779999999');
 
-        // --- mark as passed, which opens the file for documents ---
-        $this->agency()->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
+        // --- passed, which opens the file for documents. The admin side
+        // records it: the agency registers candidates, it does not test them.
+        $this->adminPass($id);
+        $this->agency()->getJson('/api/v1/candidates/'.$id)
             ->assertOk()
             ->assertJsonPath('data.poolStatus', 'passed')
             ->assertJsonPath('data.documentsOpen', true);

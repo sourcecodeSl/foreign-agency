@@ -4,6 +4,7 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import Input from '../../components/ui/Input';
+import DateInput from '../../components/ui/DateInput';
 import { candidateApi } from '../../lib/api';
 import { alertError } from '../../lib/alert';
 import { formatDate } from './shared';
@@ -161,10 +162,9 @@ export default function PoliceReport({ candidate, readOnly, onChanged }) {
           )}
 
           {form.status === 'received' && (
-            <Input
+            <DateInput
               label="Issued date"
               name="issuedDate"
-              type="date"
               required
               max={today()}
               value={form.issuedDate}

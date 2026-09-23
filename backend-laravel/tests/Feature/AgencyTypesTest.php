@@ -113,13 +113,12 @@ class AgencyTypesTest extends TestCase
         $this->assertSame('agency_owner', $owner->role_slug);
         $this->assertSame($created['id'], $owner->agency_id);
 
-        $candidateId = $this->as(Jwt::sign($owner->toPublic()))
+        // A foreign company registers nobody; it reads who was registered for it.
+        $this->as(Jwt::sign($owner->toPublic()))
             ->postJson('/api/v1/candidates', $this->candidate('N7788990'))
-            ->assertCreated()
-            ->json('data.candidate.id');
+            ->assertForbidden();
 
-        $this->assertSame($created['id'], Candidate::findOrFail($candidateId)->agency_id);
-        $this->getJson('/api/v1/candidates')->assertOk()->assertJsonCount(1, 'data');
+        $this->getJson('/api/v1/candidates')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/v1/auth/me')->assertOk()->assertJsonPath('data.agency.type', 'foreign');
     }
 
@@ -197,17 +196,30 @@ class AgencyTypesTest extends TestCase
         $this->assertNull($local['lawyer']['name']);
     }
 
-    public function test_a_foreign_company_without_its_lawyer_is_refused(): void
+    public function test_a_foreign_company_is_created_without_a_lawyer_but_never_without_its_number(): void
     {
-        $this->as($this->admin)
+        // The lawyer is the company's own to add on Company Details.
+        $id = $this->as($this->admin)
             ->postJson('/api/v1/agencies', $this->company([
-                'registrationNo' => null,
                 'lawyerName' => null,
                 'lawyerIdNo' => null,
                 'lawyerPosition' => null,
             ]))
+            ->assertCreated()
+            ->assertJsonPath('data.lawyer.name', null)
+            ->json('data.id');
+
+        $this->getJson('/api/v1/agencies/'.$id)->assertOk()->assertJsonPath('data.lawyer.position', null);
+
+        // The registration number is still the admin's to file.
+        $this->postJson('/api/v1/agencies', $this->company([
+            'registrationNo' => null,
+            'email' => 'second@horizon.example',
+            'phone' => '+972501234568',
+            'username' => 'horizon.two',
+        ]))
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['registrationNo', 'lawyerName', 'lawyerIdNo', 'lawyerPosition']);
+            ->assertJsonValidationErrors(['registrationNo']);
     }
 
     public function test_a_foreign_agency_needs_its_country_and_the_type_is_checked(): void

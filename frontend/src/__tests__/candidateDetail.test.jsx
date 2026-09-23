@@ -89,8 +89,10 @@ vi.mock('../lib/api', () => ({
 }));
 
 let roleSlug = 'agency_owner';
+// Set when the login is the foreign company the candidate is registered for.
+let agency = null;
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ admin: { roleSlug } }),
+  useAuth: () => ({ admin: { roleSlug, agency } }),
   isGlobalRole: (slug) => ['main_admin', 'auditor', 'coordinator'].includes(slug),
 }));
 
@@ -173,8 +175,8 @@ describe('the owning agency, once the candidate has passed', () => {
 
     await screen.findByText('Kamal Perera');
     expect(screen.queryByRole('button', { name: /^attach$/i })).toBeNull();
-    // The pass stays on for a submitted profile.
-    expect(screen.getByRole('switch', { name: 'Passed' }).disabled).toBe(true);
+    // The pass is the company's to switch; the agency only reads it.
+    expect(screen.queryByRole('switch', { name: 'Passed' })).toBeNull();
   });
 });
 
@@ -184,19 +186,33 @@ describe('the owning agency, before the candidate has passed', () => {
     candidate = { ...BASE, poolStatus: 'pool', documentsOpen: false };
   });
 
-  it('offers no way to attach until the pass is switched on', async () => {
-    const user = userEvent.setup();
+  it('offers no way to attach, and no pass of its own, until the company passes them', async () => {
     renderDetail();
 
     await screen.findByText('Kamal Perera');
     expect(screen.queryByRole('button', { name: /^attach$/i })).toBeNull();
     expect(screen.getByText(/documents are attached once the candidate has passed/i)).toBeTruthy();
 
+    // The agency registers the candidate; the company tests them.
+    expect(screen.queryByRole('switch', { name: 'Passed' })).toBeNull();
+    expect(screen.getByText(/records the result/i)).toBeTruthy();
+    expect(setPassed).not.toHaveBeenCalled();
+  });
+
+  it('is the switch of the company the candidate is registered for', async () => {
+    const user = userEvent.setup();
+    candidate = { ...candidate, company: { id: 'AG-9100', name: 'Herzl Construction' } };
+    agency = { id: 'AG-9100', name: 'Herzl Construction', type: 'foreign' };
+    renderDetail();
+
+    await screen.findByText('Kamal Perera');
     const toggle = screen.getByRole('switch', { name: 'Passed' });
     expect(toggle.getAttribute('aria-checked')).toBe('false');
 
     await user.click(toggle);
     await waitFor(() => expect(setPassed).toHaveBeenCalledWith('1', true));
+
+    agency = null;
   });
 
   it('shows the file as blocked once the person has passed with another agency', async () => {
@@ -209,7 +225,7 @@ describe('the owning agency, before the candidate has passed', () => {
     expect(screen.getByText('Blocked')).toBeTruthy();
 
     // Nothing can be done with it.
-    expect(screen.getByRole('switch', { name: 'Passed' }).disabled).toBe(true);
+    expect(screen.queryByRole('switch', { name: 'Passed' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^attach$/i })).toBeNull();
   });
 });
@@ -421,7 +437,8 @@ describe('the passport warning and the police report', () => {
     await screen.findByText('Police report');
     await user.selectOptions(screen.getByLabelText(/status/i), 'received');
     await user.type(screen.getByLabelText(/reference no/i), 'PR/2026/8891');
-    await user.type(screen.getByLabelText(/issued date/i), '2026-06-01');
+    // Typed the way it is read here; the API is still given the ISO date.
+    await user.type(screen.getByLabelText(/issued date/i), '01/06/2026');
     await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => expect(savePolice).toHaveBeenCalledTimes(1));

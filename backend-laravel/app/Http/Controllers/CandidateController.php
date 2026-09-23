@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\ApiException;
 use App\Models\Agency;
 use App\Models\Candidate;
+use App\Models\JobRole;
 use App\Models\SkillTest;
 use App\Support\ApiResponse;
 use App\Support\DocumentType;
@@ -47,6 +48,16 @@ class CandidateController extends Controller
         // with no agency linked would otherwise look like a cross-agency role
         // and be handed a silent empty list instead of being told what is wrong.
         if (in_array($auth['roleSlug'] ?? null, self::GLOBAL_ROLES, true)) {
+            // Reading one foreign company's candidates: whoever was registered
+            // for its test, whichever agency registered them.
+            if ($request->filled('companyAgencyId')) {
+                return $this->companyCandidates(
+                    $request->query('companyAgencyId'),
+                    $request->query('agencyId'),
+                    $request->query('search')
+                );
+            }
+
             $scope = trim((string) $request->query('agencyId'));
 
             // Nothing picked yet - an empty listing, not everybody's records.
@@ -58,6 +69,14 @@ class CandidateController extends Controller
             if ($scope === 'all') {
                 $scope = null;
             }
+        } elseif ($this->isForeignCompany($request)) {
+            // A foreign company reads whoever was registered for its test,
+            // whichever local agency registered them.
+            return $this->companyCandidates(
+                $auth['agencyId'],
+                $request->query('agencyId'),
+                $request->query('search')
+            );
         } else {
             $scope = $auth['agencyId'] ?? null;
             if (! $scope) {
@@ -95,7 +114,8 @@ class CandidateController extends Controller
     /** GET /candidates/{id} */
     public function show(Request $request, $id)
     {
-        $candidate = $this->find($request, $id);
+        // The company testing them reads the file too.
+        $candidate = $this->find($request, $id, true);
 
         return ApiResponse::ok($candidate->load(['documents', 'jobRole', 'jobRoles', 'tests.company', 'tests.role'])->toPublic(true) + [
             'blockedBy' => $this->holderNames($request, collect([$candidate]))[$candidate->id] ?? null,
@@ -184,6 +204,13 @@ class CandidateController extends Controller
     /** POST /candidates */
     public function store(Request $request)
     {
+        // A foreign company registers nobody: local agencies register
+        // candidates for its test, and it records how each one went.
+        if ($this->isForeignCompany($request)) {
+            throw new ApiException(403, 'A foreign company does not register candidates. '
+                .'Local agencies register them for your test, and you record the result.');
+        }
+
         $agencyId = $this->writeAgencyId($request);
         $data = $this->validated($request, $agencyId);
         $auth = $request->attributes->get('auth_user');
@@ -202,6 +229,7 @@ class CandidateController extends Controller
             'passport_expiry' => $data['passportExpiry'] ?? null,
             'profession' => $data['profession'] ?? null,
             'test_results' => $data['testResults'] ?? null,
+            'company_agency_id' => $this->companyAgencyId($data),
             'passport_no' => $data['passportNo'],
             'nic_no' => strtoupper($data['nicNo']),
             'address' => $data['address'],
@@ -289,6 +317,7 @@ class CandidateController extends Controller
             'passport_expiry' => $data['passportExpiry'] ?? null,
             'profession' => $data['profession'] ?? null,
             'test_results' => $data['testResults'] ?? null,
+            'company_agency_id' => $this->companyAgencyId($data),
             'passport_no' => $data['passportNo'] ?? null,
             'nic_no' => $newNic !== null ? strtoupper($newNic) : null,
             'address' => $data['address'] ?? null,
@@ -314,11 +343,22 @@ class CandidateController extends Controller
      */
     public function pass(Request $request, $id)
     {
-        if ($this->scopeAgencyId($request) === null) {
-            throw new ApiException(403, 'Only the agency that holds this candidate can mark them as passed.');
+        $auth = $request->attributes->get('auth_user');
+        $candidate = Candidate::find($id);
+        if (! $candidate) {
+            throw new ApiException(404, 'Candidate not found.');
         }
 
-        $candidate = $this->find($request, $id);
+        // The company the candidate is registered for says whether they
+        // passed, and so does the admin side. The agency that registered them
+        // only watches: it is not the one running the test.
+        $global = in_array($auth['roleSlug'] ?? null, self::REVIEWER_ROLES, true);
+        $company = $this->isForeignCompany($request) && $candidate->company_agency_id === ($auth['agencyId'] ?? null);
+
+        if (! $global && ! $company) {
+            throw new ApiException(403, 'Only the foreign company this candidate is registered for, '
+                .'or the admin side, marks them as passed.');
+        }
         $passed = (bool) $request->validate(['passed' => ['required', 'boolean']])['passed'];
 
         if ($passed === $candidate->isPassed()) {
@@ -514,6 +554,150 @@ class CandidateController extends Controller
     }
 
     /**
+     * One foreign company's candidates: everyone registered for its test,
+     * each naming the agency that registered them, and narrowed to one of
+     * those agencies when asked for.
+     */
+    private function companyCandidates(?string $companyAgencyId, ?string $agencyId, ?string $search)
+    {
+        $candidates = Candidate::query()
+            ->where('company_agency_id', $companyAgencyId)
+            ->when($agencyId && $agencyId !== 'all', fn ($q) => $q->where('agency_id', $agencyId))
+            ->search($search)
+            ->with(['documents', 'jobRole', 'jobRoles', 'companyAgency', 'testResultRole', 'lockedCompany'])
+            // Those who passed first, in the order they passed, then everyone
+            // still waiting, newest registration first.
+            ->orderByRaw('CASE WHEN passed_at IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('passed_at')
+            ->orderByDesc('id')
+            ->get();
+
+        Candidate::resolveBlocks($candidates);
+
+        $agencyNames = Agency::whereIn('id', $candidates->pluck('agency_id')->unique())->pluck('name', 'id');
+
+        return ApiResponse::ok($candidates->map(fn (Candidate $candidate) => $candidate->toPublic(true) + [
+            'agencyName' => $agencyNames[$candidate->agency_id] ?? null,
+        ])->all());
+    }
+
+    /** A login belonging to an agency of type foreign - the company itself. */
+    private function isForeignCompany(Request $request): bool
+    {
+        $auth = $request->attributes->get('auth_user');
+        $agencyId = $auth['agencyId'] ?? null;
+
+        return $agencyId ? (Agency::find($agencyId)?->type ?? 'local') === 'foreign' : false;
+    }
+
+    /**
+     * PATCH /candidates/{id}/test-result  { result, jobRoleId?, note? }
+     *
+     * How the candidate's test went, recorded by the foreign company they
+     * were registered for, or by the admin side. A pass makes the trade it
+     * was sat in their profession and marks them passed; a fail leaves them
+     * in the pool for another company.
+     */
+    public function testResult(Request $request, $id)
+    {
+        $auth = $request->attributes->get('auth_user');
+        $candidate = Candidate::find($id);
+        if (! $candidate) {
+            throw new ApiException(404, 'Candidate not found.');
+        }
+
+        $global = in_array($auth['roleSlug'] ?? null, self::REVIEWER_ROLES, true);
+        $company = $this->isForeignCompany($request) && $candidate->company_agency_id === ($auth['agencyId'] ?? null);
+
+        if (! $global && ! $company) {
+            throw new ApiException(403, 'Only the foreign company this candidate is registered for, '
+                .'or the admin side, records the result.');
+        }
+
+        $data = $request->validate([
+            'result' => ['required', 'in:pass,fail'],
+            'jobRoleId' => ['required_if:result,pass', 'nullable', 'integer'],
+            'note' => ['nullable', 'string', 'max:255'],
+            // What the test sheet says, in the company's own words.
+            'testResults' => ['nullable', 'string', 'max:255'],
+        ], [
+            'result.in' => 'The result is either pass or fail.',
+            'jobRoleId.required_if' => 'Choose the job category they passed in.',
+        ]);
+
+        $passed = $data['result'] === 'pass';
+        $role = null;
+
+        if ($passed) {
+            $role = JobRole::where('id', $data['jobRoleId'])->where('active', true)->first();
+            if (! $role) {
+                throw new ApiException(422, 'That job category was not found.', [
+                    'jobRoleId' => 'Choose a job category.',
+                ]);
+            }
+
+            // One person, one pass: the same NIC may be on file elsewhere.
+            if ($candidate->passedElsewhere()) {
+                throw new ApiException(409, $candidate->name.' has already passed with another agency.');
+            }
+        }
+
+        $candidate->test_result = $data['result'];
+        if (array_key_exists('testResults', $data)) {
+            $candidate->test_results = $data['testResults'];
+        }
+        $candidate->test_result_role_id = $role?->id;
+        $candidate->test_result_note = $data['note'] ?? null;
+        $candidate->test_result_at = now();
+        $candidate->test_result_by = $auth['sub'] ?? null;
+
+        if ($passed) {
+            // The trade they passed in is what they work as from now on.
+            $candidate->profession = $role->name;
+            $candidate->addJobRoles([$role->id]);
+            $candidate->pool_status = 'passed';
+            $candidate->passed_at = now();
+            $candidate->passed_by = $auth['sub'] ?? null;
+        } else {
+            // Back in the pool, free for another company's test.
+            $candidate->pool_status = 'pool';
+            $candidate->passed_at = null;
+            $candidate->passed_by = null;
+        }
+
+        $candidate->save();
+
+        return ApiResponse::ok(
+            $candidate->fresh(['documents', 'jobRole', 'jobRoles', 'companyAgency', 'testResultRole'])->toPublic(true),
+            $passed
+                ? $candidate->name.' passed as '.$role->name.'.'
+                : $candidate->name.' did not pass and stays in the pool.'
+        );
+    }
+
+    /**
+     * The foreign company the candidate is registered to be tested for, when
+     * one was chosen. Only an active foreign company may be picked, so nobody
+     * is registered for one that has been switched off.
+     */
+    private function companyAgencyId(array $data): ?string
+    {
+        $id = $data['companyAgencyId'] ?? null;
+        if (! $id) {
+            return null;
+        }
+
+        $company = Agency::find($id);
+        if (! $company || ($company->type ?? 'local') !== 'foreign' || $company->status !== 'active') {
+            throw new ApiException(422, 'That foreign company was not found.', [
+                'companyAgencyId' => 'Choose a foreign company.',
+            ]);
+        }
+
+        return $company->id;
+    }
+
+    /**
      * Sets the file's trades to the list given. A trade the candidate has
      * already been tested for stays, so the test history always names a
      * trade that is on the file.
@@ -566,7 +750,12 @@ class CandidateController extends Controller
             // Any date is accepted: a passport with little left on it is
             // warned about on every screen, never refused.
             'passportExpiry' => ['nullable', 'date'],
+            // Not typed in: it is set to the job category the candidate
+            // passes a test in (SkillTestController::result).
             'profession' => ['nullable', 'string', 'max:120'],
+            // The foreign company whose test the candidate is registered for:
+            // an agency of type foreign, the one that signs in to read them.
+            'companyAgencyId' => ['nullable', 'string', 'max:20'],
             'testResults' => ['nullable', 'string', 'max:255'],
             'passportNo' => [$required, 'string', 'max:30', 'regex:/^[A-Za-z0-9]+$/', $scoped('passport_no')],
             'nicNo' => [$required, 'string', 'max:20', 'regex:'.Nic::PATTERN, $nicFree],
@@ -635,7 +824,12 @@ class CandidateController extends Controller
     }
 
     /** Loads a candidate the caller is allowed to touch. */
-    private function find(Request $request, $id): Candidate
+    /**
+     * The candidate, if this login may see them. `$forCompany` also lets the
+     * foreign company they are registered for read the file - it runs their
+     * test - without letting it change anything the agency owns.
+     */
+    private function find(Request $request, $id, bool $forCompany = false): Candidate
     {
         $candidate = Candidate::find($id);
 
@@ -644,10 +838,14 @@ class CandidateController extends Controller
         }
 
         $scope = $this->scopeAgencyId($request);
-        if ($scope !== null && $candidate->agency_id !== $scope) {
-            throw new ApiException(403, 'This candidate belongs to another agency.');
+        if ($scope === null || $candidate->agency_id === $scope) {
+            return $candidate;
         }
 
-        return $candidate;
+        if ($forCompany && $candidate->company_agency_id === $scope && $this->isForeignCompany($request)) {
+            return $candidate;
+        }
+
+        throw new ApiException(403, 'This candidate belongs to another agency.');
     }
 }

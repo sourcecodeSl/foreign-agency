@@ -1,59 +1,123 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Card, CardHeader } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
+import Modal from '../../components/ui/Modal';
+import Pagination, { usePaged } from '../../components/ui/Pagination';
 import Badge from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import { PageLoader } from '../../components/ui/Spinner';
-import { IconDocument } from '../../components/ui/Icons';
 import { agreementApi } from '../../lib/api';
 import { alertError, confirmAction } from '../../lib/alert';
 import { formatDate } from '../candidates/shared';
-import { EmployerTable } from './EmployerAgreement';
+import { EmployerTable, openGoogleTranslate } from './EmployerAgreement';
 import { downloadAgreementPdf, openAgreementPdf } from './Agreements';
 
-/** One agreement the admin sent, as a card to pick. */
-function AgreementCard({ agreement, selected, onSelect }) {
+/** Which agreements the table shows. */
+const FILTERS = [
+  { key: 'all', label: 'All agreements' },
+  { key: 'unassigned', label: 'No candidate yet' },
+  { key: 'assigned', label: 'Candidate assigned' },
+];
+
+/** The agreements the admin sent, one row each, the picked one highlighted. */
+function AgreementTable({ agreements, selectedId, onSelect, onAssign }) {
+  const { paged, total, pages, page, pageSize, setPage, setPageSize } = usePaged(agreements);
+
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(agreement.id)}
-      aria-pressed={selected}
-      className={
-        'flex w-full items-start gap-3 rounded-xl border p-4 text-left transition ' +
-        (selected
-          ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-500'
-          : 'border-gray-200 bg-white hover:border-gray-300')
-      }
-    >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600">
-        <IconDocument className="h-5 w-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-gray-900">{agreement.title}</span>
-        <span className="block truncate text-xs text-gray-500">{agreement.agencyName}</span>
-        <span className="block text-xs text-gray-400">received {formatDate(agreement.sentToAgencyAt)}</span>
-        <span className="mt-1.5 block">
-          {agreement.candidateName ? (
-            <Badge tone="green" dot>
-              {agreement.candidateName}
-            </Badge>
-          ) : (
-            <Badge tone="amber" dot>
-              No candidate yet
-            </Badge>
-          )}
-        </span>
-      </span>
-    </button>
+    <>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              {['', 'Agreement', 'Company', 'Received', 'Candidate', 'Assign'].map((header, i) => (
+                <th
+                  key={header || 'pick'}
+                  scope="col"
+                  className="whitespace-nowrap px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500"
+                >
+                  {i === 0 ? (
+                    <span className="sr-only">Pick</span>
+                  ) : i === 5 ? (
+                    <span className="sr-only">Assign</span>
+                  ) : (
+                    header
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 bg-white">
+            {paged.map((a) => {
+              const selected = a.id === selectedId;
+              return (
+                <tr
+                  key={a.id}
+                  onClick={() => onSelect(a.id)}
+                  className={'cursor-pointer transition ' + (selected ? 'bg-primary-50/50' : 'hover:bg-gray-50')}
+                >
+                  <td className="px-5 py-3.5">
+                    <input
+                      type="radio"
+                      name="agreement"
+                      aria-label={a.title}
+                      checked={selected}
+                      onChange={() => onSelect(a.id)}
+                      className="h-4 w-4 text-primary-600"
+                    />
+                  </td>
+                  <td className="px-5 py-3.5 font-medium text-gray-900">{a.title}</td>
+                  <td className="px-5 py-3.5 text-gray-700">{a.agencyName}</td>
+                  <td className="whitespace-nowrap px-5 py-3.5 text-gray-500">{formatDate(a.sentToAgencyAt)}</td>
+                  <td className="px-5 py-3.5">
+                    {a.candidateName ? (
+                      <Badge tone="green" dot>
+                        {a.candidateName}
+                      </Badge>
+                    ) : (
+                      <Badge tone="amber" dot>
+                        No candidate yet
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-5 py-3.5 text-right">
+                    <Button
+                      size="sm"
+                      variant={a.candidateName ? 'secondary' : 'primary'}
+                      // The row underneath is not picked by this click.
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAssign(a);
+                      }}
+                    >
+                      {a.candidateName ? 'Change candidate' : 'Assign candidate'}
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <Pagination
+        page={page}
+        pages={pages}
+        pageSize={pageSize}
+        total={total}
+        onPage={setPage}
+        onPageSize={setPageSize}
+        label="agreements"
+      />
+    </>
   );
 }
 
 /**
- * The agency's candidates for one agreement: those who passed first, in the
- * order they passed, then the rest. One already on another agreement cannot
- * be picked.
+ * The agency's candidates for one agreement, in a dialog of their own: those
+ * who passed first, in the order they passed, then the rest. One already on
+ * another agreement cannot be picked; the first that can be is picked
+ * already, so assigning is one click.
  */
-function CandidatePicker({ agreement, onAssigned }) {
+function CandidatePicker({ agreement, onAssigned, onClose }) {
   const { toast } = useToast();
   const [candidates, setCandidates] = useState(null);
   const [picked, setPicked] = useState(agreement.candidateId || null);
@@ -65,7 +129,13 @@ function CandidatePicker({ agreement, onAssigned }) {
     setPicked(agreement.candidateId || null);
     agreementApi
       .candidates(agreement.id)
-      .then((res) => live && setCandidates(Array.isArray(res.data) ? res.data : []))
+      .then((res) => {
+        if (!live) return;
+        const rows = Array.isArray(res.data) ? res.data : [];
+        setCandidates(rows);
+        // Nobody on it yet: the one who passed first is picked, ready to assign.
+        if (!agreement.candidateId) setPicked(rows.find((c) => !c.assignedTo)?.id || null);
+      })
       .catch((err) => {
         if (!live) return;
         toast(err.message || 'Could not load the candidates.', 'error');
@@ -93,6 +163,7 @@ function CandidatePicker({ agreement, onAssigned }) {
       const { data, message } = await agreementApi.assign(agreement.id, picked);
       toast(message || 'Candidate assigned.');
       onAssigned(data);
+      onClose();
     } catch (err) {
       alertError(err.message || 'Could not assign the candidate.', 'Not assigned');
     } finally {
@@ -101,73 +172,73 @@ function CandidatePicker({ agreement, onAssigned }) {
   };
 
   return (
-    <Card>
-      <CardHeader
-        title="Assign a candidate"
-        subtitle="Candidates who passed are listed first, in the order they passed."
-      />
+    <Modal
+      open
+      title={'Assign a candidate - ' + agreement.title}
+      subtitle="Candidates who passed are listed first, in the order they passed."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={assign} loading={busy} disabled={!picked || picked === agreement.candidateId}>
+            {agreement.candidateId ? 'Assign instead' : 'Assign candidate'}
+          </Button>
+        </>
+      }
+    >
       {!candidates ? (
         <p className="px-5 py-6 text-sm text-gray-500">Loading...</p>
       ) : candidates.length === 0 ? (
         <p className="px-5 py-6 text-sm text-gray-500">Your agency has no candidates yet.</p>
       ) : (
-        <>
-          <ul className="max-h-96 divide-y divide-gray-100 overflow-y-auto">
-            {candidates.map((c) => {
-              const elsewhere = Boolean(c.assignedTo);
-              const id = 'candidate-' + c.id;
-              return (
-                <li key={c.id}>
-                  <label
-                    htmlFor={id}
-                    className={
-                      'flex items-center gap-3 px-5 py-3 ' +
-                      (elsewhere ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-gray-50') +
-                      (picked === c.id ? ' bg-primary-50/40' : '')
-                    }
-                  >
-                    <input
-                      id={id}
-                      type="radio"
-                      name="candidate"
-                      checked={picked === c.id}
-                      disabled={elsewhere}
-                      onChange={() => setPicked(c.id)}
-                      className="h-4 w-4 text-primary-600"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium text-gray-900">{c.name}</span>
-                      <span className="block text-xs text-gray-500">
-                        {c.nicNo} · {c.passportNo}
-                        {c.jobRole ? ' · ' + c.jobRole : ''}
-                      </span>
+        <ul className="-mx-5 max-h-96 divide-y divide-gray-100 overflow-y-auto">
+          {candidates.map((c) => {
+            const elsewhere = Boolean(c.assignedTo);
+            const id = 'candidate-' + c.id;
+            return (
+              <li key={c.id}>
+                <label
+                  htmlFor={id}
+                  className={
+                    'flex items-center gap-3 px-5 py-3 ' +
+                    (elsewhere ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-gray-50') +
+                    (picked === c.id ? ' bg-primary-50/40' : '')
+                  }
+                >
+                  <input
+                    id={id}
+                    type="radio"
+                    name="candidate"
+                    checked={picked === c.id}
+                    disabled={elsewhere}
+                    onChange={() => setPicked(c.id)}
+                    className="h-4 w-4 text-primary-600"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-gray-900">{c.name}</span>
+                    <span className="block text-xs text-gray-500">
+                      {c.nicNo} · {c.passportNo}
+                      {c.jobRole ? ' · ' + c.jobRole : ''}
                     </span>
-                    {elsewhere ? (
-                      <Badge tone="gray">On {c.assignedTo.title}</Badge>
-                    ) : c.passed ? (
-                      <Badge tone="green" dot>
-                        Passed {formatDate(c.passedAt)}
-                      </Badge>
-                    ) : (
-                      <Badge tone="gray">Not passed</Badge>
-                    )}
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="flex justify-end border-t border-gray-100 px-5 py-4">
-            <Button
-              onClick={assign}
-              loading={busy}
-              disabled={!picked || picked === agreement.candidateId}
-            >
-              {agreement.candidateId ? 'Assign instead' : 'Assign candidate'}
-            </Button>
-          </div>
-        </>
+                  </span>
+                  {elsewhere ? (
+                    <Badge tone="gray">On {c.assignedTo.title}</Badge>
+                  ) : c.passed ? (
+                    <Badge tone="green" dot>
+                      Passed {formatDate(c.passedAt)}
+                    </Badge>
+                  ) : (
+                    <Badge tone="gray">Not passed</Badge>
+                  )}
+                </label>
+              </li>
+            );
+          })}
+        </ul>
       )}
-    </Card>
+    </Modal>
   );
 }
 
@@ -217,8 +288,17 @@ function EmployeeDetails({ agreement, onSaved }) {
       />
       <EmployerTable section={agreement.employeeSection} values={values} onChange={change} />
       <div className="flex flex-wrap items-center justify-end gap-3 px-5 py-4">
+        {/* Google's own page, to check a filled value against and correct it here. */}
+        <span className="mr-auto flex flex-wrap items-center gap-2">
+          <Button onClick={() => openGoogleTranslate(agreement.employeeSection.fields, values)}>
+            Google Translate
+          </Button>
+          <span className="text-xs text-gray-500">English, Hebrew, Sinhala</span>
+        </span>
         {unchecked && (
-          <p className="text-xs text-amber-800">Highlighted values were filled automatically - check they read right.</p>
+          <p className="text-xs text-amber-800">
+            Highlighted values were filled automatically - check they read right.
+          </p>
         )}
         <Button onClick={save} loading={busy} disabled={!dirty}>
           Save
@@ -281,7 +361,7 @@ function CompletedAgreements({ agreements, onOpen }) {
 }
 
 /**
- * A local agency's agreements: the ones the admin side sent it, as cards.
+ * A local agency's agreements: the ones the admin side sent it, in a table.
  * Pick one, assign a candidate - passed ones first - and the employee part
  * fills from the candidate's file in all three languages. Completed ones
  * are listed apart, each to view or download as the filled PDF.
@@ -291,6 +371,8 @@ export default function LocalAgencyAgreements() {
   const [agreements, setAgreements] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [agreement, setAgreement] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [assigning, setAssigning] = useState(null); // the agreement the dialog is open for
 
   useEffect(() => {
     agreementApi
@@ -328,6 +410,10 @@ export default function LocalAgencyAgreements() {
     setAgreements((rows) => rows.map((row) => (row.id === data.id ? { ...row, ...data } : row)));
   }, []);
 
+  const shown = (agreements || []).filter((a) =>
+    filter === 'all' ? true : filter === 'assigned' ? Boolean(a.candidateName) : !a.candidateName
+  );
+
   if (!agreements) return <PageLoader label="Loading agreements..." />;
 
   return (
@@ -335,20 +421,41 @@ export default function LocalAgencyAgreements() {
       <Card>
         <CardHeader
           title="Agreements sent to you"
-          subtitle="From foreign companies, through the admin. Pick one to assign a candidate."
+          subtitle="From foreign companies, through the admin. Assign a candidate, or pick one to read it."
+          action={
+            <div>
+              <label htmlFor="agreementFilter" className="sr-only">
+                Show
+              </label>
+              <select
+                id="agreementFilter"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="field-input py-2 text-sm"
+              >
+                {FILTERS.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          }
         />
         {agreements.length === 0 ? (
           <p className="px-5 py-6 text-sm text-gray-500">No agreements have been sent to you yet.</p>
+        ) : shown.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-gray-500">
+            {filter === 'assigned' ? 'No candidate has been assigned yet.' : 'Every agreement has a candidate on it.'}
+          </p>
         ) : (
-          <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 xl:grid-cols-3">
-            {agreements.map((a) => (
-              <AgreementCard key={a.id} agreement={a} selected={a.id === selectedId} onSelect={setSelectedId} />
-            ))}
-          </div>
+          <AgreementTable agreements={shown} selectedId={selectedId} onSelect={setSelectedId} onAssign={setAssigning} />
         )}
       </Card>
 
       {selectedId && !agreement && <PageLoader label="Opening the agreement..." />}
+
+      {assigning && <CandidatePicker agreement={assigning} onAssigned={updated} onClose={() => setAssigning(null)} />}
 
       {agreement && (
         <>
@@ -365,8 +472,6 @@ export default function LocalAgencyAgreements() {
               </Button>
             </div>
           </div>
-
-          <CandidatePicker agreement={agreement} onAssigned={updated} />
 
           {agreement.candidateId && <EmployeeDetails agreement={agreement} onSaved={updated} />}
 

@@ -17,6 +17,21 @@ const COLUMNS = [
 ];
 
 /**
+ * Google Translate in its own tab, holding the English of these fields, to
+ * check a filled value against and correct it here by hand.
+ */
+export function openGoogleTranslate(fields = [], values = {}) {
+  const english = fields
+    .map((field) => (values[field.key]?.en || '').trim())
+    .filter(Boolean)
+    .join('\n');
+  const url =
+    'https://translate.google.com/?sl=en&tl=si&op=translate' +
+    (english ? '&text=' + encodeURIComponent(english) : '');
+  window.open(url, '_blank', 'noopener');
+}
+
+/**
  * The employer part of the agreement, laid out as the paper is: one row per
  * field, each language in its own column. `onChange` makes the Hebrew and
  * Sinhala of the names and translated fields editable - numbers are the same

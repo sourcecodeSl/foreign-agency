@@ -1,9 +1,25 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from '../components/ui/Toast';
 import CreateAgency from '../pages/agency/CreateAgency';
+
+// The country list the picker reads, which its own Add writes to; the rest of
+// the api module is the real one.
+const added = ['Israel'];
+
+vi.mock('../lib/api', async (importOriginal) => ({
+  ...(await importOriginal()),
+  countryApi: {
+    list: async () => ({ data: added.map((name, i) => ({ id: i + 1, name, slug: name.toLowerCase() })) }),
+    create: async (name) => {
+      added.push(name);
+      return { data: { id: added.length, name, slug: name.toLowerCase() } };
+    },
+    remove: async (id) => ({ data: { id } }),
+  },
+}));
 
 function renderForm() {
   return render(
@@ -46,13 +62,29 @@ describe('creating a foreign company', () => {
     expect(await screen.findByText('Enter the country this company is based in.')).toBeTruthy();
     expect(screen.getByText(/no credentials yet/i)).toBeTruthy();
 
-    await user.type(screen.getByLabelText(/^country/i), 'Israel');
+    await user.selectOptions(await screen.findByLabelText(/^country/i), 'Israel');
     await user.click(screen.getByRole('button', { name: /create agency/i }));
 
     await waitFor(() => expect(screen.getByText(/\(foreign company\) was created/i)).toBeTruthy(), {
       timeout: 4000,
     });
     expect(screen.getByText('horizon.owner')).toBeTruthy();
+  });
+
+  it('adds a country to the list the picker offers', async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    await user.click(screen.getByLabelText(/foreign company/i));
+    await screen.findByLabelText(/^country/i);
+
+    await user.click(screen.getByRole('button', { name: /^add$/i }));
+    await user.type(screen.getByLabelText('New country'), 'Romania');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    // Added, it is picked straight away and the field closes.
+    await waitFor(() => expect(screen.getByLabelText(/^country/i).value).toBe('Romania'));
+    expect(screen.queryByLabelText('New country')).toBeNull();
   });
 
   it('asks an agency for none of the company details', async () => {

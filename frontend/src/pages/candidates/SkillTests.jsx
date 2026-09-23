@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardHeader } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
+import DateInput from '../../components/ui/DateInput';
 import Badge from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import { IconPlus, IconCheck } from '../../components/ui/Icons';
@@ -213,19 +214,13 @@ export default function SkillTests({ candidate, canRun, onChanged }) {
                 {errors.jobRoleId && <p className="field-error">{errors.jobRoleId}</p>}
               </div>
 
-              <div>
-                <label htmlFor="test-date" className="field-label">
-                  Test date
-                </label>
-                <input
-                  id="test-date"
-                  type="date"
-                  name="scheduledFor"
-                  value={form.scheduledFor}
-                  onChange={change}
-                  className="field-input"
-                />
-              </div>
+              <DateInput
+                id="test-date"
+                label="Test date"
+                name="scheduledFor"
+                value={form.scheduledFor}
+                onChange={change}
+              />
 
               <div className="sm:pt-[1.625rem]">
                 <Button type="submit" icon={IconPlus} loading={booking} className="w-full sm:w-auto">

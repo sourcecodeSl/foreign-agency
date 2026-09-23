@@ -67,6 +67,7 @@ export default function AgencyList() {
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [issued, setIssued] = useState(null); // the login an approval just created
 
   // The agency whose detail card is open, and the one awaiting a delete
   // confirmation. Both hold the row so the dialog can render before the
@@ -138,8 +139,11 @@ export default function AgencyList() {
   const changeStatus = async (agency, status, label) => {
     setBusyId(agency.id);
     try {
-      await agencyApi.updateStatus(agency.id, status);
+      const { data } = await agencyApi.updateStatus(agency.id, status);
       toast(agency.name + ' has been ' + label + '.');
+      // An agency that registered itself has no login until it is approved;
+      // approving issues one, which is shown here as well as emailed.
+      if (data?.credentials) setIssued({ agency: data, ...data.credentials });
       load();
     } catch (err) {
       toast(err.message || 'Update failed.', 'error');
@@ -406,22 +410,40 @@ export default function AgencyList() {
           ' found.'
         }
       />
-
-      <div className="flex items-center justify-between border-t border-gray-200 px-5 py-3 text-sm text-gray-500">
-        <span>
-          Showing <span className="font-medium text-gray-900">{rows.length}</span> record
-          {rows.length === 1 ? '' : 's'}
-        </span>
-        <div className="flex gap-2">
-          <Button size="sm" variant="secondary" disabled>
-            Previous
-          </Button>
-          <Button size="sm" variant="secondary" disabled>
-            Next
-          </Button>
-        </div>
-      </div>
     </Card>
+
+    {/* --- the login an approval just issued, shown once --- */}
+    <Modal
+      open={issued !== null}
+      title={issued ? 'Login issued for ' + issued.agency.name : ''}
+      subtitle={
+        issued?.email?.delivered
+          ? 'Emailed to ' + issued.email.to + '. It is shown once here too.'
+          : 'The email could not be sent - pass these on yourself.'
+      }
+      onClose={() => setIssued(null)}
+      footer={
+        <Button onClick={() => setIssued(null)}>Done</Button>
+      }
+    >
+      {issued && (
+        <dl className="space-y-3 text-sm">
+          {[
+            ['Username', issued.username],
+            ['Password', issued.password],
+            ['Sign in at', issued.loginUrl],
+          ].map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-4 py-3">
+              <div className="min-w-0">
+                <dt className="text-xs uppercase tracking-wide text-gray-500">{label}</dt>
+                <dd className="truncate font-medium text-gray-900">{value}</dd>
+              </div>
+              <CopyButton size="sm" variant="ghost" label="Copy" value={value} />
+            </div>
+          ))}
+        </dl>
+      )}
+    </Modal>
 
     {/* --- everything held about one agency, opened from its name --- */}
     <Modal

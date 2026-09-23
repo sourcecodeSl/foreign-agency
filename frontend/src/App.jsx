@@ -7,6 +7,7 @@ import DashboardLayout from './components/layout/DashboardLayout';
 
 import Login from './pages/auth/Login';
 import ForgotPassword from './pages/auth/ForgotPassword';
+import Register from './pages/auth/Register';
 import VerifyPhone from './pages/auth/VerifyPhone';
 import VerifyEmail from './pages/auth/VerifyEmail';
 import EmailVerification from './pages/auth/EmailVerification';
@@ -21,11 +22,22 @@ import UserPermissions from './pages/users/UserPermissions';
 import Coordinators from './pages/users/Coordinators';
 import CandidatesList from './pages/candidates/CandidatesList';
 import CandidateList from './pages/candidates/CandidateList';
+import CompanyCandidates from './pages/candidates/CompanyCandidates';
 import RegisterCandidate from './pages/candidates/RegisterCandidate';
 import CandidateDetail from './pages/candidates/CandidateDetail';
 import Agreements from './pages/agreements/Agreements';
 import AgreementEditor from './pages/agreements/AgreementEditor';
 import EmployerAgreement from './pages/agreements/EmployerAgreement';
+
+/**
+ * A foreign company reads the candidates local agencies registered for its
+ * test; everybody else reads the files of one agency.
+ */
+function CandidatesHome() {
+  const { admin } = useAuth();
+
+  return admin?.agency?.type === 'foreign' ? <CompanyCandidates /> : <CandidatesList />;
+}
 
 /** Sends each role to the screen it belongs on. */
 function HomeRedirect() {
@@ -76,6 +88,8 @@ export default function App() {
             {/* Public */}
             <Route path="/login" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
+            {/* An agency applies for itself; the admin approves and issues the login. */}
+            <Route path="/register" element={<Register />} />
             <Route path="/verify-phone" element={<VerifyPhone />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
 
@@ -92,8 +106,10 @@ export default function App() {
               <Route path="/agencies" element={<PageGate page="agencies"><AgencyList /></PageGate>} />
               <Route path="/agencies/create" element={<PageGate page="agencies.create"><CreateAgency /></PageGate>} />
               <Route path="/agency/profile" element={<PageGate page={null}><AgencyProfile /></PageGate>} />
-              <Route path="/candidates" element={<PageGate page="candidates"><CandidatesList /></PageGate>} />
+              <Route path="/candidates" element={<PageGate page="candidates"><CandidatesHome /></PageGate>} />
               <Route path="/candidates/all" element={<PageGate page="candidates"><CandidateList /></PageGate>} />
+              {/* One company's own candidates, where its results are recorded. */}
+              <Route path="/companies/candidates" element={<PageGate page="companies"><CompanyCandidates /></PageGate>} />
               <Route path="/candidates/register" element={<PageGate page="candidates"><RegisterCandidate /></PageGate>} />
               <Route path="/candidates/:id" element={<PageGate page="candidates"><CandidateDetail /></PageGate>} />
               <Route path="/users" element={<PageGate page={null}><UsersList /></PageGate>} />

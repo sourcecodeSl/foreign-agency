@@ -13,10 +13,11 @@ use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
- * Accounts are never self-created.
+ * Logins are never self-created.
  *
  * The Main Admin is seeded; every agency login is issued from the admin panel.
- * There is no public registration endpoint at all.
+ * An agency may apply for itself at /auth/register, but that files an
+ * application - the login is issued only when an administrator approves it.
  */
 class AdminOnlyAccountsTest extends TestCase
 {
@@ -51,18 +52,67 @@ class AdminOnlyAccountsTest extends TestCase
         return $step['token'];
     }
 
-    public function test_the_registration_endpoint_does_not_exist(): void
+    public function test_registering_files_an_application_and_issues_no_login(): void
     {
         $this->postJson('/api/v1/auth/register', [
             'name' => 'Someone New',
+            'type' => 'local',
+            'contact' => 'Nadia Perera',
+            'address' => '18 Galle Road, Colombo',
             'email' => 'someone@example.com',
             'phone' => '0771112222',
+            // A password sent along is not a password anybody can sign in with.
             'password' => 'Passw0rd1',
-            'confirmPassword' => 'Passw0rd1',
-        ])->assertStatus(404);
+        ])->assertCreated();
 
-        // Nothing was created by the attempt.
+        // The agency is filed as pending, with no login of any kind.
+        $this->assertDatabaseHas('agencies', ['email' => 'someone@example.com', 'status' => 'pending']);
         $this->assertDatabaseMissing('users', ['email' => 'someone@example.com']);
+
+        $this->postJson('/api/v1/auth/login', ['username' => 'someone@example.com', 'password' => 'Passw0rd1'])
+            ->assertStatus(401);
+    }
+
+    public function test_an_approved_application_is_issued_a_login_it_can_sign_in_with(): void
+    {
+        $applied = $this->postJson('/api/v1/auth/register', [
+            'name' => 'Skyline Manpower',
+            'type' => 'foreign',
+            'country' => 'Israel',
+            'registrationNo' => '514236789',
+            'contact' => 'Nadia Perera',
+            'address' => '18 Galle Road, Colombo',
+            'email' => 'skyline@example.com',
+            'phone' => '0771119999',
+        ])->assertCreated()->json('data');
+        $this->assertNotEmpty($applied['reference']);
+
+        $agency = Agency::where('email', 'skyline@example.com')->firstOrFail();
+        $this->assertNull($agency->username);
+        $this->assertSame('foreign', $agency->type);
+
+        // The same details cannot be filed twice.
+        $this->postJson('/api/v1/auth/register', [
+            'name' => 'Skyline Again',
+            'type' => 'local',
+            'contact' => 'Nadia Perera',
+            'address' => '18 Galle Road, Colombo',
+            'email' => 'skyline@example.com',
+            'phone' => '0772228888',
+        ])->assertStatus(409)->assertJsonPath('errors.email', 'That email address is already registered.');
+
+        // Approving it issues the login and hands it to the administrator.
+        $credentials = $this->withToken($this->adminToken())
+            ->patchJson('/api/v1/agencies/'.$agency->id.'/status', ['status' => 'active'])
+            ->assertOk()
+            ->json('data.credentials');
+
+        $this->assertNotEmpty($credentials['username']);
+        $this->assertSame('skyline@example.com', $credentials['email']['to']);
+        $this->assertDatabaseHas('users', ['email' => 'skyline@example.com', 'role_slug' => 'agency_owner']);
+
+        // And that login works, with the codes the first sign-in asks for.
+        $this->assertNotEmpty($this->signIn($credentials['username'], $credentials['password']));
     }
 
     public function test_the_seeded_admin_signs_in_with_its_username(): void
@@ -325,8 +375,9 @@ class AdminOnlyAccountsTest extends TestCase
             'mobile' => '0771234567',
         ])->assertCreated()->json('data.candidate.id');
 
-        // Documents are attached once the candidate has passed.
-        $this->withToken($ownerToken)
+        // Documents are attached once the candidate has passed, which the
+        // admin side records - the agency does not run the test.
+        $this->withToken($this->adminToken())
             ->patchJson('/api/v1/candidates/'.$candidateId.'/pass', ['passed' => true])
             ->assertOk();
 

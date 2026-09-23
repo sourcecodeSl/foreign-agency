@@ -7,6 +7,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CandidateController;
 use App\Http\Controllers\CandidateDocumentController;
 use App\Http\Controllers\CoordinatorController;
+use App\Http\Controllers\CountryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployerAgreementController;
 use App\Http\Controllers\ForeignCompanyController;
@@ -25,8 +26,9 @@ use Illuminate\Support\Facades\Route;
 */
 
 // --- Auth -------------------------------------------------------------------
-// There is deliberately no /auth/register: accounts are never self-created.
-// The Main Admin is seeded, and agency logins are issued from the admin panel.
+// /auth/register files an application only: an agency's own details, with no
+// login. The Main Admin is seeded, and every agency login is still issued from
+// the admin panel - on approving the application, or on creating the agency.
 // Each throttled route keeps its own count (the third throttle argument),
 // so one sign-in - login, phone code, email code - never uses up another
 // step's limit.
@@ -35,6 +37,9 @@ Route::prefix('auth')->group(function () {
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:12,15,verify-otp');
     Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:12,15,verify-email');
     Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:12,15,resend-otp');
+    // An agency applies for itself: details only, no login until the
+    // administrator approves it.
+    Route::post('/register', [AgencyController::class, 'register'])->middleware('throttle:5,60,register');
     Route::get('/me', [AuthController::class, 'me'])->middleware('auth.jwt');
     Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth.jwt');
 
@@ -45,11 +50,24 @@ Route::prefix('auth')->group(function () {
     Route::post('/forgot-password/reset', [PasswordResetController::class, 'reset'])->middleware('throttle:12,15,forgot-reset');
 });
 
+// --- Countries --------------------------------------------------------------
+// Read by anybody: an agency registering itself picks its country before it
+// has a login. Only the Main Admin and coordinators change the list, which
+// the controller checks.
+Route::get('/countries', [CountryController::class, 'index']);
+Route::middleware('auth.jwt')->group(function () {
+    Route::post('/countries', [CountryController::class, 'store']);
+    Route::delete('/countries/{id}', [CountryController::class, 'destroy']);
+});
+
 // --- Verification: public confirmation link ---------------------------------
 Route::get('/verification/emails/confirm/{token}', [VerificationController::class, 'confirmByToken']);
 
 // --- Agencies ---------------------------------------------------------------
 Route::prefix('agencies')->middleware('auth.jwt')->group(function () {
+    // The foreign companies a candidate may be registered for. Outside the
+    // permission matrix: a local agency registering a candidate picks one.
+    Route::get('/foreign-options', [AgencyController::class, 'foreignOptions']);
     Route::get('/', [AgencyController::class, 'index'])->middleware('can.perm:agencies,view');
     Route::get('/counts', [AgencyController::class, 'counts'])->middleware('can.perm:agencies,view');
     Route::get('/{id}', [AgencyController::class, 'show'])->middleware('can.perm:agencies,view');
@@ -88,6 +106,8 @@ Route::prefix('candidates')->middleware('auth.jwt')->group(function () {
     // The agency's own switch: passing opens the file for documents and ties
     // the person to that agency.
     Route::patch('/{id}/pass', [CandidateController::class, 'pass'])->middleware('can.perm:candidates,edit');
+    // How the test went, recorded by the foreign company or the admin side.
+    Route::patch('/{id}/test-result', [CandidateController::class, 'testResult']);
     // Applied / received, with the reference number and the date issued.
     Route::patch('/{id}/police-report', [CandidateController::class, 'policeReport'])->middleware('can.perm:candidates,edit');
     // Submitting the profile is a coordinator's call (or the Main Admin's),
@@ -143,8 +163,14 @@ Route::prefix('coordinators')->middleware('auth.jwt')->group(function () {
 // Each company belongs to the coordinator (foreign agent) who brought it in;
 // the Main Admin sees every one. can.page holds a coordinator to the pages
 // opened to them; the controller keeps agency logins out altogether.
+// The active companies, by name: a candidate is registered for one of them,
+// so an agency registering a candidate reads this list too.
+Route::get('/companies/options', [ForeignCompanyController::class, 'options'])->middleware('auth.jwt');
+
 Route::middleware(['auth.jwt', 'can.page:companies'])->group(function () {
     Route::prefix('companies')->group(function () {
+        // Everyone registered for this company's test, however it went.
+        Route::get('/{id}/registered-candidates', [ForeignCompanyController::class, 'registeredCandidates']);
         Route::get('/', [ForeignCompanyController::class, 'index']);
         Route::post('/', [ForeignCompanyController::class, 'store']);
         Route::get('/{id}', [ForeignCompanyController::class, 'show']);
@@ -181,9 +207,6 @@ Route::prefix('tests')->middleware('auth.jwt')->group(function () {
 Route::middleware(['auth.jwt', 'can.page:agreements'])->group(function () {
     Route::get('/agreement-templates', [AgreementController::class, 'templates']);
     Route::post('/agreement-templates', [AgreementController::class, 'uploadTemplate']);
-    // The admin side's blank agreements, for a foreign company to download.
-    Route::get('/agreement-templates/blank', [AgreementController::class, 'blankTemplates']);
-    Route::get('/agreement-templates/blank/{id}/file', [AgreementController::class, 'blankTemplateFile']);
     Route::get('/agreement-templates/{id}/file', [AgreementController::class, 'templateFile']);
     Route::delete('/agreement-templates/{id}', [AgreementController::class, 'deleteTemplate']);
 

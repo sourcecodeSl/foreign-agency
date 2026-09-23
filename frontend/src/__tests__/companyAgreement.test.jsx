@@ -146,6 +146,19 @@ describe("a foreign company's agreement, from each side", () => {
     expect(localiseEmployer).toHaveBeenCalledTimes(1);
   });
 
+  it('opens Google Translate with the English of the agreement', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const user = userEvent.setup();
+    renderAs(COMPANY);
+
+    await user.click(screen.getByRole('button', { name: /google translate/i }));
+
+    const url = open.mock.calls[0][0];
+    expect(url).toContain('translate.google.com');
+    expect(decodeURIComponent(url)).toContain('Ruth Levin');
+    open.mockRestore();
+  });
+
   it('lets the company still correct it once sent, without sending it again', async () => {
     const user = userEvent.setup();
     renderAs(COMPANY, { ...AGREEMENT, status: 'sent_to_admin' });
