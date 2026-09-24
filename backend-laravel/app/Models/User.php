@@ -24,6 +24,8 @@ class User extends Model
     protected $casts = [
         // Pages the Main Admin has opened to a coordinator; unused by other roles.
         'page_access' => 'array',
+        // Light or dark, accent, sidebar and text size (AppearanceController).
+        'appearance' => 'array',
     ];
 
     private const ROLE_LABELS = [

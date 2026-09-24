@@ -42,6 +42,13 @@ return [
     'debug' => (bool) env('APP_DEBUG', false),
 
     /*
+    | The key for /api/v1/system/update, which brings the database up to date
+    | from a browser where php artisan cannot be run. Unset (or shorter than
+    | 32 characters) and that page does not exist.
+    */
+    'migrate_key' => env('MIGRATE_KEY'),
+
+    /*
     |--------------------------------------------------------------------------
     | Application URL
     |--------------------------------------------------------------------------

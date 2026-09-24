@@ -26,7 +26,7 @@ function Toggle({ checked, onChange, disabled, label }) {
     >
       <span
         className={
-          'inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition ' +
+          'inline-block h-3.5 w-3.5 transform rounded-full bg-surface shadow transition ' +
           (checked ? 'translate-x-[1.15rem]' : 'translate-x-[0.2rem]')
         }
       />
@@ -246,7 +246,7 @@ export default function UserPermissions() {
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-gray-100 bg-white">
+              <tbody className="divide-y divide-gray-100 bg-surface">
                 {loading && (
                   <tr>
                     <td colSpan={PERMISSION_ACTIONS.length + 2} className="px-5 py-10 text-center text-gray-500">

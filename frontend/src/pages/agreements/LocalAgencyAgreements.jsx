@@ -46,7 +46,7 @@ function AgreementTable({ agreements, selectedId, onSelect, onAssign }) {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 bg-white">
+          <tbody className="divide-y divide-gray-100 bg-surface">
             {paged.map((a) => {
               const selected = a.id === selectedId;
               return (

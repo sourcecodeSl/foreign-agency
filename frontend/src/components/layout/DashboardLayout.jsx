@@ -25,6 +25,7 @@ const PAGE_META = [
   { match: /^\/users\/coordinators/, title: 'Coordinators & Access', subtitle: 'Add people to help run the system and choose the pages each one can open' },
   { match: /^\/users/, title: 'Users List', subtitle: 'Manage every user account in the system' },
   { match: /^\/verification\/emails/, title: 'Email Verification', subtitle: 'Track and manage email confirmations' },
+  { match: /^\/settings\/appearance/, title: 'Appearance', subtitle: 'Theme, colours and text size for your own login' },
   { match: /^\/no-access/, title: 'No Access Yet', subtitle: 'Waiting for the Main Admin to open pages to you' },
 ];
 

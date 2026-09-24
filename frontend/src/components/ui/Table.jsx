@@ -41,7 +41,7 @@ export default function Table({
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 bg-white">
+          <tbody className="divide-y divide-gray-100 bg-surface">
             {loading && (
               <tr>
                 <td colSpan={columns.length} className="px-5">

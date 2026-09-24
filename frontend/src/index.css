@@ -3,6 +3,22 @@
 @tailwind utilities;
 
 @layer base {
+  /* The default sidebar reads the page's own colours, so it follows light and
+     dark with everything else. A dark or accent sidebar overrides these from
+     src/lib/theme.js; so do all the --c-* colours themselves. */
+  :root {
+    --sb-bg: var(--c-surface);
+    --sb-border: var(--c-gray-200);
+    --sb-text: var(--c-gray-600);
+    --sb-muted: var(--c-gray-400);
+    --sb-hover: var(--c-gray-100);
+    --sb-hover-text: var(--c-gray-900);
+    --sb-active: var(--c-primary-50);
+    --sb-active-text: var(--c-primary-700);
+    --sb-active-icon: var(--c-primary-600);
+    --sb-title: var(--c-gray-900);
+    --sb-card: var(--c-gray-50);
+  }
   html {
     -webkit-font-smoothing: antialiased;
   }
@@ -16,7 +32,7 @@
     @apply mb-1.5 block text-sm font-medium text-gray-700;
   }
   .field-input {
-    @apply w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900
+    @apply w-full rounded-lg border border-gray-300 bg-surface px-3.5 py-2.5 text-sm text-gray-900
            placeholder:text-gray-400 focus:border-primary-500 focus:outline-none
            focus:ring-4 focus:ring-primary-100 disabled:bg-gray-50 disabled:text-gray-500;
   }
@@ -42,7 +58,14 @@
   animation: top-loader-slide 1.1s ease-in-out infinite;
 }
 
-/* SweetAlert2 in the app's own typeface. */
+/* SweetAlert2 in the app's own typeface, and in its colours when dark. */
 .swal2-popup {
   font-family: Inter, ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+}
+[data-theme='dark'] .swal2-popup {
+  background: rgb(var(--c-surface));
+  color: rgb(var(--c-gray-700));
+}
+[data-theme='dark'] .swal2-title {
+  color: rgb(var(--c-gray-900));
 }

@@ -29,7 +29,7 @@ export default function Modal({ open, title, subtitle, onClose, footer, children
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px]"
       onClick={onClose}
     >
       <div
@@ -39,7 +39,7 @@ export default function Modal({ open, title, subtitle, onClose, footer, children
         // The backdrop closes on click, so a click inside must not bubble.
         onClick={(e) => e.stopPropagation()}
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200
-                   bg-white shadow-xl"
+                   bg-surface shadow-xl"
       >
         <div className="flex items-start justify-between gap-3 border-b border-gray-200 px-5 py-4">
           <div className="min-w-0">

@@ -28,7 +28,7 @@ export default function Topbar({ onMenuClick, title, subtitle }) {
     .toUpperCase();
 
   return (
-    <header className="sticky top-0 z-20 border-b border-gray-200 bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-20 border-b border-gray-200 bg-surface/90 backdrop-blur">
       <div className="flex h-16 items-center gap-3 px-4 sm:px-6">
         <button
           type="button"
@@ -51,7 +51,7 @@ export default function Topbar({ onMenuClick, title, subtitle }) {
             type="search"
             placeholder="Search agencies, users..."
             className="w-64 rounded-lg border border-gray-300 bg-gray-50 py-2 pl-10 pr-3 text-sm
-                       placeholder:text-gray-400 focus:border-primary-500 focus:bg-white
+                       placeholder:text-gray-400 focus:border-primary-500 focus:bg-surface
                        focus:outline-none focus:ring-4 focus:ring-primary-100"
           />
         </div>
@@ -84,7 +84,7 @@ export default function Topbar({ onMenuClick, title, subtitle }) {
           {menuOpen && (
             <div
               role="menu"
-              className="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-lg"
+              className="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-gray-200 bg-surface py-1 shadow-lg"
             >
               <div className="border-b border-gray-100 px-4 py-3">
                 <p className="text-sm font-medium text-gray-900">{admin?.name || 'Main Admin'}</p>

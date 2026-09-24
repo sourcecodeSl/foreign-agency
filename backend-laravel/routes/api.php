@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AgencyController;
 use App\Http\Controllers\AgreementController;
+use App\Http\Controllers\AppearanceController;
 use App\Http\Controllers\AgencyProfileController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CandidateController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\JobRoleController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\SystemUpdateController;
 use App\Http\Controllers\SkillTestController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VerificationController;
@@ -48,6 +50,19 @@ Route::prefix('auth')->group(function () {
     Route::post('/forgot-password/resend', [PasswordResetController::class, 'resend'])->middleware('throttle:12,15,forgot-resend');
     Route::post('/forgot-password/verify', [PasswordResetController::class, 'verify'])->middleware('throttle:12,15,forgot-verify');
     Route::post('/forgot-password/reset', [PasswordResetController::class, 'reset'])->middleware('throttle:12,15,forgot-reset');
+});
+
+// --- Database update from a browser -----------------------------------------
+// For a live server where php artisan cannot be run. Off unless MIGRATE_KEY is
+// set in .env; the key is typed into the page, and each try is limited.
+Route::get('/system/update', [SystemUpdateController::class, 'show']);
+Route::post('/system/update', [SystemUpdateController::class, 'handle'])->middleware('throttle:5,1,system-update');
+
+// --- The signed-in person's own appearance ----------------------------------
+// Every role has one; each login reads and changes only its own.
+Route::prefix('account')->middleware('auth.jwt')->group(function () {
+    Route::get('/appearance', [AppearanceController::class, 'show']);
+    Route::put('/appearance', [AppearanceController::class, 'update']);
 });
 
 // --- Countries --------------------------------------------------------------

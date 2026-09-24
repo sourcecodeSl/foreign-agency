@@ -9,6 +9,7 @@ import {
   IconX,
   IconMail,
   IconDocument,
+  IconPalette,
 } from '../ui/Icons';
 
 /**
@@ -67,6 +68,14 @@ const ADMIN_NAV = [
   },
 ];
 
+// Every login, whatever its role, sets how its own interface looks.
+const SETTINGS_NAV = [
+  {
+    section: 'Settings',
+    items: [{ to: '/settings/appearance', label: 'Appearance', icon: IconPalette, everyone: true }],
+  },
+];
+
 const AGENCY_NAV = [
   {
     section: 'Candidates',
@@ -119,14 +128,14 @@ const AGREEMENTS_NAV = [
  * opened to them - with any section left empty dropped.
  */
 function adminNavFor(admin) {
-  return ADMIN_NAV.map((group) => ({
+  return [...ADMIN_NAV, ...SETTINGS_NAV].map((group) => ({
     ...group,
     items: group.items.filter(
       (item) =>
         (!item.mainAdminOnly || admin?.roleSlug === 'main_admin') &&
         // The auditor reads the admin side but has no business filling agreements.
         (!item.adminSideOnly || ['main_admin', COORDINATOR].includes(admin?.roleSlug)) &&
-        canOpen(admin, item.page)
+        (item.everyone || canOpen(admin, item.page))
     ),
   })).filter((group) => group.items.length > 0);
 }
@@ -148,14 +157,14 @@ function NavItem({ item, onNavigate }) {
       className={({ isActive }) =>
         'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ' +
         (filtered ?? isActive
-          ? 'bg-primary-50 text-primary-700'
-          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900')
+          ? 'bg-sb-active text-sb-active-text'
+          : 'text-sb-text hover:bg-sb-hover hover:text-sb-hover-text')
       }
     >
       {({ isActive }) => (
         <>
           <Icon
-            className={'h-5 w-5 ' + ((filtered ?? isActive) ? 'text-primary-600' : 'text-gray-400')}
+            className={'h-5 w-5 ' + ((filtered ?? isActive) ? 'text-sb-active-icon' : 'text-sb-muted')}
           />
           <span className="truncate">{item.label}</span>
         </>
@@ -179,6 +188,7 @@ export default function Sidebar({ open, onClose }) {
             ? AGENCY_OWNER_NAV
             : AGENCY_NAV),
         ...(admin.agency ? AGREEMENTS_NAV : []),
+        ...SETTINGS_NAV,
       ];
 
   return (
@@ -187,7 +197,7 @@ export default function Sidebar({ open, onClose }) {
       <div
         onClick={onClose}
         className={
-          'fixed inset-0 z-30 bg-gray-900/40 backdrop-blur-sm transition-opacity lg:hidden ' +
+          'fixed inset-0 z-30 bg-black/40 backdrop-blur-sm transition-opacity lg:hidden ' +
           (open ? 'opacity-100' : 'pointer-events-none opacity-0')
         }
         aria-hidden="true"
@@ -195,22 +205,22 @@ export default function Sidebar({ open, onClose }) {
 
       <aside
         className={
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-gray-200 bg-white ' +
+          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-sb-border bg-sb-bg ' +
           'transition-transform duration-200 lg:translate-x-0 ' +
           (open ? 'translate-x-0' : '-translate-x-full')
         }
       >
         {/* Brand */}
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 px-5">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-sb-border px-5">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 text-sm font-bold text-white">
               {isAgency ? 'AA' : 'CA'}
             </div>
             <div className="leading-tight">
-              <p className="text-sm font-semibold text-gray-900">
+              <p className="text-sm font-semibold text-sb-title">
                 {isAgency ? admin?.agency?.name || 'Agency' : 'Coordinator Admin'}
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-sb-muted">
                 {isAgency
                   ? admin?.agency?.type === 'foreign'
                     ? 'Foreign Company Portal'
@@ -224,7 +234,7 @@ export default function Sidebar({ open, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 lg:hidden"
+            className="rounded-md p-1.5 text-sb-muted hover:bg-sb-hover lg:hidden"
             aria-label="Close navigation"
           >
             <IconX className="h-5 w-5" />
@@ -235,7 +245,7 @@ export default function Sidebar({ open, onClose }) {
         <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
           {nav.map((group) => (
             <div key={group.section}>
-              <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
+              <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-sb-muted">
                 {group.section}
               </p>
               <div className="space-y-1">
@@ -248,10 +258,10 @@ export default function Sidebar({ open, onClose }) {
         </nav>
 
         {/* Footer card */}
-        <div className="border-t border-gray-200 p-3">
-          <div className="rounded-lg bg-gray-50 p-3">
-            <p className="text-xs font-semibold text-gray-900">Signed in as</p>
-            <p className="mt-1 truncate text-xs text-gray-500">
+        <div className="border-t border-sb-border p-3">
+          <div className="rounded-lg bg-sb-card p-3">
+            <p className="text-xs font-semibold text-sb-title">Signed in as</p>
+            <p className="mt-1 truncate text-xs text-sb-muted">
               {roleLabel(admin) || 'User'}
             </p>
           </div>

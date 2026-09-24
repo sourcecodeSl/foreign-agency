@@ -194,7 +194,7 @@ export default function NotificationBell() {
         {count > 0 && (
           <span
             aria-hidden="true"
-            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-white"
+            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-surface"
           >
             {count > 9 ? '9+' : count}
           </span>
@@ -208,7 +208,7 @@ export default function NotificationBell() {
           <div
             role="dialog"
             aria-label="Notifications"
-            className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg"
+            className="overflow-hidden rounded-xl border border-gray-200 bg-surface shadow-lg"
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
               <p className="text-sm font-semibold text-gray-900">Notifications</p>

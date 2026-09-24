@@ -154,7 +154,7 @@ export default function UsersList() {
   ];
 
   const selectClass =
-    'rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 ' +
+    'rounded-lg border border-gray-300 bg-surface px-3 py-2 text-sm text-gray-700 ' +
     'focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100';
 
   return (

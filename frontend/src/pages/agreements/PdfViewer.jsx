@@ -70,13 +70,13 @@ export default function PdfViewerHost() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-gray-900/60 p-2 sm:p-6" onClick={close}>
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-2 sm:p-6" onClick={close}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-surface shadow-xl"
       >
         <div className="flex items-center gap-3 border-b border-gray-200 px-5 py-3">
           <p className="min-w-0 flex-1 truncate text-base font-semibold text-gray-900">{title}</p>

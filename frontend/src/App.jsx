@@ -25,6 +25,8 @@ import CandidateList from './pages/candidates/CandidateList';
 import CompanyCandidates from './pages/candidates/CompanyCandidates';
 import RegisterCandidate from './pages/candidates/RegisterCandidate';
 import CandidateDetail from './pages/candidates/CandidateDetail';
+import Appearance from './pages/settings/Appearance';
+import { AppearanceProvider } from './context/AppearanceContext';
 import Agreements from './pages/agreements/Agreements';
 import AgreementEditor from './pages/agreements/AgreementEditor';
 import EmployerAgreement from './pages/agreements/EmployerAgreement';
@@ -84,48 +86,53 @@ export default function App() {
       <ToastProvider>
         <TopLoader />
         <AuthProvider>
-          <Routes>
-            {/* Public */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            {/* An agency applies for itself; the admin approves and issues the login. */}
-            <Route path="/register" element={<Register />} />
-            <Route path="/verify-phone" element={<VerifyPhone />} />
-            <Route path="/verify-email" element={<VerifyEmail />} />
+          {/* The signed-in person's own look, on every screen. */}
+          <AppearanceProvider>
+            <Routes>
+              {/* Public */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              {/* An agency applies for itself; the admin approves and issues the login. */}
+              <Route path="/register" element={<Register />} />
+              <Route path="/verify-phone" element={<VerifyPhone />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
 
-            {/* Protected dashboard */}
-            <Route
-              element={
-                <RequireAuth>
-                  <DashboardLayout />
-                </RequireAuth>
-              }
-            >
-              {/* `page` is what a coordinator needs opened; null is never opened to one. */}
-              <Route path="/dashboard" element={<PageGate page="dashboard"><Dashboard /></PageGate>} />
-              <Route path="/agencies" element={<PageGate page="agencies"><AgencyList /></PageGate>} />
-              <Route path="/agencies/create" element={<PageGate page="agencies.create"><CreateAgency /></PageGate>} />
-              <Route path="/agency/profile" element={<PageGate page={null}><AgencyProfile /></PageGate>} />
-              <Route path="/candidates" element={<PageGate page="candidates"><CandidatesHome /></PageGate>} />
-              <Route path="/candidates/all" element={<PageGate page="candidates"><CandidateList /></PageGate>} />
-              {/* One company's own candidates, where its results are recorded. */}
-              <Route path="/companies/candidates" element={<PageGate page="companies"><CompanyCandidates /></PageGate>} />
-              <Route path="/candidates/register" element={<PageGate page="candidates"><RegisterCandidate /></PageGate>} />
-              <Route path="/candidates/:id" element={<PageGate page="candidates"><CandidateDetail /></PageGate>} />
-              <Route path="/users" element={<PageGate page={null}><UsersList /></PageGate>} />
-              <Route path="/users/types" element={<PageGate page={null}><UserTypes /></PageGate>} />
-              <Route path="/users/permissions" element={<PageGate page={null}><UserPermissions /></PageGate>} />
-              <Route path="/users/coordinators" element={<PageGate page={null}><Coordinators /></PageGate>} />
-              <Route path="/verification/emails" element={<PageGate page="verification"><EmailVerification /></PageGate>} />
-              <Route path="/agreements" element={<AgreementsGate><Agreements /></AgreementsGate>} />
-              <Route path="/agreements/:id" element={<AgreementsGate><AgreementEditor /></AgreementsGate>} />
-              <Route path="/employer-agreement" element={<ForeignCompanyGate><EmployerAgreement /></ForeignCompanyGate>} />
-              <Route path="/no-access" element={<NoAccess />} />
-            </Route>
+              {/* Protected dashboard */}
+              <Route
+                element={
+                  <RequireAuth>
+                    <DashboardLayout />
+                  </RequireAuth>
+                }
+              >
+                {/* `page` is what a coordinator needs opened; null is never opened to one. */}
+                <Route path="/dashboard" element={<PageGate page="dashboard"><Dashboard /></PageGate>} />
+                <Route path="/agencies" element={<PageGate page="agencies"><AgencyList /></PageGate>} />
+                <Route path="/agencies/create" element={<PageGate page="agencies.create"><CreateAgency /></PageGate>} />
+                <Route path="/agency/profile" element={<PageGate page={null}><AgencyProfile /></PageGate>} />
+                <Route path="/candidates" element={<PageGate page="candidates"><CandidatesHome /></PageGate>} />
+                <Route path="/candidates/all" element={<PageGate page="candidates"><CandidateList /></PageGate>} />
+                {/* One company's own candidates, where its results are recorded. */}
+                <Route path="/companies/candidates" element={<PageGate page="companies"><CompanyCandidates /></PageGate>} />
+                <Route path="/candidates/register" element={<PageGate page="candidates"><RegisterCandidate /></PageGate>} />
+                <Route path="/candidates/:id" element={<PageGate page="candidates"><CandidateDetail /></PageGate>} />
+                <Route path="/users" element={<PageGate page={null}><UsersList /></PageGate>} />
+                <Route path="/users/types" element={<PageGate page={null}><UserTypes /></PageGate>} />
+                <Route path="/users/permissions" element={<PageGate page={null}><UserPermissions /></PageGate>} />
+                <Route path="/users/coordinators" element={<PageGate page={null}><Coordinators /></PageGate>} />
+                <Route path="/verification/emails" element={<PageGate page="verification"><EmailVerification /></PageGate>} />
+                <Route path="/agreements" element={<AgreementsGate><Agreements /></AgreementsGate>} />
+                <Route path="/agreements/:id" element={<AgreementsGate><AgreementEditor /></AgreementsGate>} />
+                <Route path="/employer-agreement" element={<ForeignCompanyGate><EmployerAgreement /></ForeignCompanyGate>} />
+                <Route path="/no-access" element={<NoAccess />} />
+                {/* Every login sets its own look, whatever pages it is given. */}
+                <Route path="/settings/appearance" element={<Appearance />} />
+              </Route>
 
-            <Route path="/" element={<HomeRedirect />} />
-            <Route path="*" element={<HomeRedirect />} />
-          </Routes>
+              <Route path="/" element={<HomeRedirect />} />
+              <Route path="*" element={<HomeRedirect />} />
+            </Routes>
+          </AppearanceProvider>
         </AuthProvider>
       </ToastProvider>
     </BrowserRouter>

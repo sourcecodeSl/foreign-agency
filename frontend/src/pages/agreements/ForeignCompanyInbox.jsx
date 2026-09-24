@@ -20,7 +20,7 @@ function DocumentCard({ agreement, selected, onToggle }) {
     <div
       className={
         'flex flex-col rounded-xl border p-4 transition ' +
-        (selected ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-500' : 'border-gray-200 bg-white')
+        (selected ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-500' : 'border-gray-200 bg-surface')
       }
     >
       <label htmlFor={id} className="flex cursor-pointer items-start gap-3">

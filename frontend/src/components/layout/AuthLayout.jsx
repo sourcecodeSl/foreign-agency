@@ -39,7 +39,7 @@ function SignInAside() {
  */
 export default function AuthLayout({ title, subtitle, children, footer, aside }) {
   return (
-    <div className="flex min-h-screen bg-white">
+    <div className="flex min-h-screen bg-surface">
       {/* Form column */}
       <div className="flex w-full flex-col justify-center px-6 py-12 sm:px-12 lg:w-1/2 xl:px-24">
         <div className="mx-auto w-full max-w-sm">

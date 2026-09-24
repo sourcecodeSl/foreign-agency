@@ -756,6 +756,21 @@ export const dashboardApi = {
   },
 };
 
+// --- Appearance -------------------------------------------------------------
+/** The signed-in person's own look of the interface: every role has one. */
+export const appearanceApi = {
+  async get() {
+    if (USE_MOCK) return ok(null);
+    return request('/account/appearance', { background: true });
+  },
+
+  /** Only what is sent changes: { mode?, accent?, sidebar?, textSize? }. */
+  async save(changes) {
+    if (USE_MOCK) return ok(changes);
+    return request('/account/appearance', { method: 'PUT', body: changes, background: true });
+  },
+};
+
 // --- Notifications ----------------------------------------------------------
 export const notificationsApi = {
   /** Opened: the bell stops listing it for this login, on every device. */

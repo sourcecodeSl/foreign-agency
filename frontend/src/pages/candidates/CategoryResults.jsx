@@ -574,7 +574,7 @@ export function OtherRegistrations({ candidate, canBlock, onChanged }) {
       role="alert"
       className={
         'rounded-xl border px-5 py-4 text-sm ' +
-        (open ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-gray-200 bg-white text-gray-700')
+        (open ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-gray-200 bg-surface text-gray-700')
       }
     >
       <p className="font-semibold">
@@ -587,7 +587,7 @@ export function OtherRegistrations({ candidate, canBlock, onChanged }) {
       </p>
       <ul className="mt-3 space-y-2">
         {rows.map((row) => (
-          <li key={row.id} className="flex flex-wrap items-center gap-3 rounded-lg bg-white/70 px-3 py-2">
+          <li key={row.id} className="flex flex-wrap items-center gap-3 rounded-lg bg-surface/70 px-3 py-2">
             <span className="min-w-0 flex-1 font-medium text-gray-900">
               {row.company?.name || 'No company chosen'}
               {row.agencyName ? <span className="font-normal text-gray-500"> · via {row.agencyName}</span> : null}
