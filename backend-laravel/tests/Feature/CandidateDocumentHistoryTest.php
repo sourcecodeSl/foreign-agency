@@ -34,6 +34,9 @@ class CandidateDocumentHistoryTest extends TestCase
             ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
             ->assertOk();
 
+        // Documents also wait for the police report to be applied for.
+        \App\Models\Candidate::whereKey($id)->update(['police_status' => 'applied', 'police_reference_no' => 'PR/2026/0001']);
+
         $this->defaultHeaders = $headers;
         $this->app['auth']->forgetGuards();
     }
@@ -243,7 +246,7 @@ class CandidateDocumentHistoryTest extends TestCase
         ], $entries);
     }
 
-    public function test_the_zip_covers_all_eight_types_when_every_one_is_uploaded(): void
+    public function test_the_zip_covers_every_type_when_every_one_is_uploaded(): void
     {
         $id = $this->candidateId('Nimal Silva');
 
@@ -266,9 +269,9 @@ class CandidateDocumentHistoryTest extends TestCase
         $zip->close();
         @unlink($tmp);
 
-        $this->assertSame(8, $count);
+        $this->assertSame(count(DocumentType::cases()), $count);
         $this->assertSame('01 Passport Copy/passport_copy.pdf', $first);
-        $this->assertSame('08 Agreement/agreement.pdf', $last);
+        $this->assertSame('09 Agreement/agreement.pdf', $last);
     }
 
     public function test_downloading_the_zip_of_another_agency_candidate_is_refused(): void

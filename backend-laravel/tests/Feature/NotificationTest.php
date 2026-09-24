@@ -112,13 +112,34 @@ class NotificationTest extends TestCase
 
         $bell = $this->bell($this->skyline);
 
-        $this->assertSame('Kamal Perera is missing 8 documents', $bell['candidate-missing-'.$draft] ?? null);
-        $this->assertSame('Nimal Silva was approved', $bell['candidate-decided-'.$approved] ?? null);
+        $this->assertSame('Kamal Perera is missing 8 documents', $bell['candidate-missing-'.$draft.'-8'] ?? null);
+        $this->assertSame('Nimal Silva was approved', $bell['candidate-decided-'.$approved.'-approved'] ?? null);
         $this->assertSame('Your agency is now active', $bell['agency-active-AG-9001'] ?? null);
 
         // Nothing from another agency, and nothing meant for the administrator.
-        $this->assertArrayNotHasKey('candidate-missing-'.$elsewhere, $bell);
+        $this->assertArrayNotHasKey('candidate-missing-'.$elsewhere.'-8', $bell);
         $this->assertArrayNotHasKey('agency-pending-AG-1042', $bell);
+    }
+
+    public function test_an_opened_notification_leaves_the_bell_until_its_state_moves_on(): void
+    {
+        $draft = $this->register($this->skyline, 'Kamal Perera', 'N1000001');
+        $key = 'candidate-missing-'.$draft.'-8';
+
+        $this->assertArrayHasKey($key, $this->bell($this->skyline));
+
+        $this->withToken($this->skyline)->postJson('/api/v1/notifications/'.$key.'/dismiss')->assertOk();
+        // Opening it twice is harmless.
+        $this->withToken($this->skyline)->postJson('/api/v1/notifications/'.$key.'/dismiss')->assertOk();
+
+        $this->assertArrayNotHasKey($key, $this->bell($this->skyline));
+
+        // Another login still sees its own copy.
+        $this->assertArrayHasKey('agency-pending-AG-1042', $this->bell($this->admin));
+
+        // Once something changes, the new state shows again under a new id.
+        Candidate::whereKey($draft)->update(['status' => 'approved']);
+        $this->assertArrayHasKey('candidate-decided-'.$draft.'-approved', $this->bell($this->skyline));
     }
 
     public function test_the_bell_needs_a_signed_in_account(): void

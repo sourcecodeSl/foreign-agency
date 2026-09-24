@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\ApiException;
+use App\Models\Agency;
 use App\Models\Candidate;
 use App\Models\CandidateDocument;
 use App\Support\ApiResponse;
@@ -70,6 +71,7 @@ class CandidateDocumentController extends Controller
     {
         $this->requireOwningAgency($request);
         $candidate = $this->find($request, $candidateId);
+        $this->requireOwnedBy($request, $candidate);
         $this->requireOpenForDocuments($candidate);
 
         $request->validate([
@@ -109,6 +111,7 @@ class CandidateDocumentController extends Controller
     {
         $this->requireOwningAgency($request);
         $candidate = $this->find($request, $candidateId);
+        $this->requireOwnedBy($request, $candidate);
         $this->requireOpenForDocuments($candidate);
 
         $rules = ['documents' => ['required', 'array', 'min:1']];
@@ -285,6 +288,17 @@ class CandidateDocumentController extends Controller
     }
 
     /**
+     * The foreign company testing the candidate reads the file, so reading is
+     * not enough to attach to it: only the agency that registered them may.
+     */
+    private function requireOwnedBy(Request $request, Candidate $candidate): void
+    {
+        if ($candidate->agency_id !== ($request->attributes->get('auth_user')['agencyId'] ?? null)) {
+            throw new ApiException(403, 'Documents are attached by the agency that owns the candidate.');
+        }
+    }
+
+    /**
      * Documents are collected only for a candidate who has passed, and stop
      * once the coordinator has checked them and submitted the profile.
      */
@@ -298,6 +312,12 @@ class CandidateDocumentController extends Controller
         if (! $candidate->isPassed()) {
             throw new ApiException(409, 'Documents are attached only after the candidate has passed. '
                 .'Mark '.$candidate->name.' as passed first.');
+        }
+
+        // Passed is not enough on its own: the police report has to be under way.
+        if (! $candidate->policeApplied()) {
+            throw new ApiException(409, 'Apply for '.$candidate->name."'s police report first. "
+                .'Documents are attached once it is applied for or received.');
         }
 
         if (in_array($candidate->status, Candidate::LOCKED_STATUSES, true)) {
@@ -319,11 +339,21 @@ class CandidateDocumentController extends Controller
             return $candidate;
         }
 
-        if ($candidate->agency_id !== ($auth['agencyId'] ?? null)) {
-            throw new ApiException(403, 'This candidate belongs to another agency.');
+        $agencyId = $auth['agencyId'] ?? null;
+        if ($candidate->agency_id === $agencyId) {
+            return $candidate;
         }
 
-        return $candidate;
+        // The foreign company the candidate is registered for reads the file
+        // it is testing, documents and all. Attaching them stays the owning
+        // agency's job, which requireOwningAgency() holds it to.
+        if ($candidate->isRegisteredWith($agencyId)
+            && $agencyId
+            && (Agency::find($agencyId)?->type ?? 'local') === 'foreign') {
+            return $candidate;
+        }
+
+        throw new ApiException(403, 'This candidate belongs to another agency.');
     }
 
     /** Stops a document id from one candidate being read through another. */

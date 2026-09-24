@@ -33,6 +33,9 @@ class CandidateReRegisterTest extends TestCase
             ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
             ->assertOk();
 
+        // Documents also wait for the police report to be applied for.
+        \App\Models\Candidate::whereKey($id)->update(['police_status' => 'applied', 'police_reference_no' => 'PR/2026/0001']);
+
         $this->defaultHeaders = $headers;
         $this->app['auth']->forgetGuards();
     }

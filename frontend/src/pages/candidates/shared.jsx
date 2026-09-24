@@ -2,7 +2,7 @@ import { useState } from 'react';
 import Switch from '../../components/ui/Switch';
 import { useToast } from '../../components/ui/Toast';
 import { candidateApi } from '../../lib/api';
-import { COORDINATOR, canOpen } from '../../lib/access';
+import { COORDINATOR } from '../../lib/access';
 
 /**
  * Who does what with a candidate file, mirroring CandidateController:
@@ -13,11 +13,6 @@ import { COORDINATOR, canOpen } from '../../lib/access';
  *    the agency for itself, a coordinator on an agency's behalf.
  */
 export const isReviewer = (roleSlug) => roleSlug === 'main_admin' || roleSlug === COORDINATOR;
-
-/** Books skill tests and records results: the Main Admin, or a coordinator with the companies page. */
-export const canRunTests = (account) =>
-  account?.roleSlug === 'main_admin' ||
-  (account?.roleSlug === COORDINATOR && canOpen(account, 'companies'));
 
 export const canRegister = (roleSlug) => Boolean(roleSlug) && roleSlug !== 'auditor';
 

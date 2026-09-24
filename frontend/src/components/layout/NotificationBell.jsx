@@ -57,8 +57,8 @@ const timeOf = (item) => (item.at ? new Date(item.at).getTime() : 0);
 
 /**
  * The bell in the top bar. Hovering shows the card; clicking pins it open,
- * which is also how it opens on a touch screen. The red dot means something
- * arrived since the card was last opened.
+ * which is also how it opens on a touch screen. The red badge counts what is
+ * still on the card; opening a notification takes it off, for good.
  */
 export default function NotificationBell() {
   const { admin } = useAuth();
@@ -76,11 +76,14 @@ export default function NotificationBell() {
   const closeTimer = useRef(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  // Opened in this session: kept off even if a refresh lands before the
+  // server has recorded it.
+  const openedRef = useRef(new Set());
 
   const load = useCallback(async () => {
     try {
       const { data } = await notificationsApi.list();
-      setItems(Array.isArray(data) ? data : []);
+      setItems((Array.isArray(data) ? data : []).filter((item) => !openedRef.current.has(item.id)));
     } catch {
       // A failed refresh leaves the last list in place rather than putting
       // an error in the top bar.
@@ -103,10 +106,11 @@ export default function NotificationBell() {
 
   useEffect(() => () => clearTimeout(closeTimer.current), []);
 
-  const unread = items.filter((item) => timeOf(item) > seen).length;
+  // Everything still on the card. Opening one takes it off.
+  const count = items.length;
 
-  // The newest item on the card is what counts as seen, so the dot comes
-  // back only for something newer.
+  // The newest item on the card is what counts as seen, so next time only
+  // something newer is highlighted as new.
   const markSeen = useCallback(() => {
     const newest = itemsRef.current.reduce((max, item) => Math.max(max, timeOf(item)), 0);
     if (newest > 0) {
@@ -165,6 +169,15 @@ export default function NotificationBell() {
 
   const fresh = items.filter((item) => timeOf(item) > highlightSince).length;
 
+  // Off the card straight away; the server remembers it for next time. A
+  // failed call only means it comes back on the next refresh.
+  const openItem = (item) => {
+    openedRef.current.add(item.id);
+    setItems((prev) => prev.filter((other) => other.id !== item.id));
+    notificationsApi.dismiss(item.id).catch(() => {});
+    close();
+  };
+
   return (
     <div ref={wrapperRef} className="relative" onMouseEnter={show} onMouseLeave={handleLeave}>
       <button
@@ -173,13 +186,18 @@ export default function NotificationBell() {
         className={
           'relative rounded-lg p-2 text-gray-600 hover:bg-gray-100 ' + (open ? 'bg-gray-100' : '')
         }
-        aria-label={unread > 0 ? 'Notifications (' + unread + ' new)' : 'Notifications'}
+        aria-label={count > 0 ? 'Notifications (' + count + ')' : 'Notifications'}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
         <IconBell className="h-5 w-5" />
-        {unread > 0 && (
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
+        {count > 0 && (
+          <span
+            aria-hidden="true"
+            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-white"
+          >
+            {count > 9 ? '9+' : count}
+          </span>
         )}
       </button>
 
@@ -221,7 +239,7 @@ export default function NotificationBell() {
                     <li key={item.id}>
                       <Link
                         to={item.link || '#'}
-                        onClick={close}
+                        onClick={() => openItem(item)}
                         className={
                           'flex gap-3 px-4 py-3 transition hover:bg-gray-50 ' +
                           (isFresh ? 'bg-primary-50/40' : '')

@@ -11,6 +11,7 @@ namespace App\Support;
 enum DocumentType: string
 {
     case PassportCopy = 'passport_copy';
+    case NicCopy = 'nic_copy';
     case OnlinePoliceReport = 'online_police_report';
     case Medical = 'medical';
     case AffidavitEnglish = 'affidavit_english';
@@ -23,6 +24,7 @@ enum DocumentType: string
     {
         return match ($this) {
             self::PassportCopy => 'Passport Copy',
+            self::NicCopy => 'NIC Copy',
             self::OnlinePoliceReport => 'Online Police Report',
             self::Medical => 'Medical',
             self::AffidavitEnglish => 'Affidavit English',
@@ -33,17 +35,35 @@ enum DocumentType: string
         };
     }
 
-    /** @return array<int, string> */
+    /**
+     * Whether the profile can be submitted without it. The NIC copy is
+     * welcome but optional; every other document is required.
+     */
+    public function required(): bool
+    {
+        return $this !== self::NicCopy;
+    }
+
+    /** @return array<int, string> Every type an upload may be. */
     public static function values(): array
     {
         return array_column(self::cases(), 'value');
+    }
+
+    /** @return array<int, string> The types a profile needs before it is submitted. */
+    public static function requiredValues(): array
+    {
+        return array_values(array_map(
+            fn (self $case) => $case->value,
+            array_filter(self::cases(), fn (self $case) => $case->required())
+        ));
     }
 
     /** Shape the frontend renders as the upload checklist. */
     public static function options(): array
     {
         return array_map(
-            fn (self $case) => ['value' => $case->value, 'label' => $case->label()],
+            fn (self $case) => ['value' => $case->value, 'label' => $case->label(), 'required' => $case->required()],
             self::cases()
         );
     }

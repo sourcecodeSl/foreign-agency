@@ -36,6 +36,9 @@ class AgencyFullAccessTest extends TestCase
             ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
             ->assertOk();
 
+        // Documents also wait for the police report to be applied for.
+        \App\Models\Candidate::whereKey($id)->update(['police_status' => 'applied', 'police_reference_no' => 'PR/2026/0001']);
+
         $this->defaultHeaders = $headers;
         $this->app['auth']->forgetGuards();
     }
@@ -127,7 +130,7 @@ class AgencyFullAccessTest extends TestCase
         $listing = $this->agency()->getJson('/api/v1/candidates/'.$id.'/documents')
             ->assertOk()->json('data');
 
-        $this->assertCount(8, $listing['documents']);
+        $this->assertCount(count(DocumentType::cases()), $listing['documents']);
         $this->assertSame([], $listing['missing']);
 
         // --- a second version of one type, since uploads are append-only ---
@@ -152,7 +155,7 @@ class AgencyFullAccessTest extends TestCase
         file_put_contents($tmp, $zip->streamedContent());
         $archive = new ZipArchive;
         $this->assertTrue($archive->open($tmp, ZipArchive::CHECKCONS) === true);
-        $this->assertSame(8, $archive->numFiles);
+        $this->assertSame(count(DocumentType::cases()), $archive->numFiles);
         $archive->close();
         @unlink($tmp);
 

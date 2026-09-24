@@ -4,13 +4,12 @@ import { Card, CardHeader } from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
-import Switch from '../../components/ui/Switch';
 import { useToast } from '../../components/ui/Toast';
 import { IconPlus, IconSearch, IconUsers, IconTrash, IconBuilding } from '../../components/ui/Icons';
 import { candidateApi, agencyApi } from '../../lib/api';
 import { confirmAction, escapeHtml } from '../../lib/alert';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
-import { SourceTag, SubmitSwitch, canRegister, isReviewer, isSettled } from './shared';
+import { SourceTag, SubmitSwitch, canRegister, isReviewer } from './shared';
 
 const STATUS_TONE = {
   draft: 'gray',
@@ -38,8 +37,6 @@ export default function CandidatesList() {
   const [agencyId, setAgencyId] = useState('');
   // Local or foreign first, so the agency picker beside it is a short list.
   const [agencyType, setAgencyType] = useState('all');
-  // The row whose pass is being switched.
-  const [passingId, setPassingId] = useState(null);
 
   // The picker only exists for the admin; an agency login is already scoped.
   useEffect(() => {
@@ -98,20 +95,6 @@ export default function CandidatesList() {
       load();
     } catch (err) {
       toast(err.message || 'Could not remove the candidate.', 'error');
-    }
-  };
-
-  // The agency's own switch; the server refuses anyone already passed elsewhere.
-  const setPassed = async (row, passed) => {
-    setPassingId(row.id);
-    try {
-      const res = await candidateApi.setPassed(row.id, passed);
-      toast(res.message || (passed ? row.name + ' is marked as passed.' : row.name + ' is no longer marked as passed.'));
-      load();
-    } catch (err) {
-      toast(err.message || 'Could not change the pass.', 'error');
-    } finally {
-      setPassingId(null);
     }
   };
 
@@ -175,35 +158,12 @@ export default function CandidatesList() {
           );
         }
 
-        if (isAdmin) {
-          return (
-            <Badge tone={passed ? 'green' : 'gray'} dot>
-              {passed ? 'Passed' : 'Not passed'}
-            </Badge>
-          );
-        }
-
-        // A pass from a skill test, or on a submitted profile, stays on; an
-        // open skill test is waiting for the coordinator's result.
-        const locked = passed
-          ? Boolean(row.lockedCompany) || isSettled(row)
-          : row.poolStatus === 'testing';
-
+        // Read only: the foreign company records the pass against a job
+        // category, which is named here once they have passed.
         return (
-          <Switch
-            checked={passed}
-            onChange={(next) => setPassed(row, next)}
-            loading={passingId === row.id}
-            disabled={locked}
-            label={'Passed: ' + row.name}
-            title={
-              row.poolStatus === 'testing'
-                ? 'A skill test is open for this candidate.'
-                : passed
-                  ? 'Passed - documents are open.'
-                  : 'Switch on once the candidate has passed.'
-            }
-          />
+          <Badge tone={passed ? 'green' : 'gray'} dot>
+            {passed ? 'Passed' + (row.profession ? ' - ' + row.profession : '') : 'Not passed'}
+          </Badge>
         );
       },
     },

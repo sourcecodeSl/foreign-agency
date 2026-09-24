@@ -143,7 +143,7 @@ class AdminCandidateBrowsingTest extends TestCase
         $this->withToken($admin)
             ->getJson('/api/v1/candidates/'.$candidate->id.'/documents')
             ->assertOk()
-            ->assertJsonCount(8, 'data.required');
+            ->assertJsonCount(9, 'data.required');
 
         // Attaching is the owning agency's job.
         $this->withToken($admin)

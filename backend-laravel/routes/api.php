@@ -108,6 +108,14 @@ Route::prefix('candidates')->middleware('auth.jwt')->group(function () {
     Route::patch('/{id}/pass', [CandidateController::class, 'pass'])->middleware('can.perm:candidates,edit');
     // How the test went, recorded by the foreign company or the admin side.
     Route::patch('/{id}/test-result', [CandidateController::class, 'testResult']);
+    // Once passed, the same person's registrations for other companies can be
+    // blocked by the company holding the pass, or by the admin side.
+    Route::patch('/{id}/other-registrations/{otherId}', [CandidateController::class, 'blockRegistration']);
+    // The foreign companies one candidate is put up with, each for its own
+    // job categories. Added by the owning agency until the candidate passes.
+    Route::post('/{id}/registrations', [CandidateController::class, 'addRegistration'])->middleware('can.perm:candidates,edit');
+    Route::put('/{id}/registrations/{registrationId}', [CandidateController::class, 'updateRegistration'])->middleware('can.perm:candidates,edit');
+    Route::delete('/{id}/registrations/{registrationId}', [CandidateController::class, 'removeRegistration'])->middleware('can.perm:candidates,edit');
     // Applied / received, with the reference number and the date issued.
     Route::patch('/{id}/police-report', [CandidateController::class, 'policeReport'])->middleware('can.perm:candidates,edit');
     // Submitting the profile is a coordinator's call (or the Main Admin's),
@@ -269,3 +277,5 @@ Route::prefix('dashboard')->middleware(['auth.jwt', 'can.page:dashboard'])->grou
 // --- Notifications (the bell in the top bar) --------------------------------
 // Every signed-in role has one; the controller scopes what each role sees.
 Route::get('/notifications', [NotificationController::class, 'index'])->middleware('auth.jwt');
+// Opening one takes it off the bell for this login, on every device.
+Route::post('/notifications/{id}/dismiss', [NotificationController::class, 'dismiss'])->middleware('auth.jwt');

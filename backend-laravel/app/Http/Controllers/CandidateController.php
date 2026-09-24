@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Exceptions\ApiException;
 use App\Models\Agency;
 use App\Models\Candidate;
+use App\Models\CandidateRegistration;
+use App\Models\CandidateTestResult;
 use App\Models\JobRole;
 use App\Models\SkillTest;
 use App\Support\ApiResponse;
@@ -12,6 +14,7 @@ use App\Support\DocumentType;
 use App\Support\Nic;
 use App\Support\PageAccess;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -32,6 +35,12 @@ class CandidateController extends Controller
 
     /** Roles that check a passed candidate's documents and submit the profile. */
     private const REVIEWER_ROLES = ['main_admin', PageAccess::ROLE];
+
+    /** What a single candidate's file is read with. */
+    private const DETAIL = [
+        'documents', 'jobRole', 'jobRoles', 'companyAgency', 'testResultRole',
+        'categoryResults.role', 'categoryResults.company', 'registrations.jobRoles', 'registrations.company',
+    ];
 
     /**
      * GET /candidates?agencyId=
@@ -91,7 +100,7 @@ class CandidateController extends Controller
                 fn ($q) => $q->where('status', $request->query('status')))
             ->when($request->query('poolStatus', 'all') !== 'all',
                 fn ($q) => $q->where('pool_status', $request->query('poolStatus')))
-            ->with(['documents', 'jobRole', 'jobRoles', 'lockedCompany', 'tests.company', 'tests.role', 'creator', 'submitter'])
+            ->with(['documents', 'jobRole', 'jobRoles', 'lockedCompany', 'tests.company', 'tests.role', 'creator', 'submitter', 'categoryResults.role', 'categoryResults.company', 'registrations.jobRoles', 'registrations.company'])
             ->orderByDesc('id')
             ->get();
 
@@ -117,8 +126,10 @@ class CandidateController extends Controller
         // The company testing them reads the file too.
         $candidate = $this->find($request, $id, true);
 
-        return ApiResponse::ok($candidate->load(['documents', 'jobRole', 'jobRoles', 'tests.company', 'tests.role'])->toPublic(true) + [
+        return ApiResponse::ok($candidate->load(['documents', 'jobRole', 'jobRoles', 'tests.company', 'tests.role', 'categoryResults.role', 'categoryResults.company', 'registrations.jobRoles', 'registrations.company'])->toPublic(true) + [
             'blockedBy' => $this->holderNames($request, collect([$candidate]))[$candidate->id] ?? null,
+            // The same person registered for other companies, once passed here.
+            'otherRegistrations' => $this->otherRegistrations($request, $candidate),
         ]);
     }
 
@@ -264,6 +275,11 @@ class CandidateController extends Controller
         // A file brought back keeps the trades it had, plus the ones given now.
         $candidate->addJobRoles($roleIds);
 
+        // The company chosen on the form is the first one they are put up with.
+        if ($candidate->company_agency_id) {
+            $candidate->registerWith($candidate->company_agency_id, $roleIds, $auth['sub'] ?? null);
+        }
+
         return ApiResponse::created([
             'candidate' => $candidate->load(['documents', 'jobRole', 'jobRoles'])->toPublic(true),
             'requiredDocuments' => DocumentType::options(),
@@ -293,6 +309,15 @@ class CandidateController extends Controller
                 .'Register them again to bring that file back.');
         }
 
+        // Passed with the company they were registered for: they stay with it,
+        // and no other foreign company can be put down for them.
+        $newCompany = $this->companyAgencyId($data);
+        if ($newCompany !== null && $candidate->isPassed() && $newCompany !== $candidate->company_agency_id) {
+            throw new ApiException(409, $candidate->name.' has passed, so the foreign company they are registered for cannot be changed.', [
+                'companyAgencyId' => 'A passed candidate stays with the company they passed with.',
+            ]);
+        }
+
         // Changing the NIC must not turn this file into someone who has
         // passed with another agency.
         $newNic = $data['nicNo'] ?? null;
@@ -309,6 +334,8 @@ class CandidateController extends Controller
             ])
             : ($data['name'] ?? null);
 
+        $oldCompany = $candidate->company_agency_id;
+
         $candidate->update(array_filter([
             'name' => $fullName,
             'first_name' => $data['firstName'] ?? null,
@@ -317,7 +344,7 @@ class CandidateController extends Controller
             'passport_expiry' => $data['passportExpiry'] ?? null,
             'profession' => $data['profession'] ?? null,
             'test_results' => $data['testResults'] ?? null,
-            'company_agency_id' => $this->companyAgencyId($data),
+            'company_agency_id' => $newCompany,
             'passport_no' => $data['passportNo'] ?? null,
             'nic_no' => $newNic !== null ? strtoupper($newNic) : null,
             'address' => $data['address'] ?? null,
@@ -327,9 +354,31 @@ class CandidateController extends Controller
             'notes' => $data['notes'] ?? null,
         ], fn ($v) => $v !== null));
 
+        $by = $request->attributes->get('auth_user')['sub'] ?? null;
+
+        // A new company for the file: it takes over, and the old one goes
+        // unless it has already recorded something.
+        if ($newCompany !== null && $newCompany !== $oldCompany) {
+            $old = $candidate->registrationFor($oldCompany);
+            $candidate->registerWith($newCompany, $old
+                ? $old->jobRoles->pluck('id')->all()
+                : $candidate->jobRoles->pluck('id')->all(), $by);
+
+            if ($old && ! $candidate->categoryResults()->where('company_agency_id', $oldCompany)->exists()) {
+                $old->delete();
+            }
+            $candidate->unsetRelation('registrations');
+        }
+
         // A null single trade from an older client leaves the trades as they are.
         if (array_key_exists('jobRoleIds', $data) || ! empty($data['jobRoleId'])) {
-            $this->replaceJobRoles($candidate, $this->roleIds($data));
+            $main = $candidate->registrationFor($candidate->company_agency_id);
+
+            if ($main) {
+                $this->replaceRegistrationRoles($candidate, $main, $this->roleIds($data));
+            } else {
+                $this->replaceJobRoles($candidate, $this->roleIds($data));
+            }
         }
 
         return ApiResponse::ok($candidate->fresh()->load(['documents', 'jobRole', 'jobRoles'])->toPublic(true), 'Candidate updated.');
@@ -360,6 +409,13 @@ class CandidateController extends Controller
                 .'or the admin side, marks them as passed.');
         }
         $passed = (bool) $request->validate(['passed' => ['required', 'boolean']])['passed'];
+
+        // The company names the trade they passed in, so it records the
+        // result for that job category instead of flipping a switch.
+        if (! $global && $passed) {
+            throw new ApiException(422, 'Record the result against the job category '.$candidate->name
+                .' passed in; that category becomes their profession.');
+        }
 
         if ($passed === $candidate->isPassed()) {
             return ApiResponse::ok($candidate->load(['documents', 'jobRole', 'jobRoles'])->toPublic(true),
@@ -515,6 +571,166 @@ class CandidateController extends Controller
         );
     }
 
+    /**
+     * POST /candidates/{id}/registrations  { companyAgencyId, jobRoleIds[] }
+     *
+     * Puts the candidate up with another foreign company, for the job
+     * categories that company tests them in. Only while they have not passed
+     * with any company: a pass leaves the company that gave it as the only one.
+     */
+    public function addRegistration(Request $request, $id)
+    {
+        $candidate = $this->find($request, $id);
+        $this->refuseBlocked($candidate);
+        $this->refuseRegisteringPassed($candidate);
+
+        $data = $this->registrationData($request, true);
+        $companyId = $this->companyAgencyId($data);
+
+        if ($candidate->isRegisteredWith($companyId)) {
+            $message = $candidate->name.' is already registered with this company. Edit its job categories instead.';
+            throw new ApiException(409, $message, ['companyAgencyId' => $message]);
+        }
+
+        $registration = $candidate->registerWith(
+            $companyId,
+            $data['jobRoleIds'],
+            $request->attributes->get('auth_user')['sub'] ?? null
+        );
+
+        return ApiResponse::created(
+            $this->publicCandidate($candidate),
+            $candidate->name.' is registered with '.($registration->company?->name ?? 'the company').'.'
+        );
+    }
+
+    /**
+     * PUT /candidates/{id}/registrations/{registrationId}  { jobRoleIds[] }
+     *
+     * The job categories one company tests the candidate in. A category that
+     * company has already given a result for stays on.
+     */
+    public function updateRegistration(Request $request, $id, $registrationId)
+    {
+        $candidate = $this->find($request, $id);
+        $this->refuseBlocked($candidate);
+        $registration = $this->registrationOf($candidate, $registrationId);
+
+        if ($registration->state() === 'void') {
+            throw new ApiException(409, $candidate->name.' has passed with another company, '
+                .'so this registration is no longer valid.');
+        }
+
+        $data = $this->registrationData($request, false);
+        $this->replaceRegistrationRoles($candidate, $registration, $data['jobRoleIds']);
+
+        return ApiResponse::ok(
+            $this->publicCandidate($candidate),
+            'Job categories for '.($registration->company?->name ?? 'the company').' saved.'
+        );
+    }
+
+    /**
+     * DELETE /candidates/{id}/registrations/{registrationId}
+     *
+     * Takes the candidate off a company's list, as long as that company has
+     * recorded nothing for them.
+     */
+    public function removeRegistration(Request $request, $id, $registrationId)
+    {
+        $candidate = $this->find($request, $id);
+        $this->refuseBlocked($candidate);
+        $registration = $this->registrationOf($candidate, $registrationId);
+        $name = $registration->company?->name ?? 'the company';
+
+        $hasResults = $candidate->categoryResults()
+            ->where('company_agency_id', $registration->company_agency_id)
+            ->exists();
+
+        if ($hasResults || $registration->state() === 'passed') {
+            throw new ApiException(409, $name.' has already recorded a result for '.$candidate->name
+                .', so this registration stays.');
+        }
+
+        $registration->delete();
+
+        // The file shows the next company it is registered with, if any.
+        if ($candidate->company_agency_id === $registration->company_agency_id) {
+            $candidate->company_agency_id = $candidate->registrations()
+                ->where('id', '!=', $registration->id)
+                ->value('company_agency_id');
+            $candidate->save();
+        }
+
+        $candidate->unsetRelation('registrations');
+        $candidate->syncJobRolesFromRegistrations();
+
+        return ApiResponse::ok($this->publicCandidate($candidate), $candidate->name.' is no longer registered with '.$name.'.');
+    }
+
+    /** Registering with another company ends once the candidate has passed. */
+    private function refuseRegisteringPassed(Candidate $candidate): void
+    {
+        if ($candidate->isPassed()) {
+            $with = $candidate->companyAgency?->name;
+
+            throw new ApiException(409, $candidate->name.' has already passed'.($with ? ' with '.$with : '')
+                .', so they cannot be registered with another foreign company.');
+        }
+    }
+
+    /** The company and the job categories for a registration. */
+    private function registrationData(Request $request, bool $withCompany): array
+    {
+        return $request->validate([
+            'companyAgencyId' => [$withCompany ? 'required' : 'prohibited', 'string', 'max:20'],
+            'jobRoleIds' => ['required', 'array', 'min:1', 'max:20'],
+            'jobRoleIds.*' => ['integer', 'distinct', Rule::exists('job_roles', 'id')->where('active', true)],
+        ], [
+            'companyAgencyId.required' => 'Choose the foreign company.',
+            'jobRoleIds.required' => 'Choose at least one job category.',
+            'jobRoleIds.min' => 'Choose at least one job category.',
+            'jobRoleIds.*.exists' => 'Choose job categories from the list.',
+            'jobRoleIds.*.distinct' => 'Each job category is listed once.',
+        ]);
+    }
+
+    private function registrationOf(Candidate $candidate, $registrationId): CandidateRegistration
+    {
+        $registration = $candidate->registrations()->whereKey($registrationId)->first();
+        if (! $registration) {
+            throw new ApiException(404, 'That registration was not found on this candidate.');
+        }
+
+        return $registration->setRelation('candidate', $candidate);
+    }
+
+    /**
+     * Sets one company's trades to the list given, keeping every trade it has
+     * already recorded a result for, then rebuilds the file's own list.
+     */
+    private function replaceRegistrationRoles(Candidate $candidate, CandidateRegistration $registration, array $roleIds): void
+    {
+        $recorded = $candidate->categoryResults()
+            ->where('company_agency_id', $registration->company_agency_id)
+            ->pluck('job_role_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $registration->jobRoles()->sync(array_values(array_unique(array_merge(
+            array_map('intval', $roleIds),
+            $recorded
+        ))));
+
+        $candidate->unsetRelation('registrations');
+        $candidate->syncJobRolesFromRegistrations();
+    }
+
+    private function publicCandidate(Candidate $candidate): array
+    {
+        return $candidate->fresh(self::DETAIL)->toPublic(true);
+    }
+
     /** DELETE /candidates/{id} */
     public function destroy(Request $request, $id)
     {
@@ -561,10 +777,10 @@ class CandidateController extends Controller
     private function companyCandidates(?string $companyAgencyId, ?string $agencyId, ?string $search)
     {
         $candidates = Candidate::query()
-            ->where('company_agency_id', $companyAgencyId)
+            ->whereHas('registrations', fn ($q) => $q->where('company_agency_id', $companyAgencyId))
             ->when($agencyId && $agencyId !== 'all', fn ($q) => $q->where('agency_id', $agencyId))
             ->search($search)
-            ->with(['documents', 'jobRole', 'jobRoles', 'companyAgency', 'testResultRole', 'lockedCompany'])
+            ->with(['documents', 'jobRole', 'jobRoles', 'companyAgency', 'testResultRole', 'lockedCompany', 'categoryResults.role', 'categoryResults.company', 'registrations.jobRoles', 'registrations.company'])
             // Those who passed first, in the order they passed, then everyone
             // still waiting, newest registration first.
             ->orderByRaw('CASE WHEN passed_at IS NULL THEN 1 ELSE 0 END')
@@ -576,9 +792,15 @@ class CandidateController extends Controller
 
         $agencyNames = Agency::whereIn('id', $candidates->pluck('agency_id')->unique())->pluck('name', 'id');
 
-        return ApiResponse::ok($candidates->map(fn (Candidate $candidate) => $candidate->toPublic(true) + [
-            'agencyName' => $agencyNames[$candidate->agency_id] ?? null,
-        ])->all());
+        return ApiResponse::ok($candidates->map(function (Candidate $candidate) use ($agencyNames, $companyAgencyId) {
+            $payload = $candidate->toPublic(true);
+
+            return $payload + [
+                'agencyName' => $agencyNames[$candidate->agency_id] ?? null,
+                // This company's own registration: its trades, results and whether it still stands.
+                'registration' => collect($payload['registrations'])->firstWhere('company.id', $companyAgencyId),
+            ];
+        })->all());
     }
 
     /** A login belonging to an agency of type foreign - the company itself. */
@@ -591,14 +813,200 @@ class CandidateController extends Controller
     }
 
     /**
-     * PATCH /candidates/{id}/test-result  { result, jobRoleId?, note? }
+     * PATCH /candidates/{id}/test-result  { result, jobRoleId, note?, testResults? }
      *
-     * How the candidate's test went, recorded by the foreign company they
-     * were registered for, or by the admin side. A pass makes the trade it
-     * was sat in their profession and marks them passed; a fail leaves them
-     * in the pool for another company.
+     * How the candidate's test went in one job category, recorded by the
+     * foreign company they were registered for, or by the admin side. The
+     * category is always named - a pass or a fail - and must be one of the
+     * trades on the file, so the local agency reads exactly which one it was.
+     *
+     * A pass makes that trade their profession and marks them passed; a fail
+     * leaves them in the pool, their other trades still open. Once passed,
+     * only the trade they passed in can be changed - a fail there undoes the
+     * pass, for a result recorded by mistake.
      */
     public function testResult(Request $request, $id)
+    {
+        $auth = $request->attributes->get('auth_user');
+        $candidate = Candidate::find($id);
+        if (! $candidate) {
+            throw new ApiException(404, 'Candidate not found.');
+        }
+
+        $global = in_array($auth['roleSlug'] ?? null, self::REVIEWER_ROLES, true);
+        $companyLogin = $this->isForeignCompany($request);
+
+        if (! $global && ! ($companyLogin && $candidate->isRegisteredWith($auth['agencyId'] ?? null))) {
+            throw new ApiException(403, 'Only a foreign company this candidate is registered with, '
+                .'or the admin side, records the result.');
+        }
+
+        // A company records its own result; the admin side names the company,
+        // unless the candidate is registered with just the one.
+        $companyId = $companyLogin
+            ? $auth['agencyId']
+            : ($request->input('companyAgencyId')
+                ?: ($candidate->registrations->count() === 1
+                    ? $candidate->registrations->first()->company_agency_id
+                    : $candidate->company_agency_id));
+
+        $registration = $candidate->registrationFor($companyId)?->setRelation('candidate', $candidate);
+        if (! $registration) {
+            $message = 'Choose the foreign company this result is from.';
+            throw new ApiException(422, $message, ['companyAgencyId' => $message]);
+        }
+
+        // Passed with one company: every other registration has lapsed.
+        if ($registration->state() === 'void') {
+            throw new ApiException(409, $candidate->name.' has already passed with '
+                .($candidate->companyAgency?->name ?? 'another company')
+                .', so the registration with '.($registration->company?->name ?? 'this company').' is no longer valid.');
+        }
+
+        if ($candidate->isRegistrationBlocked()) {
+            throw new ApiException(409, $candidate->name.' has passed with another company, '
+                .'so this registration is blocked and no result can be recorded.');
+        }
+
+        $data = $request->validate([
+            'result' => ['required', 'in:pass,fail'],
+            'jobRoleId' => ['required', 'integer'],
+            'note' => ['nullable', 'string', 'max:255'],
+            // What the test sheet says, in the company's own words.
+            'testResults' => ['nullable', 'string', 'max:255'],
+        ], [
+            'result.in' => 'The result is either pass or fail.',
+            'jobRoleId.required' => 'Choose the job category this result is for.',
+        ]);
+
+        $passed = $data['result'] === 'pass';
+
+        // Only a trade the local agency put the candidate up for with this company.
+        $role = $registration->jobRoles()->where('job_roles.id', $data['jobRoleId'])->first();
+        if (! $role) {
+            $message = 'Choose one of the job categories '.$candidate->name.' is registered for with '
+                .($registration->company?->name ?? 'this company').'.';
+            throw new ApiException(422, $message, ['jobRoleId' => $message]);
+        }
+
+        $passedRole = $candidate->isPassed()
+            ? $candidate->categoryResults()->where('company_agency_id', $companyId)->where('result', 'pass')->value('job_role_id')
+            : null;
+
+        if ($passedRole && (int) $passedRole !== (int) $role->id) {
+            throw new ApiException(409, $candidate->name.' has already passed as '
+                .(JobRole::find($passedRole)?->name ?? 'another trade').', so no other job category can be recorded.');
+        }
+
+        // One person, one pass: the same NIC may be on file elsewhere.
+        if ($passed && $candidate->passedElsewhere()) {
+            throw new ApiException(409, $candidate->name.' has already passed with another agency.');
+        }
+
+        if (! $passed && $candidate->isPassed() && in_array($candidate->status, Candidate::LOCKED_STATUSES, true)) {
+            throw new ApiException(409, 'The coordinator has already submitted '.$candidate->name
+                ."'s profile, so the pass cannot be changed.");
+        }
+
+        DB::transaction(function () use ($candidate, $role, $data, $passed, $auth, $companyId) {
+            CandidateTestResult::updateOrCreate(
+                ['candidate_id' => $candidate->id, 'company_agency_id' => $companyId, 'job_role_id' => $role->id],
+                [
+                    'result' => $data['result'],
+                    'note' => $data['note'] ?? null,
+                    'recorded_by' => $auth['sub'] ?? null,
+                ]
+            );
+
+            // The latest result, for the screens that show a single badge.
+            $candidate->test_result = $data['result'];
+            if (array_key_exists('testResults', $data)) {
+                $candidate->test_results = $data['testResults'];
+            }
+            $candidate->test_result_role_id = $role->id;
+            $candidate->test_result_note = $data['note'] ?? null;
+            $candidate->test_result_at = now();
+            $candidate->test_result_by = $auth['sub'] ?? null;
+
+            if ($passed) {
+                // The trade they passed in is what they work as from now on.
+                $candidate->profession = $role->name;
+                // The company that gave the pass is the one they belong to now.
+                $candidate->company_agency_id = $companyId;
+                $candidate->pool_status = 'passed';
+                $candidate->passed_at = now();
+                $candidate->passed_by = $auth['sub'] ?? null;
+            } elseif ($candidate->isPassed() && ! $candidate->locked_company_id) {
+                // The pass was this trade, and it has been taken back.
+                $candidate->profession = null;
+                $candidate->pool_status = 'pool';
+                $candidate->passed_at = null;
+                $candidate->passed_by = null;
+            } elseif (! $candidate->isPassed()) {
+                // Back in the pool, their other trades still open.
+                $candidate->pool_status = 'pool';
+            }
+
+            $candidate->save();
+        });
+
+        $candidate = $candidate->fresh(self::DETAIL);
+        $others = $passed ? $this->otherRegistrations($request, $candidate) : [];
+        $open = count(array_filter($others, fn ($row) => ! $row['blocked']));
+
+        return ApiResponse::ok(
+            $candidate->toPublic(true) + ['otherRegistrations' => $others],
+            $passed
+                ? $candidate->name.' passed as '.$role->name.'.'
+                    .($open ? ' They are also registered with '.$open.' other '
+                        .($open === 1 ? 'company' : 'companies').' - you can block '
+                        .($open === 1 ? 'it' : 'them').' on their profile.' : '')
+                : $candidate->name.' did not pass as '.$role->name.'. The agency that registered them can see this result.'
+        );
+    }
+
+    /**
+     * The same person's files registered for other foreign companies, known
+     * by NIC. Shown on a passed profile so the company that holds the pass
+     * (or the admin side) can block them.
+     *
+     * The company each is registered for is named to everyone who reads the
+     * profile; the local agency holding the file only to the admin side,
+     * since agencies do not see each other's files.
+     */
+    private function otherRegistrations(Request $request, Candidate $candidate): array
+    {
+        if (! $candidate->isPassed() || ! $candidate->nic_key) {
+            return [];
+        }
+
+        $global = $this->scopeAgencyId($request) === null;
+
+        $files = $candidate->filesElsewhere()->with('companyAgency')->orderBy('id')->get();
+        $agencies = $global
+            ? Agency::whereIn('id', $files->pluck('agency_id')->unique())->pluck('name', 'id')
+            : collect();
+
+        return $files->map(fn (Candidate $file) => [
+            'id' => $file->id,
+            'company' => $file->company_agency_id ? [
+                'id' => $file->company_agency_id,
+                'name' => $file->companyAgency?->name,
+            ] : null,
+            'agencyName' => $global ? ($agencies[$file->agency_id] ?? null) : null,
+            'blocked' => $file->isRegistrationBlocked(),
+            'blockedAt' => $file->registration_blocked_at,
+        ])->values()->all();
+    }
+
+    /**
+     * PATCH /candidates/{id}/other-registrations/{otherId}  { blocked: bool }
+     *
+     * Blocks (or lets go) the same person's file registered for another
+     * company. Only once they have passed here, and only by the company that
+     * holds the pass or by the admin side.
+     */
+    public function blockRegistration(Request $request, $id, $otherId)
     {
         $auth = $request->attributes->get('auth_user');
         $candidate = Candidate::find($id);
@@ -610,68 +1018,38 @@ class CandidateController extends Controller
         $company = $this->isForeignCompany($request) && $candidate->company_agency_id === ($auth['agencyId'] ?? null);
 
         if (! $global && ! $company) {
-            throw new ApiException(403, 'Only the foreign company this candidate is registered for, '
-                .'or the admin side, records the result.');
+            throw new ApiException(403, 'Only the foreign company this candidate passed with, '
+                .'or the admin side, blocks their other registrations.');
         }
 
-        $data = $request->validate([
-            'result' => ['required', 'in:pass,fail'],
-            'jobRoleId' => ['required_if:result,pass', 'nullable', 'integer'],
-            'note' => ['nullable', 'string', 'max:255'],
-            // What the test sheet says, in the company's own words.
-            'testResults' => ['nullable', 'string', 'max:255'],
-        ], [
-            'result.in' => 'The result is either pass or fail.',
-            'jobRoleId.required_if' => 'Choose the job category they passed in.',
+        if (! $candidate->isPassed()) {
+            throw new ApiException(409, $candidate->name.' has not passed, so their other registrations stay open.');
+        }
+
+        $blocked = (bool) $request->validate(['blocked' => ['required', 'boolean']])['blocked'];
+
+        $other = $candidate->filesElsewhere()->whereKey($otherId)->first();
+        if (! $other) {
+            throw new ApiException(404, 'That registration is not the same person.');
+        }
+
+        $other->update($blocked ? [
+            'registration_blocked_at' => now(),
+            'registration_blocked_by' => $auth['sub'] ?? null,
+            'registration_blocked_for' => $candidate->id,
+        ] : [
+            'registration_blocked_at' => null,
+            'registration_blocked_by' => null,
+            'registration_blocked_for' => null,
         ]);
 
-        $passed = $data['result'] === 'pass';
-        $role = null;
-
-        if ($passed) {
-            $role = JobRole::where('id', $data['jobRoleId'])->where('active', true)->first();
-            if (! $role) {
-                throw new ApiException(422, 'That job category was not found.', [
-                    'jobRoleId' => 'Choose a job category.',
-                ]);
-            }
-
-            // One person, one pass: the same NIC may be on file elsewhere.
-            if ($candidate->passedElsewhere()) {
-                throw new ApiException(409, $candidate->name.' has already passed with another agency.');
-            }
-        }
-
-        $candidate->test_result = $data['result'];
-        if (array_key_exists('testResults', $data)) {
-            $candidate->test_results = $data['testResults'];
-        }
-        $candidate->test_result_role_id = $role?->id;
-        $candidate->test_result_note = $data['note'] ?? null;
-        $candidate->test_result_at = now();
-        $candidate->test_result_by = $auth['sub'] ?? null;
-
-        if ($passed) {
-            // The trade they passed in is what they work as from now on.
-            $candidate->profession = $role->name;
-            $candidate->addJobRoles([$role->id]);
-            $candidate->pool_status = 'passed';
-            $candidate->passed_at = now();
-            $candidate->passed_by = $auth['sub'] ?? null;
-        } else {
-            // Back in the pool, free for another company's test.
-            $candidate->pool_status = 'pool';
-            $candidate->passed_at = null;
-            $candidate->passed_by = null;
-        }
-
-        $candidate->save();
+        $where = $other->companyAgency?->name ?? 'the other company';
 
         return ApiResponse::ok(
-            $candidate->fresh(['documents', 'jobRole', 'jobRoles', 'companyAgency', 'testResultRole'])->toPublic(true),
-            $passed
-                ? $candidate->name.' passed as '.$role->name.'.'
-                : $candidate->name.' did not pass and stays in the pool.'
+            $this->otherRegistrations($request, $candidate),
+            $blocked
+                ? $candidate->name."'s registration for ".$where.' is blocked.'
+                : $candidate->name."'s registration for ".$where.' is open again.'
         );
     }
 
@@ -704,7 +1082,10 @@ class CandidateController extends Controller
      */
     private function replaceJobRoles(Candidate $candidate, array $roleIds): void
     {
-        $tested = $candidate->tests()->pluck('job_role_id')->map(fn ($id) => (int) $id)->all();
+        // Tested by a coordinator, or given a result by the company.
+        $tested = $candidate->tests()->pluck('job_role_id')
+            ->merge($candidate->categoryResults()->pluck('job_role_id'))
+            ->map(fn ($id) => (int) $id)->all();
         $keep = array_values(array_unique(array_merge($roleIds, $tested)));
 
         $candidate->jobRoles()->sync($keep);
@@ -842,7 +1223,7 @@ class CandidateController extends Controller
             return $candidate;
         }
 
-        if ($forCompany && $candidate->company_agency_id === $scope && $this->isForeignCompany($request)) {
+        if ($forCompany && $candidate->isRegisteredWith($scope) && $this->isForeignCompany($request)) {
             return $candidate;
         }
 

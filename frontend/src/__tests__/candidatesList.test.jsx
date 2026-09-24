@@ -151,19 +151,18 @@ describe('candidates for the owning agency', () => {
     expect(screen.queryByRole('switch', { name: /profile submitted/i })).toBeNull();
   });
 
-  it('switches a candidate to passed from the list', async () => {
-    const user = userEvent.setup();
-    setPassed.mockReset().mockResolvedValue({ message: 'Kamal Perera is marked as passed.' });
+  it('shows the pass as a status only, naming the category passed in', async () => {
+    listCandidates.mockResolvedValue({
+      data: [KAMAL, { ...NIMAL, poolStatus: 'passed', profession: 'Electrician' }],
+    });
     renderList();
 
-    const toggle = await screen.findByRole('switch', { name: 'Passed: Kamal Perera' });
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
-
-    await user.click(toggle);
-
-    await waitFor(() => expect(setPassed).toHaveBeenCalledWith(1, true));
-    // The list is read again to show the new state.
-    await waitFor(() => expect(listCandidates).toHaveBeenCalledTimes(2));
+    await screen.findByText('Kamal Perera');
+    // The foreign company records the pass; the agency only reads it.
+    expect(screen.queryByRole('switch', { name: /^Passed:/ })).toBeNull();
+    expect(screen.getByText('Not passed')).toBeTruthy();
+    expect(screen.getByText('Passed - Electrician')).toBeTruthy();
+    expect(setPassed).not.toHaveBeenCalled();
   });
 
   it('says who put each candidate on the register', async () => {
@@ -173,9 +172,6 @@ describe('candidates for the owning agency', () => {
     await screen.findByText('Kamal Perera');
     expect(screen.getByText('Added by agency')).toBeTruthy();
     expect(screen.getByText('Added by coordinator · Kasun Coordinator')).toBeTruthy();
-    expect(
-      screen.getByRole('switch', { name: 'Passed: Nimal Silva' }).getAttribute('aria-checked')
-    ).toBe('true');
   });
 
   it('marks a blocked candidate and offers no switch', async () => {

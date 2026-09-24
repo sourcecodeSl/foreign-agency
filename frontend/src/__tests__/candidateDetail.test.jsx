@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ToastProvider } from '../components/ui/Toast';
@@ -9,9 +9,10 @@ const upload = vi.fn();
 const downloadOne = vi.fn();
 const downloadAll = vi.fn();
 const setPassed = vi.fn();
+const recordTestResult = vi.fn().mockResolvedValue({ message: 'Recorded.' });
+const blockRegistration = vi.fn().mockResolvedValue({ message: 'Blocked.' });
+const addRegistration = vi.fn().mockResolvedValue({ message: 'Registered.' });
 const updateStatus = vi.fn();
-const bookTest = vi.fn();
-const recordResult = vi.fn();
 const savePolice = vi.fn();
 
 const DOCUMENT_TYPES = [
@@ -60,7 +61,12 @@ vi.mock('../lib/api', () => ({
       data: {
         documents: [attached],
         latest: { passport_copy: attached },
-        required: DOCUMENT_TYPES.map((value) => ({ value, label: value })),
+        // The NIC copy is listed with the rest, but is optional.
+        required: [...DOCUMENT_TYPES, 'nic_copy'].map((value) => ({
+          value,
+          label: value,
+          required: value !== 'nic_copy',
+        })),
         missing,
       },
     }),
@@ -68,11 +74,22 @@ vi.mock('../lib/api', () => ({
     downloadOne: (...args) => downloadOne(...args),
     downloadAll: (...args) => downloadAll(...args),
     setPassed: (...args) => setPassed(...args),
+    recordTestResult: (...args) => recordTestResult(...args),
+    blockRegistration: (...args) => blockRegistration(...args),
+    addRegistration: (...args) => addRegistration(...args),
     updateStatus: (...args) => updateStatus(...args),
     remove: vi.fn(),
     savePoliceReport: (...args) => savePolice(...args),
   },
   companyApi: { list: async () => ({ data: [{ id: 5, name: 'Herzl Construction' }] }) },
+  agencyApi: {
+    foreignOptions: async () => ({
+      data: [
+        { id: 'AG-9100', name: 'Herzl Construction' },
+        { id: 'AG-9101', name: 'Negev Builders' },
+      ],
+    }),
+  },
   jobRoleApi: {
     list: async () => ({
       data: [
@@ -81,10 +98,6 @@ vi.mock('../lib/api', () => ({
         { id: 3, name: 'Mason' },
       ],
     }),
-  },
-  testApi: {
-    book: (...args) => bookTest(...args),
-    result: (...args) => recordResult(...args),
   },
 }));
 
@@ -114,8 +127,6 @@ beforeEach(() => {
   downloadAll.mockReset().mockResolvedValue('Kamal-Perera-documents.zip');
   setPassed.mockReset().mockResolvedValue({ message: 'Kamal Perera is marked as passed.' });
   updateStatus.mockReset().mockResolvedValue({ message: "Kamal Perera's profile has been submitted." });
-  bookTest.mockReset().mockResolvedValue({ message: 'Booked.' });
-  recordResult.mockReset().mockResolvedValue({ message: 'Recorded.' });
   savePolice.mockReset().mockResolvedValue({ message: 'Police report saved.' });
   // Everything except the passport copy is still outstanding.
   missing = DOCUMENT_TYPES.filter((t) => t !== 'passport_copy');
@@ -133,9 +144,9 @@ describe('the owning agency, once the candidate has passed', () => {
 
     await screen.findByText('Kamal Perera');
 
-    // One type attached, seven still to come.
+    // One type attached, seven required still to come, and the optional NIC copy.
     expect(screen.getByRole('button', { name: /add new/i })).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: /^attach$/i })).toHaveLength(7);
+    expect(screen.getAllByRole('button', { name: /^attach$/i })).toHaveLength(8);
 
     await user.click(screen.getByRole('button', { name: /^download$/i }));
     await waitFor(() => expect(downloadOne).toHaveBeenCalledWith('1', 10, 'p.pdf'));
@@ -199,18 +210,56 @@ describe('the owning agency, before the candidate has passed', () => {
     expect(setPassed).not.toHaveBeenCalled();
   });
 
-  it('is the switch of the company the candidate is registered for', async () => {
+  it('is passed by the company only against a job category', async () => {
     const user = userEvent.setup();
-    candidate = { ...candidate, company: { id: 'AG-9100', name: 'Herzl Construction' } };
+    candidate = {
+      ...candidate,
+      company: { id: 'AG-9100', name: 'Herzl Construction' },
+      registrations: [
+        {
+          id: 3,
+          company: { id: 'AG-9100', name: 'Herzl Construction' },
+          state: 'open',
+          jobRoles: [
+            { id: 1, name: 'Tiler' },
+            { id: 2, name: 'Mason' },
+          ],
+          results: [{ id: 5, jobRoleId: 1, jobRole: 'Tiler', result: 'fail', note: 'Uneven joints' }],
+        },
+        // Another company's registration: this login records nothing there.
+        {
+          id: 4,
+          company: { id: 'AG-9101', name: 'Negev Builders' },
+          state: 'open',
+          jobRoles: [{ id: 3, name: 'Welder' }],
+          results: [],
+        },
+      ],
+    };
     agency = { id: 'AG-9100', name: 'Herzl Construction', type: 'foreign' };
     renderDetail();
 
     await screen.findByText('Kamal Perera');
-    const toggle = screen.getByRole('switch', { name: 'Passed' });
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    // No bare switch: the pass names the category it was sat in.
+    expect(screen.queryByRole('switch', { name: 'Passed' })).toBeNull();
+    expect(screen.getByText(/Uneven joints/)).toBeTruthy();
 
-    await user.click(toggle);
-    await waitFor(() => expect(setPassed).toHaveBeenCalledWith('1', true));
+    await user.click(screen.getByRole('button', { name: 'Record result' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText(/^job category/i).value).toBe('2');
+    await user.click(within(dialog).getByLabelText(/^passed/i));
+    await user.click(within(dialog).getByRole('button', { name: /save result/i }));
+
+    await waitFor(() =>
+      expect(recordTestResult).toHaveBeenCalledWith(1, {
+        result: 'pass',
+        jobRoleId: 2,
+        note: undefined,
+        testResults: undefined,
+        companyAgencyId: 'AG-9100',
+      })
+    );
+    expect(setPassed).not.toHaveBeenCalled();
 
     agency = null;
   });
@@ -332,67 +381,6 @@ const FAILED_TILER = {
   resultNote: 'Cutting not accurate enough',
 };
 
-describe('skill tests on one candidate file', () => {
-  beforeEach(() => {
-    candidate = {
-      ...BASE,
-      poolStatus: 'pool',
-      jobRoles: [
-        { id: 1, name: 'Tiler' },
-        { id: 2, name: 'Shuttering Carpenter' },
-      ],
-      tests: [FAILED_TILER],
-    };
-  });
-
-  it('lets the Main Admin book the second trade under a new test', async () => {
-    roleSlug = 'main_admin';
-    const user = userEvent.setup();
-    renderDetail();
-
-    // The failed attempt stays on the history, with its own number.
-    expect(await screen.findByText('TST-1001')).toBeTruthy();
-    expect(screen.getByText('Failed')).toBeTruthy();
-    expect(screen.getByText('Tiler, Shuttering Carpenter')).toBeTruthy();
-
-    await waitFor(() => expect(screen.getByRole('option', { name: 'Herzl Construction' })).toBeTruthy());
-    await user.selectOptions(screen.getByLabelText(/foreign company/i), '5');
-    await user.selectOptions(screen.getByLabelText(/^job category$/i), '2');
-    // A trade already failed is marked in the list.
-    expect(screen.getByRole('option', { name: 'Tiler (failed before)' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: /book test/i }));
-
-    await waitFor(() => expect(bookTest).toHaveBeenCalledTimes(1));
-    expect(bookTest.mock.calls[0][0]).toMatchObject({ candidateId: 1, companyId: 5, jobRoleId: 2 });
-  });
-
-  it('asks before an open test is closed by a new booking', async () => {
-    roleSlug = 'main_admin';
-    candidate.tests = [{ ...FAILED_TILER, status: 'scheduled', resultNote: null }];
-    const user = userEvent.setup();
-    renderDetail();
-
-    await waitFor(() => expect(screen.getByRole('option', { name: 'Herzl Construction' })).toBeTruthy());
-    await user.selectOptions(screen.getByLabelText(/foreign company/i), '5');
-    await user.selectOptions(screen.getByLabelText(/^job category$/i), '2');
-    await user.click(screen.getByRole('button', { name: /book test/i }));
-
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog.textContent).toContain('TST-1001');
-    await user.click(screen.getByRole('button', { name: 'Close and book' }));
-
-    await waitFor(() => expect(bookTest).toHaveBeenCalledTimes(1));
-  });
-
-  it('shows the agency its history without booking controls', async () => {
-    roleSlug = 'agency_owner';
-    renderDetail();
-
-    expect(await screen.findByText('TST-1001')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /book test/i })).toBeNull();
-  });
-});
-
 describe('the passport warning and the police report', () => {
   beforeEach(() => {
     roleSlug = 'agency_owner';
@@ -462,5 +450,161 @@ describe('the passport warning and the police report', () => {
     expect(await screen.findByText(/less than 2 months away/)).toBeTruthy();
     // Still editable: the warning never stops the details being saved.
     expect(screen.getByRole('button', { name: /^save$/i })).toBeTruthy();
+  });
+
+  it('names the other company a passed candidate is registered with, and blocks it', async () => {
+    const user = userEvent.setup();
+    candidate = {
+      ...BASE,
+      nicNo: '901234567V',
+      poolStatus: 'passed',
+      company: { id: 'AG-9100', name: 'Herzl Construction' },
+      registrations: [
+        {
+          id: 3,
+          company: { id: 'AG-9100', name: 'Herzl Construction' },
+          state: 'passed',
+          jobRoles: [{ id: 2, name: 'Mason' }],
+          results: [{ id: 6, jobRoleId: 2, jobRole: 'Mason', result: 'pass' }],
+        },
+      ],
+      otherRegistrations: [{ id: 9, company: { id: 'AG-9101', name: 'Negev Builders' }, blocked: false }],
+    };
+    agency = { id: 'AG-9100', name: 'Herzl Construction', type: 'foreign' };
+    renderDetail();
+
+    expect(await screen.findByText(/also registered with 1 other company/i)).toBeTruthy();
+    expect(screen.getByText('Negev Builders')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Block' }));
+    // The confirmation's own Block button.
+    const confirm = await screen.findByRole('dialog');
+    await user.click(within(confirm).getByRole('button', { name: 'Block' }));
+    await waitFor(() => expect(blockRegistration).toHaveBeenCalledWith(1, 9, true));
+
+    agency = null;
+  });
+
+  it('registers the candidate with another company until they pass', async () => {
+    const user = userEvent.setup();
+    const herzl = {
+      id: 3,
+      company: { id: 'AG-9100', name: 'Herzl Construction' },
+      state: 'open',
+      jobRoles: [{ id: 1, name: 'Tiler' }],
+      results: [],
+    };
+    candidate = { ...BASE, agencyId: 'AG-9001', poolStatus: 'pool', registrations: [herzl] };
+    agency = { id: 'AG-9001', name: 'Solidrow', type: 'local' };
+    renderDetail();
+
+    await user.click(await screen.findByRole('button', { name: /register with another company/i }));
+    const dialog = screen.getByRole('dialog');
+    // A company already on the file is not offered again.
+    await waitFor(() => expect(within(dialog).getByRole('option', { name: 'Negev Builders' })).toBeTruthy());
+    expect(within(dialog).queryByRole('option', { name: 'Herzl Construction' })).toBeNull();
+
+    await user.selectOptions(within(dialog).getByLabelText(/foreign company/i), 'AG-9101');
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Mason' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Register' }));
+
+    await waitFor(() =>
+      expect(addRegistration).toHaveBeenCalledWith(1, { companyAgencyId: 'AG-9101', jobRoleIds: [3] })
+    );
+
+    agency = null;
+  });
+
+  it('offers no other company once the candidate has passed', async () => {
+    candidate = {
+      ...BASE,
+      agencyId: 'AG-9001',
+      poolStatus: 'passed',
+      company: { id: 'AG-9101', name: 'Negev Builders' },
+      registrations: [
+        {
+          id: 3,
+          company: { id: 'AG-9100', name: 'Herzl Construction' },
+          state: 'void',
+          jobRoles: [{ id: 1, name: 'Tiler' }],
+          results: [],
+        },
+        {
+          id: 4,
+          company: { id: 'AG-9101', name: 'Negev Builders' },
+          state: 'passed',
+          jobRoles: [{ id: 3, name: 'Mason' }],
+          results: [{ id: 9, jobRoleId: 3, jobRole: 'Mason', result: 'pass' }],
+        },
+      ],
+    };
+    agency = { id: 'AG-9001', name: 'Solidrow', type: 'local' };
+    renderDetail();
+
+    const herzl = await screen.findByRole('region', { name: 'Herzl Construction' });
+    expect(within(herzl).getByText(/no longer valid/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /register with another company/i })).toBeNull();
+
+    agency = null;
+  });
+
+  it('keeps documents closed while the police report is not applied for', async () => {
+    candidate = {
+      ...BASE,
+      agencyId: 'AG-9001',
+      poolStatus: 'passed',
+      documentsOpen: false,
+      policeReport: { status: 'not_applied' },
+      registrations: [],
+    };
+    agency = { id: 'AG-9001', name: 'Solidrow', type: 'local' };
+    renderDetail();
+
+    expect(await screen.findByText(/police report is not applied for yet/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^attach$/i })).toBeNull();
+
+    // The police report comes straight after the details, before the companies.
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent);
+    const police = headings.indexOf('Police report');
+    expect(police).toBeGreaterThan(-1);
+    expect(police).toBeLessThan(headings.indexOf('Foreign companies and test results'));
+
+    agency = null;
+  });
+
+  it('lists the NIC copy as optional and counts only the required documents', async () => {
+    candidate = { ...BASE, agencyId: 'AG-9001', poolStatus: 'passed', documentsOpen: true, registrations: [] };
+    agency = { id: 'AG-9001', name: 'Solidrow', type: 'local' };
+    renderDetail();
+
+    const row = (await screen.findByText('nic_copy')).closest('p');
+    expect(within(row).getByText('Optional')).toBeTruthy();
+    // One of the eight required is in; the NIC copy is not counted.
+    expect(screen.getByText('1 / 8 attached')).toBeTruthy();
+
+    agency = null;
+  });
+
+  it('shows the local agency each company with its own job categories', async () => {
+    const registrations = [
+      { id: 3, company: { id: 'AG-9100', name: 'Foree' }, state: 'open', jobRoles: [{ id: 1, name: 'Electrician' }, { id: 2, name: 'Painter' }], results: [] },
+      { id: 4, company: { id: 'AG-9101', name: 'Negev Builders' }, state: 'open', jobRoles: [{ id: 3, name: 'Mason' }], results: [] },
+    ];
+    candidate = { ...BASE, agencyId: 'AG-9001', poolStatus: 'pool', jobRoles: [{ id: 1, name: 'Electrician' }], registrations };
+    agency = { id: 'AG-9001', name: 'Solidrow', type: 'local' };
+    const { unmount } = renderDetail();
+
+    const field = (await screen.findByText('Job categories')).closest('div');
+    expect(within(field).getByText('Foree:').closest('li').textContent).toBe('Foree: Electrician, Painter');
+    expect(within(field).getByText('Negev Builders:').closest('li').textContent).toBe('Negev Builders: Mason');
+    unmount();
+
+    // A foreign company reading the file sees the plain list.
+    agency = { id: 'AG-9100', name: 'Foree', type: 'foreign' };
+    renderDetail();
+    const plain = (await screen.findByText('Job categories')).closest('div');
+    expect(within(plain).queryByText('Foree:')).toBeNull();
+
+    agency = null;
   });
 });

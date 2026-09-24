@@ -381,6 +381,9 @@ class AdminOnlyAccountsTest extends TestCase
             ->patchJson('/api/v1/candidates/'.$candidateId.'/pass', ['passed' => true])
             ->assertOk();
 
+        // Documents also wait for the police report to be applied for.
+        \App\Models\Candidate::whereKey($candidateId)->update(['police_status' => 'applied', 'police_reference_no' => 'PR/2026/0001']);
+
         $this->withToken($ownerToken)->postJson('/api/v1/candidates/'.$candidateId.'/documents', [
             'type' => 'medical',
             'file' => UploadedFile::fake()->create('medical.pdf', 40, 'application/pdf'),

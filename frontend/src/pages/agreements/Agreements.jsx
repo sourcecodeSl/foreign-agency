@@ -166,7 +166,7 @@ export const markError = (file) =>
  * The PDF is either a new upload or one of the company's saved PDFs - the
  * agreement it uses every time, kept uploaded. One or the other, never both.
  */
-function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onSaved, subtitle }) {
+function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onCreated, onSaved, subtitle }) {
   const { toast } = useToast();
   const inputRef = useRef(null);
   const keepRef = useRef(null);
@@ -181,6 +181,8 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onSaved, subt
   const [uploaded, setUploaded] = useState(null); // { agreementId, name } once the PDF is in
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState('');
+  // Bumped once an agreement is saved, so the picture inputs start empty again.
+  const [round, setRound] = useState(0);
 
   // One layout on offer means there is nothing to choose.
   useEffect(() => {
@@ -222,6 +224,8 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onSaved, subt
         toast(message || 'Agreement created.');
         setUploaded({ agreementId: data.id, name: data.title });
         setName('');
+        // It is an agreement already, so it shows in the list straight away.
+        onCreated?.(data.id);
       } catch (err) {
         if (err.errors) setErrors(err.errors);
         alertError(err.message || 'Could not start the agreement.', 'Not created');
@@ -240,6 +244,7 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onSaved, subt
       });
       toast(message || 'Agreement uploaded.');
       setUploaded({ agreementId: data.agreementId, name: data.name });
+      onCreated?.(data.agreementId);
       setName('');
       setFile(null);
       if (inputRef.current) inputRef.current.value = '';
@@ -325,8 +330,14 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onSaved, subt
       for (const { type } of MARKS) {
         if (pictures[type]) await agreementApi.uploadMark(uploaded.agreementId, type, pictures[type]);
       }
-      toast('Agreement saved.');
+      toast(uploaded.name + ' saved. Open it from Your agreements to check it and send it to the admin.');
       onSaved(uploaded.agreementId);
+      // Ready for the next one.
+      setUploaded(null);
+      setSalary('');
+      setPictures({ seal: null, signature: null });
+      setErrors({});
+      setRound((n) => n + 1);
     } catch (err) {
       if (err.errors) setErrors(err.errors);
       alertError(err.message || 'Could not save the salary.', 'Not saved');
@@ -506,7 +517,7 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onSaved, subt
 
           {MARKS.map(({ type, label }) => (
             <MarkPicker
-              key={type}
+              key={type + '-' + round}
               type={type}
               label={label}
               file={pictures[type]}
@@ -709,7 +720,6 @@ export default function Agreements() {
 
 /** A foreign company: upload a PDF, then check and send the agreement it becomes. */
 function CompanyAgreements() {
-  const navigate = useNavigate();
   const { toast } = useToast();
   const [layouts, setLayouts] = useState(null);
   const [savedPdfs, setSavedPdfs] = useState([]);
@@ -778,8 +788,9 @@ function CompanyAgreements() {
         layouts={layouts}
         savedPdfs={savedPdfs}
         onSavedPdfsChanged={load}
-        // Saved with its salary, the agreement opens to check and send.
-        onSaved={(id) => navigate('/agreements/' + id)}
+        // Started or saved, the agreement shows in Your agreements at once.
+        onCreated={load}
+        onSaved={load}
         subtitle="Upload the agreement PDF. The employer part is filled from your company details in English, Hebrew and Sinhala, for you to check and send to the admin."
       />
       <Card>

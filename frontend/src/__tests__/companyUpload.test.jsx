@@ -70,7 +70,7 @@ describe("a foreign company's upload, then its salary", () => {
     sendToAdmin.mockReset().mockResolvedValue({ data: {}, message: 'Agreement sent to the admin.' });
   });
 
-  it('uploads first, then saves the salary and opens the agreement', async () => {
+  it('uploads first, then saves the salary, listing the agreement all along', async () => {
     const user = userEvent.setup();
     renderPage();
 
@@ -83,7 +83,8 @@ describe("a foreign company's upload, then its salary", () => {
     await user.click(screen.getByRole('button', { name: /upload/i }));
 
     await screen.findByText(/SEC 2026 uploaded/);
-    expect(screen.queryByText('opened agreement')).toBeNull();
+    // It is an agreement already, so the list is read again at once.
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
 
     await user.type(screen.getByLabelText(/monthly salary/i), '7,512.40');
     const seal = new File(['png'], 'seal.png', { type: 'image/png' });
@@ -96,7 +97,11 @@ describe("a foreign company's upload, then its salary", () => {
     // The seal and the signature go on the same agreement.
     expect(uploadMark).toHaveBeenCalledWith(9, 'seal', seal);
     expect(uploadMark).toHaveBeenCalledWith(9, 'signature', signature);
-    expect(await screen.findByText('opened agreement')).toBeTruthy();
+    // Saved, it stays on this page: the list is read again and the form is ready for the next one.
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+    expect(screen.queryByText('opened agreement')).toBeNull();
+    expect(screen.getByLabelText(/monthly salary/i).value).toBe('');
+    expect(screen.getByRole('button', { name: /^save$/i }).disabled).toBe(true);
   });
 
   it('edits a sent agreement from a card: its name, salary, seal and signature', async () => {
@@ -174,9 +179,15 @@ describe("a foreign company's upload, then its salary", () => {
     );
     expect((await screen.findByLabelText('Saved PDF')).value).toBe('5');
 
+    // Once started, the server lists it among the company's agreements.
+    list.mockResolvedValue({
+      data: [{ id: 12, title: 'Kamal 2026', status: 'draft', updatedAt: '2026-09-24T10:00:00Z' }],
+    });
     await user.click(screen.getByRole('button', { name: /use saved pdf/i }));
     await waitFor(() => expect(create).toHaveBeenCalledWith(5, 'Kamal 2026'));
     expect(await screen.findByText(/Kamal 2026 started/)).toBeTruthy();
+    // It shows in Your agreements straight away, without a reload.
+    expect(await screen.findByText('Kamal 2026')).toBeTruthy();
     expect(uploadTemplate).toHaveBeenCalledTimes(1);
   });
 

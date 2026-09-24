@@ -109,6 +109,15 @@ class CandidatePassFlowTest extends TestCase
         return $this->as($token)->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => $passed]);
     }
 
+    /** The police report applied for, which documents wait on as well as the pass. */
+    private function applyPolice(string $token, int $id)
+    {
+        return $this->as($token)->patchJson('/api/v1/candidates/'.$id.'/police-report', [
+            'status' => 'applied',
+            'referenceNo' => 'PR/2026/0001',
+        ]);
+    }
+
     private function upload(string $token, int $id, string $type = 'medical')
     {
         return $this->as($token)->postJson('/api/v1/candidates/'.$id.'/documents', [
@@ -130,9 +139,15 @@ class CandidatePassFlowTest extends TestCase
 
         $this->pass($this->admin, $id)->assertOk()
             ->assertJsonPath('data.poolStatus', 'passed')
-            ->assertJsonPath('data.documentsOpen', true);
+            // Passed, but the police report is not applied for yet.
+            ->assertJsonPath('data.documentsOpen', false);
         $this->assertNotNull(Candidate::find($id)->passed_at);
 
+        $this->upload($this->alpha, $id)
+            ->assertStatus(409)
+            ->assertJsonPath('message', "Apply for Kamal Perera's police report first. Documents are attached once it is applied for or received.");
+
+        $this->applyPolice($this->alpha, $id)->assertOk()->assertJsonPath('data.documentsOpen', true);
         $this->upload($this->alpha, $id)->assertCreated();
 
         // Switched off again, the file closes to documents once more.
@@ -298,8 +313,10 @@ class CandidatePassFlowTest extends TestCase
             ->assertJsonPath('message', 'Only a candidate who has passed can be submitted.');
 
         $this->pass($this->admin, $id)->assertOk();
-        foreach (DocumentType::cases() as $type) {
-            $this->upload($this->alpha, $id, $type->value)->assertCreated();
+        $this->applyPolice($this->alpha, $id)->assertOk();
+        // Only the required ones: the NIC copy is optional and never holds the profile back.
+        foreach (DocumentType::requiredValues() as $type) {
+            $this->upload($this->alpha, $id, $type)->assertCreated();
         }
 
         // The agency attaches, but never submits.
@@ -322,6 +339,7 @@ class CandidatePassFlowTest extends TestCase
     {
         $id = $this->register($this->alpha)->assertCreated()->json('data.candidate.id');
         $this->pass($this->admin, $id)->assertOk();
+        $this->applyPolice($this->alpha, $id)->assertOk();
         foreach (DocumentType::cases() as $type) {
             $this->upload($this->alpha, $id, $type->value)->assertCreated();
         }
@@ -394,6 +412,8 @@ class CandidatePassFlowTest extends TestCase
             'locked_company_id' => $company->id,
             'locked_at' => now(),
             'passed_at' => now(),
+            'police_status' => 'applied',
+            'police_reference_no' => 'PR/2026/0001',
         ]);
 
         // The documents open just as they do for the agency's own pass...

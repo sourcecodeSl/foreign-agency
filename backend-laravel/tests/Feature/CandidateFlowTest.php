@@ -74,6 +74,9 @@ class CandidateFlowTest extends TestCase
             ->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])
             ->assertOk();
 
+        // Documents also wait for the police report to be applied for.
+        \App\Models\Candidate::whereKey($id)->update(['police_status' => 'applied', 'police_reference_no' => 'PR/2026/0001']);
+
         $this->withToken($token);
     }
 
@@ -89,7 +92,7 @@ class CandidateFlowTest extends TestCase
         ], $overrides);
     }
 
-    public function test_document_types_lists_the_eight_required_documents(): void
+    public function test_document_types_lists_the_documents_with_the_nic_copy_optional(): void
     {
         $this->agency('AG-9001', 'Skyline Marketing', 'tst.skyline');
         $token = $this->tokenFor('agency_owner', 'AG-9001', 'owner@skyline.lk');
@@ -99,12 +102,15 @@ class CandidateFlowTest extends TestCase
             ->assertOk()
             ->json('data');
 
-        $this->assertCount(8, $types);
+        $this->assertCount(9, $types);
         $this->assertSame([
-            'passport_copy', 'online_police_report', 'medical',
+            'passport_copy', 'nic_copy', 'online_police_report', 'medical',
             'affidavit_english', 'affidavit_sinhala',
             'family_affidavit_english', 'family_affidavit_sinhala', 'agreement',
         ], array_column($types, 'value'));
+
+        // Eight are needed before the profile is submitted; the NIC copy is not.
+        $this->assertSame(['nic_copy'], array_column(array_filter($types, fn ($t) => ! $t['required']), 'value'));
     }
 
     public function test_agency_registers_a_candidate_and_uploads_every_document(): void
@@ -138,7 +144,7 @@ class CandidateFlowTest extends TestCase
             ->getJson('/api/v1/candidates/'.$candidate['id'].'/documents')
             ->assertOk()->json('data');
 
-        $this->assertCount(8, $documents['documents']);
+        $this->assertCount(count(DocumentType::cases()), $documents['documents']);
         $this->assertSame([], $documents['missing']);
 
         // Complete set, so it can go forward - but a coordinator (or the Main

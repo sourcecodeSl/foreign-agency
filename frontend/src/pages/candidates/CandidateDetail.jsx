@@ -17,9 +17,9 @@ import { PageLoader } from '../../components/ui/Spinner';
 import { candidateApi } from '../../lib/api';
 import { confirmAction, escapeHtml } from '../../lib/alert';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
-import { SourceTag, canRunTests, formatDate, isReviewer, isSettled, submitState } from './shared';
-import SkillTests from './SkillTests';
+import { SourceTag, formatDate, isReviewer, isSettled, submitState } from './shared';
 import PoliceReport from './PoliceReport';
+import { RegistrationsCard, OtherRegistrations } from './CategoryResults';
 
 const STATUS_TONE = { draft: 'gray', submitted: 'blue', approved: 'green', rejected: 'red' };
 
@@ -62,7 +62,15 @@ function DocumentRow({ type, versions, onUpload, onDownload, uploading, readOnly
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-gray-900">{type.label}</p>
+          <p className="text-sm font-medium text-gray-900">
+            {type.label}
+            {/* Welcome, but the profile is submitted without it. */}
+            {type.required === false && (
+              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                Optional
+              </span>
+            )}
+          </p>
           {broken ? (
             <p className="truncate text-xs text-red-600">
               {current.originalName} — file missing on the server, attach it again
@@ -161,7 +169,6 @@ export default function CandidateDetail() {
   // Admin) checks the documents and submits the profile.
   const isAgency = !isGlobalRole(admin?.roleSlug);
   const reviewer = isReviewer(admin?.roleSlug);
-  const tester = canRunTests(admin);
 
   const [candidate, setCandidate] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -173,11 +180,21 @@ export default function CandidateDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [zipping, setZipping] = useState(false);
 
-  // The pass belongs to the company this candidate is registered for - the
-  // one that tests them - or to the Main Admin. Everyone else reads it.
+  // A foreign company the candidate is registered with - one that tests them.
   const isTestingCompany =
-    admin?.agency?.type === 'foreign' && admin?.agency?.id === candidate?.company?.id;
-  const canPass = admin?.roleSlug === 'main_admin' || isTestingCompany;
+    admin?.agency?.type === 'foreign' &&
+    (candidate?.registrations || []).some((r) => r.company.id === admin?.agency?.id);
+  // The company holding the pass, once there is one.
+  const holdsPass = isTestingCompany && admin?.agency?.id === candidate?.company?.id;
+  // The company passes a candidate by recording the result against a job
+  // category (below), never by the bare switch; the Main Admin keeps it.
+  const canPass = admin?.roleSlug === 'main_admin';
+  // The local agency that owns the file registers it with companies.
+  const ownsFile = isAgency && admin?.agency?.id === candidate?.agencyId;
+  // A local agency login, not a foreign company reading the file.
+  const localViewer = isAgency && admin?.agency?.type !== 'foreign';
+  // Blocking the same person's other registrations: whoever holds the pass.
+  const canBlock = reviewer || holdsPass;
 
   const load = useCallback(async () => {
     try {
@@ -232,7 +249,7 @@ export default function CandidateDetail() {
   };
 
   const handleDelete = async () => {
-    const attachedCount = required.length - missing.length;
+    const attachedCount = new Set(documents.map((doc) => doc.type)).size;
     const sure = await confirmAction({
       title: 'Remove ' + candidate.name + '?',
       html:
@@ -297,7 +314,10 @@ export default function CandidateDetail() {
     (byType[doc.type] ||= []).push(doc);
   }
 
-  const uploadedCount = required.length - missing.length;
+  // Counted against the required documents only; an optional one (the NIC
+  // copy) never holds the profile back.
+  const requiredCount = required.filter((type) => type.required !== false).length;
+  const uploadedCount = requiredCount - missing.length;
   const complete = missing.length === 0;
 
   const passed = candidate.poolStatus === 'passed';
@@ -351,6 +371,8 @@ export default function CandidateDetail() {
   } else if (candidate.poolStatus === 'testing') {
     passNote = 'A skill test is open for this candidate. The coordinator records its result.';
     passLocked = true;
+  } else if (isTestingCompany) {
+    passNote = 'Record the result under Test results by job category. A pass there becomes their profession.';
   } else {
     passNote = canPass
       ? 'Switch on once the candidate has passed your test. Until then no documents are attached, and they may also register with other agencies.'
@@ -359,9 +381,9 @@ export default function CandidateDetail() {
         ' records the result.';
   }
   if (passed) {
-    passNote += settled
-      ? ' The coordinator has submitted the profile.'
-      : ' Documents are open, and no other agency can register this candidate.';
+    if (settled) passNote += ' The coordinator has submitted the profile.';
+    else if (candidate.documentsOpen) passNote += ' Documents are open, and no other agency can register this candidate.';
+    else passNote += ' No other agency can register this candidate. Documents open once the police report is applied for.';
   }
 
   let documentsNote;
@@ -374,6 +396,9 @@ export default function CandidateDetail() {
     documentsNote = canPass
       ? 'Documents are attached once the candidate has passed. Switch on Passed above first.'
       : 'Documents are attached once the candidate has passed their test.';
+  } else if (candidate.policeReport?.status !== 'applied' && candidate.policeReport?.status !== 'received') {
+    documentsNote =
+      'Passed, but the police report is not applied for yet. Documents open once it is applied for or received.';
   } else if (settled) {
     documentsNote =
       'The coordinator has checked these documents and submitted the profile, so they are settled.';
@@ -391,12 +416,25 @@ export default function CandidateDetail() {
         >
           <p className="font-semibold">This candidate is blocked</p>
           <p className="mt-1">
-            The person with NIC {candidate.nicNo} has already passed with{' '}
-            {candidate.blockedBy || 'another agency'}. This file cannot be passed, edited or given
-            documents while that pass stands.
+            {candidate.registrationBlocked
+              ? 'The person with NIC ' +
+                candidate.nicNo +
+                ' has passed with ' +
+                (candidate.registrationBlocked.company || 'another company') +
+                ', which blocked this registration on ' +
+                formatDate(candidate.registrationBlocked.at) +
+                '. No result can be recorded here.'
+              : 'The person with NIC ' +
+                candidate.nicNo +
+                ' has already passed with ' +
+                (candidate.blockedBy || 'another agency') +
+                '. This file cannot be passed, edited or given documents while that pass stands.'}
           </p>
         </div>
       )}
+
+      {/* Passed here, but the same NIC is registered for another company. */}
+      <OtherRegistrations candidate={candidate} canBlock={canBlock} onChanged={load} />
 
       {/* Short validity never blocks anything, but it is never hidden either. */}
       {candidate.passportWarning && (
@@ -471,7 +509,12 @@ export default function CandidateDetail() {
                   '—'
                 ),
               ],
-              ['Registered for', candidate.company?.name || '—'],
+              [
+                'Registered for',
+                candidate.registrations?.length
+                  ? candidate.registrations.map((r) => r.company.name).join(', ')
+                  : candidate.company?.name || '—',
+              ],
               ['Profession', candidate.profession || '—'],
               ['Test results', candidate.testResults || '—'],
               ['Mobile', candidate.mobile],
@@ -480,9 +523,26 @@ export default function CandidateDetail() {
               ['Added by', <SourceTag registeredBy={candidate.registeredBy} />],
               [
                 'Job categories',
-                candidate.jobRoles?.length
-                  ? candidate.jobRoles.map((role) => role.name).join(', ')
-                  : candidate.jobRole || '—',
+                // The local agency sees them under each company, so a second
+                // company's categories never get lost among the first's.
+                localViewer && candidate.registrations?.length ? (
+                  <ul className="space-y-1">
+                    {candidate.registrations.map((registration) => (
+                      <li
+                        key={registration.id}
+                        className={registration.state === 'void' ? 'text-gray-400' : undefined}
+                      >
+                        <span className="font-medium">{registration.company.name}:</span>{' '}
+                        {registration.jobRoles.map((role) => role.name).join(', ') || '—'}
+                        {registration.state === 'void' ? ' (not valid)' : ''}
+                      </li>
+                    ))}
+                  </ul>
+                ) : candidate.jobRoles?.length ? (
+                  candidate.jobRoles.map((role) => role.name).join(', ')
+                ) : (
+                  candidate.jobRole || '—'
+                ),
               ],
               ['Test index No', candidate.testIndexNo || '—'],
               ...(candidate.submittedAt
@@ -507,8 +567,17 @@ export default function CandidateDetail() {
         </CardBody>
       </Card>
 
-      {/* --- skill tests: one file, a new test number for every attempt --- */}
-      <SkillTests candidate={candidate} canRun={tester} onChanged={load} />
+      {/* --- the police report: documents wait for it as well as the pass --- */}
+      <PoliceReport candidate={candidate} readOnly={!canEditPolice} onChanged={load} />
+
+      {/* --- each foreign company, its job categories and their results --- */}
+      <RegistrationsCard
+        candidate={candidate}
+        admin={admin}
+        reviewer={reviewer}
+        canManage={ownsFile || reviewer}
+        onChanged={load}
+      />
 
       {/* --- the pass: the company's switch, everyone else reads it --- */}
       <Card>
@@ -555,9 +624,6 @@ export default function CandidateDetail() {
         </div>
       </Card>
 
-      {/* --- the police report, beside the document it is uploaded with --- */}
-      <PoliceReport candidate={candidate} readOnly={!canEditPolice} onChanged={load} />
-
       {/* --- documents --- */}
       <Card>
         <CardHeader
@@ -571,12 +637,12 @@ export default function CandidateDetail() {
                   (complete ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')
                 }
               >
-                {uploadedCount} / {required.length} attached
+                {uploadedCount} / {requiredCount} attached
               </span>
               <Button
                 variant="secondary"
                 loading={zipping}
-                disabled={uploadedCount === 0}
+                disabled={documents.length === 0}
                 onClick={handleDownloadAll}
               >
                 Download all (ZIP)

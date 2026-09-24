@@ -42,6 +42,7 @@ class Candidate extends Model
 
     protected $casts = [
         'passed_at' => 'datetime',
+        'registration_blocked_at' => 'datetime',
         'submitted_at' => 'datetime',
         'date_of_birth' => 'date:Y-m-d',
         'passport_expiry' => 'date:Y-m-d',
@@ -155,6 +156,109 @@ class Candidate extends Model
         return $this->belongsTo(User::class, 'submitted_by');
     }
 
+    /**
+     * How the test went in each job category, one row per trade. The local
+     * agency reads them all; the latest also sits on the candidate itself.
+     */
+    public function categoryResults(): HasMany
+    {
+        return $this->hasMany(CandidateTestResult::class)->orderBy('id');
+    }
+
+    /**
+     * Every foreign company this candidate is registered with, each for its
+     * own job categories, in the order they were added.
+     */
+    public function registrations(): HasMany
+    {
+        return $this->hasMany(CandidateRegistration::class)->orderBy('id');
+    }
+
+    /** The registration with one foreign company, if there is one. */
+    public function registrationFor(?string $companyAgencyId): ?CandidateRegistration
+    {
+        if (! $companyAgencyId) {
+            return null;
+        }
+
+        return $this->registrations->firstWhere('company_agency_id', $companyAgencyId);
+    }
+
+    /** Whether this foreign company has the candidate on its list. */
+    public function isRegisteredWith(?string $companyAgencyId): bool
+    {
+        return $this->registrationFor($companyAgencyId) !== null;
+    }
+
+    /**
+     * Puts the candidate up with a company for these trades, keeping any
+     * already there. The first company becomes the one the file shows.
+     *
+     * @param  int[]  $roleIds
+     */
+    public function registerWith(string $companyAgencyId, array $roleIds, ?int $by = null): CandidateRegistration
+    {
+        $registration = $this->registrations()->firstOrCreate(
+            ['company_agency_id' => $companyAgencyId],
+            ['created_by' => $by]
+        );
+        $registration->jobRoles()->syncWithoutDetaching($roleIds);
+
+        if (! $this->company_agency_id) {
+            $this->company_agency_id = $companyAgencyId;
+            $this->save();
+        }
+
+        $this->unsetRelation('registrations');
+        $this->syncJobRolesFromRegistrations();
+
+        return $registration;
+    }
+
+    /**
+     * The file's own list of trades is every trade it is registered for with
+     * any company, plus any trade already tested or given a result.
+     */
+    public function syncJobRolesFromRegistrations(): void
+    {
+        $ids = CandidateRegistration::query()
+            ->where('candidate_id', $this->id)
+            ->join('candidate_registration_roles', 'candidate_registration_roles.registration_id', '=', 'candidate_registrations.id')
+            ->orderBy('candidate_registration_roles.id')
+            ->pluck('candidate_registration_roles.job_role_id')
+            ->merge($this->tests()->pluck('job_role_id'))
+            ->merge($this->categoryResults()->pluck('job_role_id'))
+            ->map(fn ($id) => (int) $id)
+            ->unique()->values()->all();
+
+        if ($ids === []) {
+            return;
+        }
+
+        $this->jobRoles()->sync($ids);
+        $this->unsetRelation('jobRoles');
+
+        if (! in_array((int) $this->job_role_id, $ids, true)) {
+            $this->job_role_id = $ids[0];
+            $this->save();
+        }
+    }
+
+    /** The passed file this one was blocked for, when a block was made. */
+    public function blockedFor(): BelongsTo
+    {
+        return $this->belongsTo(Candidate::class, 'registration_blocked_for')->withTrashed();
+    }
+
+    /**
+     * Blocked by hand: the person passed with another company, and that
+     * company or the admin side shut this registration.
+     */
+    public function isRegistrationBlocked(): bool
+    {
+        return $this->registration_blocked_at !== null;
+    }
+
     /** Every skill test attempt, newest first. */
     public function tests(): HasMany
     {
@@ -211,6 +315,10 @@ class Candidate extends Model
      */
     public function isBlocked(): bool
     {
+        if ($this->isRegistrationBlocked()) {
+            return true;
+        }
+
         return ! $this->isPassed() && $this->passedElsewhere() !== null;
     }
 
@@ -250,7 +358,18 @@ class Candidate extends Model
      */
     public function documentsOpen(): bool
     {
-        return $this->isPassed() && ! in_array($this->status, self::LOCKED_STATUSES, true);
+        return $this->isPassed()
+            && $this->policeApplied()
+            && ! in_array($this->status, self::LOCKED_STATUSES, true);
+    }
+
+    /**
+     * The police report has at least been applied for. Until it is, a passed
+     * candidate's documents stay closed.
+     */
+    public function policeApplied(): bool
+    {
+        return in_array($this->police_status, ['applied', 'received'], true);
     }
 
     public function scopeSearch(Builder $query, ?string $term): Builder
@@ -289,7 +408,8 @@ class Candidate extends Model
             }
         }
 
-        return array_values(array_diff(DocumentType::values(), $present));
+        // Only the required ones: an optional document (the NIC copy) never holds a profile back.
+        return array_values(array_diff(DocumentType::requiredValues(), $present));
     }
 
     /**
@@ -441,6 +561,20 @@ class Candidate extends Model
                 'id' => $this->company_agency_id,
                 'name' => $this->companyAgency?->name,
                 'code' => $this->companyAgency?->code,
+            ] : null,
+            // Every company the candidate is put up with, its trades, and how
+            // each went. Only the company holding a pass stays valid.
+            'registrations' => $this->registrations
+                ->each(fn (CandidateRegistration $registration) => $registration->setRelation('candidate', $this))
+                ->map(fn (CandidateRegistration $registration) => $registration->toPublic())
+                ->values()->all(),
+            // One result per job category, pass or fail, for the agency to read.
+            'categoryResults' => $this->categoryResults
+                ->map(fn (CandidateTestResult $result) => $result->toPublic())->values()->all(),
+            // Shut by the company that holds this person's pass, or the admin side.
+            'registrationBlocked' => $this->registration_blocked_at ? [
+                'at' => $this->registration_blocked_at,
+                'company' => $this->blockedFor?->companyAgency?->name,
             ] : null,
             'testResult' => $this->test_result ? [
                 'result' => $this->test_result,

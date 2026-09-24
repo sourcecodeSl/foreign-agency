@@ -5,8 +5,9 @@ import { MemoryRouter } from 'react-router-dom';
 import NotificationBell, { timeAgo } from '../components/layout/NotificationBell';
 
 const list = vi.fn();
+const dismiss = vi.fn();
 vi.mock('../lib/api', () => ({
-  notificationsApi: { list: (...args) => list(...args) },
+  notificationsApi: { list: (...args) => list(...args), dismiss: (...args) => dismiss(...args) },
 }));
 
 vi.mock('../context/AuthContext', () => ({
@@ -46,14 +47,16 @@ describe('notification bell', () => {
   beforeEach(() => {
     localStorage.clear();
     list.mockReset().mockResolvedValue({ data: ITEMS });
+    dismiss.mockReset().mockResolvedValue({ data: {} });
   });
 
   it('shows a card of notifications while the pointer is over the bell', async () => {
     const user = userEvent.setup();
     renderBell();
 
-    // The dot counts what has not been seen yet.
-    const bell = await screen.findByRole('button', { name: /notifications \(2 new\)/i });
+    // The badge counts what is on the card.
+    const bell = await screen.findByRole('button', { name: /notifications \(2\)/i });
+    expect(within(bell).getByText('2')).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
 
     await user.hover(bell);
@@ -69,8 +72,26 @@ describe('notification bell', () => {
     await user.unhover(bell);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    // Seen now, so the dot stays off until something newer arrives.
-    expect(screen.getByRole('button', { name: /^notifications$/i })).toBeTruthy();
+    // Only looked at, not opened: both are still counted.
+    expect(screen.getByRole('button', { name: /notifications \(2\)/i })).toBeTruthy();
+  });
+
+  it('takes a notification off the bell once it is opened', async () => {
+    const user = userEvent.setup();
+    renderBell();
+
+    const bell = await screen.findByRole('button', { name: /notifications \(2\)/i });
+    await user.click(bell);
+    const card = await screen.findByRole('dialog', { name: /notifications/i });
+    await user.click(within(card).getByRole('link', { name: /visal theekshana/i }));
+
+    expect(dismiss).toHaveBeenCalledWith('candidate-new-2');
+    // One left, and the opened one is gone from the card.
+    const after = screen.getByRole('button', { name: /notifications \(1\)/i });
+    await user.click(after);
+    const reopened = await screen.findByRole('dialog', { name: /notifications/i });
+    expect(within(reopened).queryByText(/visal theekshana/i)).toBeNull();
+    expect(within(reopened).getByText('evoo is awaiting approval')).toBeTruthy();
   });
 
   it('says so when there is nothing to show', async () => {

@@ -758,6 +758,15 @@ export const dashboardApi = {
 
 // --- Notifications ----------------------------------------------------------
 export const notificationsApi = {
+  /** Opened: the bell stops listing it for this login, on every device. */
+  async dismiss(id) {
+    if (USE_MOCK) return ok({ id });
+    return request('/notifications/' + encodeURIComponent(id) + '/dismiss', {
+      method: 'POST',
+      background: true,
+    });
+  },
+
   /** What the bell lists for whoever is signed in, newest first. */
   async list() {
     // Polled every minute in the background, so it never shows as loading.
@@ -888,11 +897,52 @@ export const candidateApi = {
    * registered for, or by the admin side. A pass names the job category,
    * which becomes their profession.
    */
-  async recordTestResult(id, { result, jobRoleId, note, testResults } = {}) {
+  async recordTestResult(id, { result, jobRoleId, note, testResults, companyAgencyId } = {}) {
     requireLiveApi();
     return request('/candidates/' + id + '/test-result', {
       method: 'PATCH',
-      body: { result, jobRoleId, note, testResults },
+      // Which company's result: a company login is always its own.
+      body: { result, jobRoleId, note, testResults, companyAgencyId },
+    });
+  },
+
+  /**
+   * Registers the candidate with another foreign company, for the job
+   * categories that company tests them in. Only until they pass with one.
+   */
+  async addRegistration(id, { companyAgencyId, jobRoleIds }) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/registrations', {
+      method: 'POST',
+      body: { companyAgencyId, jobRoleIds },
+    });
+  },
+
+  /** The job categories of one company's registration. */
+  async updateRegistration(id, registrationId, { jobRoleIds }) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/registrations/' + registrationId, {
+      method: 'PUT',
+      body: { jobRoleIds },
+    });
+  },
+
+  /** Takes the candidate off a company that has recorded nothing for them. */
+  async removeRegistration(id, registrationId) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/registrations/' + registrationId, { method: 'DELETE' });
+  },
+
+  /**
+   * Blocks (or lets go) the same person's registration for another foreign
+   * company, once they have passed. The company holding the pass or the
+   * admin side only.
+   */
+  async blockRegistration(id, otherId, blocked) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/other-registrations/' + otherId, {
+      method: 'PATCH',
+      body: { blocked },
     });
   },
 

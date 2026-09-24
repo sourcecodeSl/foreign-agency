@@ -10,6 +10,7 @@ use App\Models\SkillTest;
 use App\Models\User;
 use App\Support\Jwt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 /**
@@ -223,6 +224,15 @@ class SkillTestFlowTest extends TestCase
             ->assertJsonPath('data.testResult.result', 'pass')
             ->assertJsonPath('data.testResult.jobRole', 'Mason');
 
+        // It reads the file and its documents, but attaches nothing: the
+        // agency that registered them owns the paperwork.
+        $this->getJson('/api/v1/candidates/'.$registered['id'])->assertOk();
+        $this->getJson('/api/v1/candidates/'.$registered['id'].'/documents')->assertOk();
+        $this->postJson('/api/v1/candidates/'.$registered['id'].'/documents', [
+            'type' => 'medical',
+            'file' => UploadedFile::fake()->create('medical.pdf', 40, 'application/pdf'),
+        ])->assertForbidden();
+
         // Another company may not touch a candidate that is not registered for it.
         $other = Agency::create([
             'id' => 'AG-9101',
@@ -250,6 +260,7 @@ class SkillTestFlowTest extends TestCase
         $this->as(Jwt::sign($otherOwner->toPublic()))
             ->patchJson('/api/v1/candidates/'.$registered['id'].'/test-result', ['result' => 'fail'])
             ->assertForbidden();
+        $this->getJson('/api/v1/candidates/'.$registered['id'].'/documents')->assertForbidden();
         $this->getJson('/api/v1/candidates')->assertOk()->assertJsonCount(0, 'data');
     }
 

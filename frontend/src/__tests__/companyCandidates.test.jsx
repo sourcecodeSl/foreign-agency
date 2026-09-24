@@ -41,6 +41,17 @@ const CANDIDATE = {
     { id: 2, name: 'Mason' },
   ],
   testResult: null,
+  // This company's own registration: the categories it tests them in.
+  registration: {
+    id: 3,
+    company: { id: 'AG-9100', name: 'Herzl' },
+    state: 'open',
+    jobRoles: [
+      { id: 1, name: 'Tiler' },
+      { id: 2, name: 'Mason' },
+    ],
+    results: [],
+  },
 };
 
 function renderPage() {
@@ -82,7 +93,7 @@ describe("a foreign company's own candidates", () => {
 
     const dialog = screen.getByRole('dialog');
     await user.click(within(dialog).getByLabelText(/^passed/i));
-    await user.selectOptions(within(dialog).getByLabelText(/job category passed/i), '2');
+    await user.selectOptions(within(dialog).getByLabelText(/^job category/i), '2');
     // The test sheet's own wording is the company's to write, not the agency's.
     await user.type(within(dialog).getByLabelText(/test results/i), 'NVQ Level 3 - Pass');
     await user.click(within(dialog).getByRole('button', { name: /save result/i }));
@@ -93,10 +104,67 @@ describe("a foreign company's own candidates", () => {
         jobRoleId: 2,
         note: undefined,
         testResults: 'NVQ Level 3 - Pass',
+        companyAgencyId: 'AG-9100',
       })
     );
     // The list is read again, so the new result shows.
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  });
+
+  it('names the job category a fail was in, for the local agency', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: /record result/i }));
+
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByLabelText(/^did not pass/i));
+    await user.selectOptions(within(dialog).getByLabelText(/^job category/i), '1');
+    await user.type(within(dialog).getByLabelText(/note for the local agency/i), 'Cutting not accurate');
+    await user.click(within(dialog).getByRole('button', { name: /save result/i }));
+
+    await waitFor(() =>
+      expect(recordTestResult).toHaveBeenCalledWith(7, {
+        result: 'fail',
+        jobRoleId: 1,
+        note: 'Cutting not accurate',
+        testResults: undefined,
+        companyAgencyId: 'AG-9100',
+      })
+    );
+  });
+
+  it('shows the result recorded for each job category', async () => {
+    list.mockResolvedValue({
+      data: [
+        {
+          ...CANDIDATE,
+          registration: {
+            ...CANDIDATE.registration,
+            results: [
+              { id: 1, jobRoleId: 1, jobRole: 'Tiler', result: 'fail' },
+              { id: 2, jobRoleId: 2, jobRole: 'Mason', result: 'pass' },
+            ],
+          },
+        },
+      ],
+    });
+    renderPage();
+
+    const row = (await screen.findByText('Kamal Perera')).closest('tr');
+    expect(within(row).getByText('Did not pass - Tiler')).toBeTruthy();
+    expect(within(row).getByText('Passed - Mason')).toBeTruthy();
+  });
+
+  it('offers nothing to record once the candidate passed with another company', async () => {
+    list.mockResolvedValue({
+      data: [{ ...CANDIDATE, registration: { ...CANDIDATE.registration, state: 'void' } }],
+    });
+    renderPage();
+
+    const row = (await screen.findByText('Kamal Perera')).closest('tr');
+    expect(within(row).getByText('Passed with another company')).toBeTruthy();
+    expect(within(row).queryByRole('button', { name: /record result/i })).toBeNull();
   });
 
   it('narrows the list to one agency', async () => {
