@@ -14,6 +14,7 @@ const blockRegistration = vi.fn().mockResolvedValue({ message: 'Blocked.' });
 const addRegistration = vi.fn().mockResolvedValue({ message: 'Registered.' });
 const updateStatus = vi.fn();
 const savePolice = vi.fn();
+const decideRegistration = vi.fn().mockResolvedValue({ message: 'Approved.' });
 
 const DOCUMENT_TYPES = [
   'passport_copy',
@@ -80,6 +81,7 @@ vi.mock('../lib/api', () => ({
     updateStatus: (...args) => updateStatus(...args),
     remove: vi.fn(),
     savePoliceReport: (...args) => savePolice(...args),
+    decideRegistration: (...args) => decideRegistration(...args),
   },
   companyApi: { list: async () => ({ data: [{ id: 5, name: 'Herzl Construction' }] }) },
   agencyApi: {
@@ -130,6 +132,7 @@ beforeEach(() => {
   savePolice.mockReset().mockResolvedValue({ message: 'Police report saved.' });
   // Everything except the passport copy is still outstanding.
   missing = DOCUMENT_TYPES.filter((t) => t !== 'passport_copy');
+  agency = null;
 });
 
 describe('the owning agency, once the candidate has passed', () => {
@@ -151,6 +154,23 @@ describe('the owning agency, once the candidate has passed', () => {
     await user.click(screen.getByRole('button', { name: /^download$/i }));
     await waitFor(() => expect(downloadOne).toHaveBeenCalledWith('1', 10, 'p.pdf'));
 
+    await user.click(screen.getByRole('button', { name: /download all/i }));
+    await waitFor(() => expect(downloadAll).toHaveBeenCalled());
+  });
+
+  it('lets the foreign company view and download, but never attach', async () => {
+    const user = userEvent.setup();
+    agency = { id: 'AG-9100', name: 'Herzl Construction', type: 'foreign' };
+    candidate = { ...candidate, agencyId: 'AG-9001' };
+    const { container } = renderDetail();
+
+    await screen.findByText('Kamal Perera');
+    expect(screen.queryByRole('button', { name: /^attach$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /add new/i })).toBeNull();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /^download$/i }));
+    await waitFor(() => expect(downloadOne).toHaveBeenCalledWith('1', 10, 'p.pdf'));
     await user.click(screen.getByRole('button', { name: /download all/i }));
     await waitFor(() => expect(downloadAll).toHaveBeenCalled());
   });
@@ -255,7 +275,6 @@ describe('the owning agency, before the candidate has passed', () => {
         result: 'pass',
         jobRoleId: 2,
         note: undefined,
-        testResults: undefined,
         companyAgencyId: 'AG-9100',
       })
     );
@@ -346,6 +365,93 @@ describe('a coordinator', () => {
 
     await user.click(submit);
     await waitFor(() => expect(updateStatus).toHaveBeenCalledWith('1', 'draft'));
+  });
+});
+
+describe('a registration waiting for approval', () => {
+  const pending = {
+    id: 3,
+    company: { id: 'AG-9100', name: 'Herzl Construction' },
+    state: 'open',
+    approval: 'pending',
+    decision: null,
+    jobRoles: [{ id: 1, name: 'Tiler', testIndexNo: null }],
+    results: [],
+  };
+
+  beforeEach(() => {
+    decideRegistration.mockClear();
+    candidate = { ...BASE, agencyId: 'AG-9001', poolStatus: 'pool', registrations: [pending] };
+  });
+
+  it('shows the agency it is waiting, with no index number and nothing to record', async () => {
+    roleSlug = 'agency_owner';
+    agency = { id: 'AG-9001', name: 'Solidrow', type: 'local' };
+    renderDetail();
+
+    const section = await screen.findByRole('region', { name: 'Herzl Construction' });
+    expect(within(section).getByText('Waiting for approval')).toBeTruthy();
+    expect(within(section).getByText('Test index number given on approval.')).toBeTruthy();
+    expect(within(section).queryByRole('button', { name: /approve/i })).toBeNull();
+    expect(within(section).queryByRole('button', { name: /record result/i })).toBeNull();
+  });
+
+  it('lets a coordinator approve it, or send it back with a reason', async () => {
+    roleSlug = 'coordinator';
+    const user = userEvent.setup();
+    renderDetail();
+
+    const section = await screen.findByRole('region', { name: 'Herzl Construction' });
+    // Not approved, so no result can be recorded yet either.
+    expect(within(section).queryByRole('button', { name: /record result/i })).toBeNull();
+
+    await user.click(within(section).getByRole('button', { name: /^approve$/i }));
+    await waitFor(() => expect(decideRegistration).toHaveBeenCalledWith(1, 3, { decision: 'approve' }));
+
+    await user.click(within(section).getByRole('button', { name: /send back/i }));
+    const dialog = await screen.findByRole('dialog');
+    // A reason is needed before it goes.
+    await user.click(within(dialog).getByRole('button', { name: /^send back$/i }));
+    expect(within(dialog).getByText('Say why, so the local agency can correct it.')).toBeTruthy();
+    await user.type(within(dialog).getByLabelText(/reason/i), 'Mason is not tested this month');
+    await user.click(within(dialog).getByRole('button', { name: /^send back$/i }));
+    await waitFor(() =>
+      expect(decideRegistration).toHaveBeenCalledWith(1, 3, { decision: 'reject', note: 'Mason is not tested this month' })
+    );
+  });
+
+  it('gives the foreign company it is for nothing to approve - that is the admin side', async () => {
+    roleSlug = 'agency_owner';
+    agency = { id: 'AG-9100', name: 'Herzl Construction', type: 'foreign' };
+    renderDetail();
+
+    const section = await screen.findByRole('region', { name: 'Herzl Construction' });
+    expect(within(section).queryByRole('button', { name: /^approve$/i })).toBeNull();
+  });
+
+  it('gives another foreign company nothing to approve', async () => {
+    roleSlug = 'agency_owner';
+    agency = { id: 'AG-9101', name: 'Negev Builders', type: 'foreign' };
+    renderDetail();
+
+    const section = await screen.findByRole('region', { name: 'Herzl Construction' });
+    expect(within(section).queryByRole('button', { name: /^approve$/i })).toBeNull();
+  });
+
+  it('tells the agency why it was sent back', async () => {
+    roleSlug = 'agency_owner';
+    agency = { id: 'AG-9001', name: 'Solidrow', type: 'local' };
+    candidate = {
+      ...candidate,
+      registrations: [
+        { ...pending, approval: 'rejected', decision: { by: 'Kasun Coordinator', note: 'Wrong category' } },
+      ],
+    };
+    renderDetail();
+
+    const section = await screen.findByRole('region', { name: 'Herzl Construction' });
+    expect(within(section).getByText('Sent back')).toBeTruthy();
+    expect(within(section).getByText(/Sent back by Kasun Coordinator: Wrong category/)).toBeTruthy();
   });
 });
 
@@ -485,34 +591,119 @@ describe('the passport warning and the police report', () => {
     agency = null;
   });
 
-  it('registers the candidate with another company until they pass', async () => {
-    const user = userEvent.setup();
+  it('leaves the company to the admin side: the agency cannot assign or change it', async () => {
     const herzl = {
       id: 3,
       company: { id: 'AG-9100', name: 'Herzl Construction' },
       state: 'open',
-      jobRoles: [{ id: 1, name: 'Tiler' }],
-      results: [],
+      current: true,
+      jobRoles: [{ id: 1, name: 'Tiler', testIndexNo: 'TL00001' }],
+      results: [{ id: 5, jobRoleId: 1, jobRole: 'Tiler', result: 'fail' }],
     };
     candidate = { ...BASE, agencyId: 'AG-9001', poolStatus: 'pool', registrations: [herzl] };
     agency = { id: 'AG-9001', name: 'Solidrow', type: 'local' };
     renderDetail();
 
-    await user.click(await screen.findByRole('button', { name: /register with another company/i }));
+    const section = await screen.findByRole('region', { name: 'Herzl Construction' });
+    for (const name of [/assign a company/i, /change company/i, /edit categories/i, /assign for new test/i]) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
+    expect(within(section).getByText('TL00001')).toBeTruthy();
+    agency = null;
+  });
+
+  it('lets a coordinator assign a company from the categories the agency gave', async () => {
+    roleSlug = 'coordinator';
+    addRegistration.mockClear();
+    const user = userEvent.setup();
+    candidate = {
+      ...BASE,
+      agencyId: 'AG-9001',
+      poolStatus: 'pool',
+      jobRoles: [{ id: 3, name: 'Mason' }],
+      registrations: [],
+    };
+    renderDetail();
+
+    await user.click(await screen.findByRole('button', { name: /assign a company/i }));
     const dialog = screen.getByRole('dialog');
-    // A company already on the file is not offered again.
     await waitFor(() => expect(within(dialog).getByRole('option', { name: 'Negev Builders' })).toBeTruthy());
-    expect(within(dialog).queryByRole('option', { name: 'Herzl Construction' })).toBeNull();
+    // What the agency registered them for is ticked, and marked.
+    expect(within(dialog).getByRole('checkbox', { name: /Mason/ }).checked).toBe(true);
+    expect(within(dialog).getByText('from the agency')).toBeTruthy();
 
     await user.selectOptions(within(dialog).getByLabelText(/foreign company/i), 'AG-9101');
-    await user.click(within(dialog).getByRole('checkbox', { name: 'Mason' }));
-    await user.click(within(dialog).getByRole('button', { name: 'Register' }));
+    await user.click(within(dialog).getByRole('button', { name: /^assign$/i }));
 
     await waitFor(() =>
       expect(addRegistration).toHaveBeenCalledWith(1, { companyAgencyId: 'AG-9101', jobRoleIds: [3] })
     );
+  });
 
-    agency = null;
+  it('lets a coordinator send a failed candidate for a new test, or move them', async () => {
+    roleSlug = 'coordinator';
+    addRegistration.mockClear();
+    const user = userEvent.setup();
+    const herzl = {
+      id: 3,
+      company: { id: 'AG-9100', name: 'Herzl Construction' },
+      state: 'open',
+      current: true,
+      jobRoles: [
+        { id: 1, name: 'Tiler', testIndexNo: 'TL00001' },
+        { id: 3, name: 'Mason', testIndexNo: 'MS00001' },
+      ],
+      results: [{ id: 5, jobRoleId: 1, jobRole: 'Tiler', result: 'fail' }],
+    };
+    const earlier = {
+      id: 2,
+      company: { id: 'AG-9101', name: 'Negev Builders' },
+      state: 'ended',
+      current: false,
+      ended: { reason: 'moved', label: 'Moved to another company', at: '2026-09-01' },
+      jobRoles: [{ id: 1, name: 'Tiler', testIndexNo: 'TL00000' }],
+      results: [],
+    };
+    candidate = { ...BASE, agencyId: 'AG-9001', poolStatus: 'pool', registrations: [earlier, herzl] };
+    renderDetail();
+
+    // The company before stays below, as history, with nothing to act on.
+    const old = await screen.findByRole('region', { name: 'Negev Builders (earlier)' });
+    expect(within(old).getByText('Moved on')).toBeTruthy();
+    expect(within(old).queryByRole('button')).toBeNull();
+
+    // After the fail: a new test, starting from the same company, the failed
+    // category and the one not tested yet.
+    const section = screen.getByRole('region', { name: 'Herzl Construction' });
+    await user.click(within(section).getByRole('button', { name: /assign for new test/i }));
+    let dialog = screen.getByRole('dialog');
+    await waitFor(() => expect(within(dialog).getByRole('option', { name: 'Herzl Construction' })).toBeTruthy());
+    expect(within(dialog).getByLabelText(/foreign company/i).value).toBe('AG-9100');
+    await user.click(within(dialog).getByRole('button', { name: /assign new test/i }));
+    await waitFor(() =>
+      expect(addRegistration).toHaveBeenCalledWith(1, {
+        companyAgencyId: 'AG-9100',
+        jobRoleIds: [1, 3],
+        replacesRegistrationId: 3,
+        reason: 'new_test',
+      })
+    );
+
+    // Or moved to another company: the current one is not offered.
+    await user.click(within(section).getByRole('button', { name: /change company/i }));
+    dialog = screen.getByRole('dialog');
+    await waitFor(() => expect(within(dialog).getByRole('option', { name: 'Negev Builders' })).toBeTruthy());
+    expect(within(dialog).queryByRole('option', { name: 'Herzl Construction' })).toBeNull();
+    await user.selectOptions(within(dialog).getByLabelText(/foreign company/i), 'AG-9101');
+    await user.click(within(dialog).getByRole('button', { name: /move to this company/i }));
+    await waitFor(() =>
+      expect(addRegistration).toHaveBeenLastCalledWith(1, {
+        companyAgencyId: 'AG-9101',
+        jobRoleIds: [1, 3],
+        replacesRegistrationId: 3,
+        reason: 'moved',
+      })
+    );
   });
 
   it('offers no other company once the candidate has passed', async () => {
@@ -567,7 +758,7 @@ describe('the passport warning and the police report', () => {
     const headings = screen.getAllByRole('heading').map((h) => h.textContent);
     const police = headings.indexOf('Police report');
     expect(police).toBeGreaterThan(-1);
-    expect(police).toBeLessThan(headings.indexOf('Foreign companies and test results'));
+    expect(police).toBeLessThan(headings.indexOf('Foreign company and test results'));
 
     agency = null;
   });

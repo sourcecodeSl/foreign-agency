@@ -174,37 +174,74 @@ class Candidate extends Model
         return $this->hasMany(CandidateRegistration::class)->orderBy('id');
     }
 
-    /** The registration with one foreign company, if there is one. */
+    /**
+     * The current assignment with one foreign company, if there is one. An
+     * ended one - moved on from, or replaced by a new test - is history.
+     */
     public function registrationFor(?string $companyAgencyId): ?CandidateRegistration
     {
         if (! $companyAgencyId) {
             return null;
         }
 
-        return $this->registrations->firstWhere('company_agency_id', $companyAgencyId);
+        return $this->registrations
+            ->filter(fn (CandidateRegistration $registration) => $registration->isCurrent())
+            ->last(fn (CandidateRegistration $registration) => $registration->company_agency_id === $companyAgencyId);
     }
 
-    /** Whether this foreign company has the candidate on its list. */
+    /** The assignments still running, oldest first. */
+    public function currentRegistrations()
+    {
+        return $this->registrations->filter(fn (CandidateRegistration $registration) => $registration->isCurrent())->values();
+    }
+
+    /** Whether the candidate is currently put up with this company, approved or not. */
     public function isRegisteredWith(?string $companyAgencyId): bool
     {
         return $this->registrationFor($companyAgencyId) !== null;
     }
 
     /**
-     * Puts the candidate up with a company for these trades, keeping any
-     * already there. The first company becomes the one the file shows.
+     * Whether this foreign company may open the file: registered with it and
+     * approved, or still waiting for it (or the admin side) to approve. One
+     * sent back is the local agency's again.
+     */
+    public function isVisibleToCompany(?string $companyAgencyId): bool
+    {
+        $registration = $this->registrationFor($companyAgencyId);
+
+        return $registration !== null && $registration->approval !== CandidateRegistration::REJECTED;
+    }
+
+    /**
+     * Whether this foreign company has the candidate on its list: the
+     * registration has been approved by a coordinator or the Main Admin.
+     */
+    public function isApprovedWith(?string $companyAgencyId): bool
+    {
+        return (bool) $this->registrationFor($companyAgencyId)?->isApproved();
+    }
+
+    /**
+     * Puts the candidate up with a company for these trades - added to the
+     * current assignment with it, or a new one. The company becomes the one
+     * the file shows.
      *
      * @param  int[]  $roleIds
      */
-    public function registerWith(string $companyAgencyId, array $roleIds, ?int $by = null): CandidateRegistration
+    public function registerWith(string $companyAgencyId, array $roleIds, ?int $by = null, bool $approved = false): CandidateRegistration
     {
-        $registration = $this->registrations()->firstOrCreate(
-            ['company_agency_id' => $companyAgencyId],
-            ['created_by' => $by]
-        );
+        // By a coordinator or the Main Admin it is approved as it is made, and
+        // the test numbers come out; anything else waits for their approval.
+        $registration = $this->registrations()->current()->where('company_agency_id', $companyAgencyId)->latest('id')->first()
+            ?? $this->registrations()->create(['company_agency_id' => $companyAgencyId, 'created_by' => $by] + ($approved
+                ? ['approval' => CandidateRegistration::APPROVED, 'decided_at' => now(), 'decided_by' => $by]
+                : ['approval' => CandidateRegistration::PENDING]));
         $registration->jobRoles()->syncWithoutDetaching($roleIds);
+        $registration->assignTestIndexes();
 
-        if (! $this->company_agency_id) {
+        // The file shows the company the candidate was last sent to.
+        if ($this->company_agency_id !== $companyAgencyId && ! $this->isPassed()) {
             $this->company_agency_id = $companyAgencyId;
             $this->save();
         }
@@ -216,8 +253,9 @@ class Candidate extends Model
     }
 
     /**
-     * The file's own list of trades is every trade it is registered for with
-     * any company, plus any trade already tested or given a result.
+     * The file's own list of trades - what the agency said the candidate can
+     * do - takes in every trade they were assigned or tested in. It only
+     * grows: a trade taken off one company's list stays on the file.
      */
     public function syncJobRolesFromRegistrations(): void
     {
@@ -235,10 +273,10 @@ class Candidate extends Model
             return;
         }
 
-        $this->jobRoles()->sync($ids);
+        $this->jobRoles()->syncWithoutDetaching($ids);
         $this->unsetRelation('jobRoles');
 
-        if (! in_array((int) $this->job_role_id, $ids, true)) {
+        if (! $this->job_role_id) {
             $this->job_role_id = $ids[0];
             $this->save();
         }
@@ -353,6 +391,19 @@ class Candidate extends Model
     }
 
     /**
+     * Whether the agency may attach the police report itself. Unlike the
+     * other documents it does not wait for the pass: once the report is
+     * applied for or received, the file can go on - from the registration
+     * form onwards - until the profile is submitted.
+     */
+    public function policeDocumentOpen(): bool
+    {
+        return $this->policeApplied()
+            && ! $this->isBlocked()
+            && ! in_array($this->status, self::LOCKED_STATUSES, true);
+    }
+
+    /**
      * Whether the agency may attach documents: only to a candidate who has
      * passed, and only until the coordinator has submitted the profile.
      */
@@ -372,6 +423,25 @@ class Candidate extends Model
         return in_array($this->police_status, ['applied', 'received'], true);
     }
 
+    /**
+     * The mobile number and email belong to the local agency that registered
+     * the candidate. Nobody else - not a coordinator, the Main Admin, a
+     * foreign company or another agency - is shown them.
+     */
+    public static function contactAgency(): ?string
+    {
+        $auth = request()->attributes->get('auth_user');
+
+        return $auth['agencyId'] ?? null;
+    }
+
+    public function contactVisible(): bool
+    {
+        $viewer = self::contactAgency();
+
+        return $viewer !== null && $viewer === $this->agency_id;
+    }
+
     public function scopeSearch(Builder $query, ?string $term): Builder
     {
         $term = trim((string) $term);
@@ -385,9 +455,15 @@ class Candidate extends Model
             $q->where('name', 'like', $like)
                 ->orWhere('passport_no', 'like', $like)
                 ->orWhere('nic_no', 'like', $like)
-                ->orWhere('mobile', 'like', $like)
-                ->orWhere('email', 'like', $like)
-                ->orWhere('test_index_no', 'like', $like);
+                // By mobile or email only in the agency's own files.
+                ->orWhere(fn (Builder $own) => $own->where('agency_id', self::contactAgency() ?? '')
+                    ->where(fn (Builder $c) => $c->where('mobile', 'like', $like)->orWhere('email', 'like', $like)))
+                ->orWhere('test_index_no', 'like', $like)
+                // The index number of any trade it is registered for, TL00001.
+                ->orWhereExists(fn ($sub) => $sub->from('candidate_registrations')
+                    ->join('candidate_registration_roles', 'candidate_registration_roles.registration_id', '=', 'candidate_registrations.id')
+                    ->whereColumn('candidate_registrations.candidate_id', 'candidates.id')
+                    ->where('candidate_registration_roles.test_index_no', 'like', $like));
         });
     }
 
@@ -526,8 +602,10 @@ class Candidate extends Model
             'testResults' => $this->test_results,
             'nicNo' => $this->nic_no,
             'address' => $this->address,
-            'mobile' => $this->mobile,
-            'email' => $this->email,
+            // Only the registering agency sees how to reach the candidate.
+            'mobile' => $this->contactVisible() ? $this->mobile : null,
+            'email' => $this->contactVisible() ? $this->email : null,
+            'contactHidden' => ! $this->contactVisible(),
             // The trade they are put forward for, and the agency's own number
             // for the test sheet.
             'jobRoleId' => $this->job_role_id,
@@ -550,6 +628,8 @@ class Candidate extends Model
             // Passed with another agency under the same NIC: this file is shut.
             'blocked' => $this->isBlocked(),
             'documentsOpen' => $this->documentsOpen(),
+            // The police report file alone may go on before the pass.
+            'policeDocumentOpen' => $this->policeDocumentOpen(),
             'submittedAt' => $this->submitted_at,
             'submittedBy' => $this->submitted_by ? $this->submitter?->name : null,
             // Where the candidate stands in the testing pool, and the foreign

@@ -8,6 +8,7 @@ use App\Models\Candidate;
 use App\Models\CandidateRegistration;
 use App\Models\CandidateTestResult;
 use App\Models\JobRole;
+use App\Models\Role;
 use App\Models\SkillTest;
 use App\Support\ApiResponse;
 use App\Support\DocumentType;
@@ -63,7 +64,10 @@ class CandidateController extends Controller
                 return $this->companyCandidates(
                     $request->query('companyAgencyId'),
                     $request->query('agencyId'),
-                    $request->query('search')
+                    $request->query('search'),
+                    // The admin side also sees what is still waiting for approval.
+                    withPending: true,
+                    status: $request->query('status'),
                 );
             }
 
@@ -84,7 +88,8 @@ class CandidateController extends Controller
             return $this->companyCandidates(
                 $auth['agencyId'],
                 $request->query('agencyId'),
-                $request->query('search')
+                $request->query('search'),
+                status: $request->query('status'),
             );
         } else {
             $scope = $auth['agencyId'] ?? null;
@@ -244,7 +249,7 @@ class CandidateController extends Controller
             'passport_no' => $data['passportNo'],
             'nic_no' => strtoupper($data['nicNo']),
             'address' => $data['address'],
-            'mobile' => $data['mobile'],
+            'mobile' => $data['mobile'] ?? null,
             'email' => $data['email'] ?? null,
             'job_role_id' => $roleIds[0] ?? null,
             'test_index_no' => $data['testIndexNo'] ?? null,
@@ -254,7 +259,12 @@ class CandidateController extends Controller
             // including when a removed file is brought back.
             'source' => Candidate::sourceFor($auth['roleSlug'] ?? null),
             'created_by' => $auth['sub'] ?? null,
-        ];
+        ] + $this->policeFields($data);
+
+        // Filed on the agency's behalf: its own contact details are left alone.
+        if (! $this->ownsContact($request, $agencyId)) {
+            unset($fields['mobile'], $fields['email']);
+        }
 
         // Registering the same person again brings back the file that was
         // removed, documents and all, instead of failing on the passport that
@@ -277,7 +287,7 @@ class CandidateController extends Controller
 
         // The company chosen on the form is the first one they are put up with.
         if ($candidate->company_agency_id) {
-            $candidate->registerWith($candidate->company_agency_id, $roleIds, $auth['sub'] ?? null);
+            $candidate->registerWith($candidate->company_agency_id, $roleIds, $auth['sub'] ?? null, $this->isReviewer($request));
         }
 
         return ApiResponse::created([
@@ -356,23 +366,24 @@ class CandidateController extends Controller
 
         $by = $request->attributes->get('auth_user')['sub'] ?? null;
 
-        // A new company for the file: it takes over, and the old one goes
-        // unless it has already recorded something.
+        // A new company for the file (only the admin side gets this far): the
+        // candidate moves to it, and the old assignment stays in the history.
         if ($newCompany !== null && $newCompany !== $oldCompany) {
             $old = $candidate->registrationFor($oldCompany);
-            $candidate->registerWith($newCompany, $old
-                ? $old->jobRoles->pluck('id')->all()
-                : $candidate->jobRoles->pluck('id')->all(), $by);
-
-            if ($old && ! $candidate->categoryResults()->where('company_agency_id', $oldCompany)->exists()) {
-                $old->delete();
+            $roles = $old ? $old->jobRoles->pluck('id')->all() : $candidate->jobRoles->pluck('id')->all();
+            if ($old) {
+                $this->retire($old, $by, 'moved');
             }
+            $candidate->unsetRelation('registrations');
+            $candidate->registerWith($newCompany, $roles, $by, true);
             $candidate->unsetRelation('registrations');
         }
 
         // A null single trade from an older client leaves the trades as they are.
         if (array_key_exists('jobRoleIds', $data) || ! empty($data['jobRoleId'])) {
-            $main = $candidate->registrationFor($candidate->company_agency_id);
+            // The agency keeps its own list of what the candidate can do; the
+            // categories each company tests are the admin side's to set.
+            $main = $this->isReviewer($request) ? $candidate->registrationFor($candidate->company_agency_id) : null;
 
             if ($main) {
                 $this->replaceRegistrationRoles($candidate, $main, $this->roleIds($data));
@@ -535,6 +546,7 @@ class CandidateController extends Controller
      */
     public function policeReport(Request $request, $id)
     {
+        $this->requirePoliceKeeper($request);
         $candidate = $this->find($request, $id);
         $this->refuseBlocked($candidate);
 
@@ -571,37 +583,202 @@ class CandidateController extends Controller
         );
     }
 
+    /** The police report as given on the registration form, if it was. */
+    private function policeFields(array $data): array
+    {
+        $status = $data['policeStatus'] ?? null;
+        if (! $status) {
+            return [];
+        }
+
+        return [
+            'police_status' => $status,
+            'police_reference_no' => $status === 'not_applied' ? null : trim($data['policeReferenceNo']),
+            'police_issued_date' => $status === 'received' ? $data['policeIssuedDate'] : null,
+        ];
+    }
+
     /**
-     * POST /candidates/{id}/registrations  { companyAgencyId, jobRoleIds[] }
+     * Who keeps the police report: the Main Admin, a coordinator the
+     * candidates page is opened to (the route has already checked that), and
+     * the local agency when its role may edit candidates. Not the auditor,
+     * and not a foreign company.
+     */
+    private function requirePoliceKeeper(Request $request): void
+    {
+        $role = $request->attributes->get('auth_user')['roleSlug'] ?? null;
+
+        if (in_array($role, self::REVIEWER_ROLES, true)) {
+            return;
+        }
+
+        if ($this->isForeignCompany($request) || ! (Role::where('slug', $role)->first()?->permissions['candidates']['edit'] ?? false)) {
+            throw new ApiException(403, 'You do not have permission to update the police report.');
+        }
+    }
+
+    /**
+     * POST /candidates/{id}/registrations
+     *      { companyAgencyId, jobRoleIds[], replacesRegistrationId?, reason? }
      *
-     * Puts the candidate up with another foreign company, for the job
-     * categories that company tests them in. Only while they have not passed
-     * with any company: a pass leaves the company that gave it as the only one.
+     * A coordinator or the Main Admin sends the candidate to a foreign
+     * company's test, for the job categories it tests them in; the test index
+     * numbers are issued straight away. Given the assignment it replaces, and
+     * why - moved (to another company) or new_test (after a fail, with the same
+     * company or another) - that one is ended and kept in the history. Only
+     * while the candidate has not passed.
      */
     public function addRegistration(Request $request, $id)
     {
+        $this->requireReviewer($request);
         $candidate = $this->find($request, $id);
         $this->refuseBlocked($candidate);
         $this->refuseRegisteringPassed($candidate);
 
         $data = $this->registrationData($request, true);
+        $extra = $request->validate([
+            'replacesRegistrationId' => ['nullable', 'integer'],
+            'reason' => ['nullable', 'required_with:replacesRegistrationId', Rule::in(array_keys(CandidateRegistration::END_REASONS))],
+        ], ['reason.in' => 'Say whether the candidate is moving company or sent for a new test.']);
         $companyId = $this->companyAgencyId($data);
+        $by = $request->attributes->get('auth_user')['sub'] ?? null;
 
-        if ($candidate->isRegisteredWith($companyId)) {
-            $message = $candidate->name.' is already registered with this company. Edit its job categories instead.';
+        $replaced = null;
+        if (! empty($extra['replacesRegistrationId'])) {
+            $replaced = $this->registrationOf($candidate, $extra['replacesRegistrationId']);
+            if (! $replaced->isCurrent()) {
+                throw new ApiException(409, 'That assignment has already ended.');
+            }
+        }
+
+        // One current assignment per company: the categories of that one are
+        // edited, or the candidate is sent for a new test from it.
+        $existing = $candidate->registrationFor($companyId);
+        if ($existing && $existing->isApproved() && $existing->id !== $replaced?->id) {
+            $message = $candidate->name.' is already assigned to '.($existing->company?->name ?? 'this company')
+                .'. Edit its job categories, or send them for a new test from it.';
             throw new ApiException(409, $message, ['companyAgencyId' => $message]);
         }
 
-        $registration = $candidate->registerWith(
-            $companyId,
-            $data['jobRoleIds'],
-            $request->attributes->get('auth_user')['sub'] ?? null
-        );
+        $registration = DB::transaction(function () use ($candidate, $replaced, $extra, $companyId, $data, $by) {
+            if ($replaced) {
+                $this->retire($replaced, $by, $extra['reason']);
+            }
+
+            // What an agency asked for and was never approved gives way to this.
+            foreach ($candidate->registrations()->current()->where('approval', '!=', CandidateRegistration::APPROVED)->get() as $waiting) {
+                $this->retire($waiting, $by, 'moved');
+            }
+
+            $candidate->unsetRelation('registrations');
+
+            return $candidate->registerWith($companyId, $data['jobRoleIds'], $by, true);
+        });
+
+        $company = $registration->company?->name ?? 'the company';
+        $numbers = $registration->fresh()->jobRoles->pluck('pivot.test_index_no')->filter()->implode(', ');
 
         return ApiResponse::created(
             $this->publicCandidate($candidate),
-            $candidate->name.' is registered with '.($registration->company?->name ?? 'the company').'.'
+            match ($extra['reason'] ?? null) {
+                'new_test' => $candidate->name.' is assigned to a new test with '.$company.': '.$numbers.'.',
+                'moved' => $candidate->name.' moved to '.$company.': '.$numbers.'.',
+                default => $candidate->name.' is assigned to '.$company.': '.$numbers.'.',
+            }
         );
+    }
+
+    /**
+     * GET /candidates/{id}/history
+     *
+     * The candidate's whole story for the report: their details, and every
+     * company they were assigned to - when and by whom, each job category
+     * with its test index number, the result and its date - including the
+     * assignments they moved on from. For the admin side.
+     */
+    public function history(Request $request, $id)
+    {
+        if (! in_array($request->attributes->get('auth_user')['roleSlug'] ?? null, self::GLOBAL_ROLES, true)) {
+            throw new ApiException(403, 'The candidate history report is for the admin side.');
+        }
+
+        $candidate = $this->find($request, $id)->load(array_merge(self::DETAIL, [
+            'creator',
+            'submitter',
+            'registrations.creator',
+            'registrations.decider',
+            'registrations.ender',
+            'categoryResults.recorder',
+        ]));
+
+        $agency = Agency::find($candidate->agency_id);
+
+        $assignments = $candidate->registrations->map(function (CandidateRegistration $registration) use ($candidate) {
+            $registration->setRelation('candidate', $candidate);
+            $results = $registration->recordedResults()->keyBy('job_role_id');
+
+            return [
+                'id' => $registration->id,
+                'company' => [
+                    'id' => $registration->company_agency_id,
+                    'name' => $registration->company?->name,
+                    'country' => $registration->company?->country,
+                ],
+                'assignedAt' => $registration->decided_at ?? $registration->created_at,
+                'assignedBy' => $registration->decider?->name ?? $registration->creator?->name,
+                'approval' => $registration->approval ?? CandidateRegistration::APPROVED,
+                'state' => $registration->state(),
+                'ended' => $registration->ended_at ? [
+                    'at' => $registration->ended_at,
+                    'by' => $registration->ender?->name,
+                    'reason' => $registration->end_reason,
+                    'label' => CandidateRegistration::END_REASONS[$registration->end_reason] ?? 'Ended',
+                ] : null,
+                'tests' => $registration->jobRoles->map(function (JobRole $role) use ($results) {
+                    $result = $results->get($role->id);
+
+                    return [
+                        'jobRole' => $role->name,
+                        'testIndexNo' => $role->pivot?->test_index_no,
+                        'result' => $result?->result,
+                        'resultAt' => $result?->updated_at,
+                        'recordedBy' => $result?->recorder?->name,
+                        'note' => $result?->note,
+                    ];
+                })->values()->all(),
+            ];
+        })->values()->all();
+
+        return ApiResponse::ok([
+            'candidate' => $candidate->toPublic(true),
+            'agency' => $agency ? ['id' => $agency->id, 'name' => $agency->name, 'code' => $agency->code] : null,
+            'assignments' => $assignments,
+            'generatedAt' => now(),
+        ]);
+    }
+
+    /**
+     * Takes an assignment out of play. One the company never had - not
+     * approved, nothing recorded - is simply removed; anything else is ended
+     * and kept, with its numbers and results, for the history.
+     */
+    private function retire(CandidateRegistration $registration, ?int $by, string $reason): void
+    {
+        if (! $registration->isApproved() && ! $registration->results()->exists()) {
+            $registration->delete();
+
+            return;
+        }
+
+        $registration->end($by, $reason);
+    }
+
+    /** The company a candidate is tested by, and in what, is the admin side's call. */
+    private function requireReviewer(Request $request): void
+    {
+        if (! $this->isReviewer($request)) {
+            throw new ApiException(403, 'Only a coordinator or the Main Admin assigns the foreign company and its job categories.');
+        }
     }
 
     /**
@@ -612,9 +789,14 @@ class CandidateController extends Controller
      */
     public function updateRegistration(Request $request, $id, $registrationId)
     {
+        $this->requireReviewer($request);
         $candidate = $this->find($request, $id);
         $this->refuseBlocked($candidate);
         $registration = $this->registrationOf($candidate, $registrationId);
+
+        if (! $registration->isCurrent()) {
+            throw new ApiException(409, 'That assignment has ended and stays as it was, in the history.');
+        }
 
         if ($registration->state() === 'void') {
             throw new ApiException(409, $candidate->name.' has passed with another company, '
@@ -622,6 +804,8 @@ class CandidateController extends Controller
         }
 
         $data = $this->registrationData($request, false);
+        // Corrected after a rejection, it goes back for approval.
+        $registration->resubmit();
         $this->replaceRegistrationRoles($candidate, $registration, $data['jobRoleIds']);
 
         return ApiResponse::ok(
@@ -638,14 +822,17 @@ class CandidateController extends Controller
      */
     public function removeRegistration(Request $request, $id, $registrationId)
     {
+        $this->requireReviewer($request);
         $candidate = $this->find($request, $id);
         $this->refuseBlocked($candidate);
         $registration = $this->registrationOf($candidate, $registrationId);
         $name = $registration->company?->name ?? 'the company';
 
-        $hasResults = $candidate->categoryResults()
-            ->where('company_agency_id', $registration->company_agency_id)
-            ->exists();
+        if (! $registration->isCurrent()) {
+            throw new ApiException(409, 'That assignment has ended and stays in the history.');
+        }
+
+        $hasResults = $registration->results()->exists();
 
         if ($hasResults || $registration->state() === 'passed') {
             throw new ApiException(409, $name.' has already recorded a result for '.$candidate->name
@@ -654,9 +841,9 @@ class CandidateController extends Controller
 
         $registration->delete();
 
-        // The file shows the next company it is registered with, if any.
+        // The file shows the next company it is assigned to, if any.
         if ($candidate->company_agency_id === $registration->company_agency_id) {
-            $candidate->company_agency_id = $candidate->registrations()
+            $candidate->company_agency_id = $candidate->registrations()->current()
                 ->where('id', '!=', $registration->id)
                 ->value('company_agency_id');
             $candidate->save();
@@ -666,6 +853,131 @@ class CandidateController extends Controller
         $candidate->syncJobRolesFromRegistrations();
 
         return ApiResponse::ok($this->publicCandidate($candidate), $candidate->name.' is no longer registered with '.$name.'.');
+    }
+
+    /** The Main Admin or a coordinator: the ones who approve registrations. */
+    private function isReviewer(Request $request): bool
+    {
+        return in_array($request->attributes->get('auth_user')['roleSlug'] ?? null, self::REVIEWER_ROLES, true);
+    }
+
+    /**
+     * Who may approve a registration an agency made before companies were
+     * assigned by the admin side: the Main Admin or a coordinator.
+     */
+    private function canApprove(Request $request, ?string $companyAgencyId = null): bool
+    {
+        return $this->isReviewer($request);
+    }
+
+    /**
+     * GET /candidate-assignments/waiting
+     *
+     * Candidates local agencies have registered that are not with any company
+     * yet - no current assignment the company has - oldest first, with what is
+     * checked before assigning one. The company an agency asked for earlier,
+     * if any, comes along to start from.
+     */
+    public function waitingForCompany(Request $request)
+    {
+        $this->requireReviewer($request);
+
+        $candidates = Candidate::query()
+            ->where('pool_status', '!=', 'passed')
+            ->whereNull('registration_blocked_at')
+            ->whereDoesntHave('registrations', fn ($q) => $q->current()->approved())
+            ->with(['creator', 'jobRoles', 'registrations' => fn ($q) => $q->current()->with(['company', 'jobRoles'])])
+            ->orderBy('id')
+            ->get()
+            ->reject(fn (Candidate $candidate) => $candidate->isBlocked())
+            ->values();
+
+        $agencies = Agency::whereIn('id', $candidates->pluck('agency_id')->unique())->pluck('name', 'id');
+
+        return ApiResponse::ok($candidates->map(function (Candidate $candidate) use ($agencies) {
+            $asked = $candidate->registrations->first();
+
+            return [
+                'id' => $candidate->id,
+                // What is checked before assigning. How to reach the candidate
+                // stays with the local agency.
+                'candidate' => [
+                    'id' => $candidate->id,
+                    'name' => $candidate->name,
+                    'fatherName' => $candidate->father_name,
+                    'passportNo' => $candidate->passport_no,
+                    'passportExpiry' => $candidate->passport_expiry?->toDateString(),
+                    'passportWarning' => $candidate->passportWarning(),
+                    'nicNo' => $candidate->nic_no,
+                    'dateOfBirth' => $candidate->date_of_birth?->toDateString(),
+                    'age' => $candidate->date_of_birth?->age,
+                    'address' => $candidate->address,
+                    'policeReport' => $candidate->policeReport(),
+                    'registeredBy' => [
+                        'source' => $candidate->source ?? 'agency',
+                        'label' => Candidate::SOURCES[$candidate->source ?? 'agency'] ?? 'Agency',
+                        'name' => $candidate->creator?->name,
+                    ],
+                    // What the agency said the candidate can do.
+                    'jobRoles' => $candidate->jobRoles->map(fn (JobRole $role) => ['id' => $role->id, 'name' => $role->name])->values()->all(),
+                ],
+                'agencyId' => $candidate->agency_id,
+                'agencyName' => $agencies[$candidate->agency_id] ?? $candidate->agency_id,
+                // Asked for by the agency before, never approved.
+                'requested' => $asked ? [
+                    'registrationId' => $asked->id,
+                    'company' => ['id' => $asked->company_agency_id, 'name' => $asked->company?->name],
+                    'jobRoleIds' => $asked->jobRoles->pluck('id')->all(),
+                ] : null,
+                'createdAt' => $candidate->created_at,
+            ];
+        })->all());
+    }
+
+    /**
+     * PATCH /candidates/{id}/registrations/{registrationId}/approval
+     *       { decision: approve | reject, note? }
+     *
+     * Decided by the Main Admin, a coordinator, or the foreign company it is
+     * for. Approved, the categories get their test index numbers and the
+     * company has the candidate on its list. Rejected, it goes back to the
+     * local agency with the reason; the agency corrects it and it waits again.
+     */
+    public function decideRegistration(Request $request, $id, $registrationId)
+    {
+        if (! $this->canApprove($request)) {
+            throw new ApiException(403, 'Only the Main Admin and coordinators approve registrations.');
+        }
+
+        $candidate = $this->find($request, $id, true);
+        $this->refuseBlocked($candidate);
+        $registration = $this->registrationOf($candidate, $registrationId);
+
+
+        $data = $request->validate([
+            'decision' => ['required', Rule::in(['approve', 'reject'])],
+            'note' => ['nullable', 'string', 'max:255', 'required_if:decision,reject'],
+        ], [
+            'decision.in' => 'Approve or reject the registration.',
+            'note.required_if' => 'Say why the registration is rejected, for the local agency.',
+        ]);
+
+        if ($registration->isApproved()) {
+            throw new ApiException(409, 'This registration has already been approved.');
+        }
+
+        $by = $request->attributes->get('auth_user')['sub'] ?? null;
+        $company = $registration->company?->name ?? 'the company';
+
+        if ($data['decision'] === 'approve') {
+            $registration->approve($by);
+            $message = 'The registration of '.$candidate->name.' with '.$company.' is approved. The test index numbers are ready.';
+        } else {
+            $registration->reject($by, trim($data['note']));
+            $message = 'The registration of '.$candidate->name.' with '.$company.' was sent back to the local agency.';
+        }
+
+        return ApiResponse::ok($this->publicCandidate($candidate), $message);
     }
 
     /** Registering with another company ends once the candidate has passed. */
@@ -711,8 +1023,7 @@ class CandidateController extends Controller
      */
     private function replaceRegistrationRoles(Candidate $candidate, CandidateRegistration $registration, array $roleIds): void
     {
-        $recorded = $candidate->categoryResults()
-            ->where('company_agency_id', $registration->company_agency_id)
+        $recorded = $registration->results()
             ->pluck('job_role_id')
             ->map(fn ($id) => (int) $id)
             ->all();
@@ -721,6 +1032,7 @@ class CandidateController extends Controller
             array_map('intval', $roleIds),
             $recorded
         ))));
+        $registration->assignTestIndexes();
 
         $candidate->unsetRelation('registrations');
         $candidate->syncJobRolesFromRegistrations();
@@ -774,11 +1086,20 @@ class CandidateController extends Controller
      * each naming the agency that registered them, and narrowed to one of
      * those agencies when asked for.
      */
-    private function companyCandidates(?string $companyAgencyId, ?string $agencyId, ?string $search)
-    {
+    private function companyCandidates(
+        ?string $companyAgencyId,
+        ?string $agencyId,
+        ?string $search,
+        bool $withPending = false,
+        ?string $status = null,
+    ) {
         $candidates = Candidate::query()
-            ->whereHas('registrations', fn ($q) => $q->where('company_agency_id', $companyAgencyId))
+            // The company itself only once a coordinator or the Main Admin has
+            // approved it; the admin side sees the ones waiting too.
+            ->whereHas('registrations', fn ($q) => $q->where('company_agency_id', $companyAgencyId)->current()
+                ->when(! $withPending, fn ($q) => $q->approved()))
             ->when($agencyId && $agencyId !== 'all', fn ($q) => $q->where('agency_id', $agencyId))
+            ->when($status && $status !== 'all', fn ($q) => $q->where('status', $status))
             ->search($search)
             ->with(['documents', 'jobRole', 'jobRoles', 'companyAgency', 'testResultRole', 'lockedCompany', 'categoryResults.role', 'categoryResults.company', 'registrations.jobRoles', 'registrations.company'])
             // Those who passed first, in the order they passed, then everyone
@@ -798,7 +1119,10 @@ class CandidateController extends Controller
             return $payload + [
                 'agencyName' => $agencyNames[$candidate->agency_id] ?? null,
                 // This company's own registration: its trades, results and whether it still stands.
-                'registration' => collect($payload['registrations'])->firstWhere('company.id', $companyAgencyId),
+                // The current one: after a new test the earlier stays in the history.
+                'registration' => collect($payload['registrations'])
+                    ->where('current', true)
+                    ->last(fn ($registration) => $registration['company']['id'] === $companyAgencyId),
             ];
         })->all());
     }
@@ -813,7 +1137,7 @@ class CandidateController extends Controller
     }
 
     /**
-     * PATCH /candidates/{id}/test-result  { result, jobRoleId, note?, testResults? }
+     * PATCH /candidates/{id}/test-result  { result, jobRoleId, note? }
      *
      * How the candidate's test went in one job category, recorded by the
      * foreign company they were registered for, or by the admin side. The
@@ -836,7 +1160,7 @@ class CandidateController extends Controller
         $global = in_array($auth['roleSlug'] ?? null, self::REVIEWER_ROLES, true);
         $companyLogin = $this->isForeignCompany($request);
 
-        if (! $global && ! ($companyLogin && $candidate->isRegisteredWith($auth['agencyId'] ?? null))) {
+        if (! $global && ! ($companyLogin && $candidate->isApprovedWith($auth['agencyId'] ?? null))) {
             throw new ApiException(403, 'Only a foreign company this candidate is registered with, '
                 .'or the admin side, records the result.');
         }
@@ -846,14 +1170,20 @@ class CandidateController extends Controller
         $companyId = $companyLogin
             ? $auth['agencyId']
             : ($request->input('companyAgencyId')
-                ?: ($candidate->registrations->count() === 1
-                    ? $candidate->registrations->first()->company_agency_id
+                ?: ($candidate->currentRegistrations()->count() === 1
+                    ? $candidate->currentRegistrations()->first()->company_agency_id
                     : $candidate->company_agency_id));
 
         $registration = $candidate->registrationFor($companyId)?->setRelation('candidate', $candidate);
         if (! $registration) {
             $message = 'Choose the foreign company this result is from.';
             throw new ApiException(422, $message, ['companyAgencyId' => $message]);
+        }
+
+        // Not approved yet, the candidate has not been sent to the test.
+        if (! $registration->isApproved()) {
+            throw new ApiException(409, 'The registration with '.($registration->company?->name ?? 'this company')
+                .' has not been approved yet, so no result can be recorded.');
         }
 
         // Passed with one company: every other registration has lapsed.
@@ -890,7 +1220,7 @@ class CandidateController extends Controller
         }
 
         $passedRole = $candidate->isPassed()
-            ? $candidate->categoryResults()->where('company_agency_id', $companyId)->where('result', 'pass')->value('job_role_id')
+            ? $registration->results()->where('result', 'pass')->value('job_role_id')
             : null;
 
         if ($passedRole && (int) $passedRole !== (int) $role->id) {
@@ -908,10 +1238,13 @@ class CandidateController extends Controller
                 ."'s profile, so the pass cannot be changed.");
         }
 
-        DB::transaction(function () use ($candidate, $role, $data, $passed, $auth, $companyId) {
+        DB::transaction(function () use ($candidate, $role, $data, $passed, $auth, $companyId, $registration) {
+            // Under the assignment - and so the test number - it was sat under.
             CandidateTestResult::updateOrCreate(
-                ['candidate_id' => $candidate->id, 'company_agency_id' => $companyId, 'job_role_id' => $role->id],
+                ['registration_id' => $registration->id, 'job_role_id' => $role->id],
                 [
+                    'candidate_id' => $candidate->id,
+                    'company_agency_id' => $companyId,
                     'result' => $data['result'],
                     'note' => $data['note'] ?? null,
                     'recorded_by' => $auth['sub'] ?? null,
@@ -1096,9 +1429,21 @@ class CandidateController extends Controller
         }
     }
 
+    /**
+     * Whether this login is the local agency the file belongs to - the only
+     * one that asks for, changes or sees the candidate's mobile and email.
+     */
+    private function ownsContact(Request $request, ?string $agencyId): bool
+    {
+        $own = $request->attributes->get('auth_user')['agencyId'] ?? null;
+
+        return $own !== null && $own === $agencyId;
+    }
+
     private function validated(Request $request, ?string $agencyId, $ignoreId = null): array
     {
         $required = $request->isMethod('POST') ? 'required' : 'sometimes';
+        $ownsContact = $this->ownsContact($request, $agencyId);
 
         // Passport and NIC are unique within one agency, not globally, so the
         // same person may appear under two different agencies.
@@ -1120,7 +1465,7 @@ class CandidateController extends Controller
             }
         };
 
-        return $request->validate([
+        $data = $request->validate([
             // First and last name make up the full name; an older client
             // still sends the full name on its own.
             // Registering needs both halves; an edit may change one of them.
@@ -1141,7 +1486,8 @@ class CandidateController extends Controller
             'passportNo' => [$required, 'string', 'max:30', 'regex:/^[A-Za-z0-9]+$/', $scoped('passport_no')],
             'nicNo' => [$required, 'string', 'max:20', 'regex:'.Nic::PATTERN, $nicFree],
             'address' => [$required, 'string', 'min:5', 'max:255'],
-            'mobile' => [$required, 'string', 'regex:/^[0-9+\s-]{9,20}$/'],
+            // Asked of the registering agency only; anyone else's is ignored.
+            'mobile' => [$ownsContact ? $required : 'nullable', 'string', 'regex:/^[0-9+\s-]{9,20}$/'],
             'email' => ['nullable', 'email', 'max:190'],
             // Optional on the API so an older client still registers; the
             // registration screen asks for the job category.
@@ -1151,7 +1497,16 @@ class CandidateController extends Controller
             'jobRoleIds.*' => ['integer', 'distinct', Rule::exists('job_roles', 'id')->where('active', true)],
             'testIndexNo' => ['nullable', 'string', 'max:40', 'regex:/^[A-Za-z0-9\/-]+$/'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            // The police report can be started on the registration form too;
+            // the file keeps it up to date afterwards (policeReport()).
+            'policeStatus' => ['nullable', Rule::in(['not_applied', 'applied', 'received'])],
+            'policeReferenceNo' => ['nullable', 'string', 'max:60', 'required_if:policeStatus,applied,received'],
+            'policeIssuedDate' => ['nullable', 'date', 'before_or_equal:today', 'required_if:policeStatus,received'],
         ], [
+            'policeStatus.in' => 'Choose whether the police report is applied for or received.',
+            'policeReferenceNo.required_if' => 'Enter the police report reference number.',
+            'policeIssuedDate.required_if' => 'Enter the date the police report was issued.',
+            'policeIssuedDate.before_or_equal' => 'The police report cannot have been issued in the future.',
             'jobRoleId.exists' => 'Choose a job category from the list.',
             'jobRoleIds.*.exists' => 'Choose job categories from the list.',
             'jobRoleIds.*.distinct' => 'Each job category is listed once.',
@@ -1165,6 +1520,18 @@ class CandidateController extends Controller
             'passportNo.unique' => 'A candidate with this passport number already exists.',
             'mobile.regex' => 'Enter a valid mobile number.',
         ]);
+
+        if (! $ownsContact) {
+            unset($data['mobile'], $data['email']);
+        }
+
+        // The company a candidate is tested by is chosen by a coordinator or
+        // the Main Admin; from anyone else it is ignored.
+        if (! $this->isReviewer($request)) {
+            unset($data['companyAgencyId']);
+        }
+
+        return $data;
     }
 
     /** Null for roles that span agencies, the own agency id otherwise. */
@@ -1223,7 +1590,9 @@ class CandidateController extends Controller
             return $candidate;
         }
 
-        if ($forCompany && $candidate->isRegisteredWith($scope) && $this->isForeignCompany($request)) {
+        // A company opens the files registered with it - approved, or waiting
+        // for it to approve them.
+        if ($forCompany && $candidate->isVisibleToCompany($scope) && $this->isForeignCompany($request)) {
             return $candidate;
         }
 

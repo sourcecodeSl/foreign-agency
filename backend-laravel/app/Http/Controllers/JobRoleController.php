@@ -68,7 +68,8 @@ class JobRoleController extends Controller
             return ApiResponse::ok($existing->toPublic(), $existing->name.' is back on the list.');
         }
 
-        $role = JobRole::create(['name' => $name, 'slug' => $slug, 'active' => true]);
+        // Its two letters start every test index number in the trade.
+        $role = JobRole::create(['name' => $name, 'slug' => $slug, 'code' => JobRole::makeCode($name), 'active' => true]);
 
         return ApiResponse::created($role->toPublic(), $role->name.' has been added.');
     }

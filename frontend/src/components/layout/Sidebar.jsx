@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
-import { canOpen, roleLabel, COORDINATOR } from '../../lib/access';
+import { canOpen, canMessage, roleLabel, COORDINATOR } from '../../lib/access';
+import useUnreadMessages from '../../lib/useUnreadMessages';
 import {
   IconDashboard,
   IconBuilding,
@@ -10,6 +11,7 @@ import {
   IconMail,
   IconDocument,
   IconPalette,
+  IconChat,
 } from '../ui/Icons';
 
 /**
@@ -33,6 +35,10 @@ const ADMIN_NAV = [
       // The by-agency screen reads one agency at a time, so its label says so
       // rather than promising a single list of everybody.
       { to: '/candidates', label: 'Candidates by Agency', icon: IconUsers, end: true, page: 'candidates' },
+      // Registered by agencies, waiting for the company to be assigned.
+      { to: '/candidates/pending', label: 'Waiting for a Company', icon: IconShield, page: 'candidates', adminSideOnly: true },
+      // Everything one candidate went through, company by company.
+      { to: '/candidates/history', label: 'Candidate History', icon: IconDocument, page: 'candidates' },
     ],
   },
   {
@@ -55,6 +61,13 @@ const ADMIN_NAV = [
     ],
   },
   {
+    section: 'Communication',
+    items: [
+      // The Main Admin, and a coordinator the page is opened to; the auditor has no conversations.
+      { to: '/messages', label: 'Messages', icon: IconChat, page: 'messages', adminSideOnly: true, badge: 'messages' },
+    ],
+  },
+  {
     section: 'User Management',
     items: [
       { to: '/users', label: 'Users List', icon: IconUsers, end: true },
@@ -65,6 +78,14 @@ const ADMIN_NAV = [
   {
     section: 'Verification',
     items: [{ to: '/verification/emails', label: 'Email Verification', icon: IconMail, page: 'verification' }],
+  },
+];
+
+// Every agency and company talks to the admin side - and only to it.
+const MESSAGES_NAV = [
+  {
+    section: 'Communication',
+    items: [{ to: '/messages', label: 'Messages', icon: IconChat, badge: 'messages' }],
   },
 ];
 
@@ -140,7 +161,8 @@ function adminNavFor(admin) {
   })).filter((group) => group.items.length > 0);
 }
 
-function NavItem({ item, onNavigate }) {
+function NavItem({ item, onNavigate, badges }) {
+  const badge = item.badge ? badges?.[item.badge] || 0 : 0;
   const Icon = item.icon;
   const { pathname, search } = useLocation();
 
@@ -167,6 +189,14 @@ function NavItem({ item, onNavigate }) {
             className={'h-5 w-5 ' + ((filtered ?? isActive) ? 'text-sb-active-icon' : 'text-sb-muted')}
           />
           <span className="truncate">{item.label}</span>
+          {badge > 0 && (
+            <span
+              className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold leading-none text-white"
+              aria-label={badge + ' unread'}
+            >
+              {badge > 99 ? '99+' : badge}
+            </span>
+          )}
         </>
       )}
     </NavLink>
@@ -175,6 +205,7 @@ function NavItem({ item, onNavigate }) {
 
 export default function Sidebar({ open, onClose }) {
   const { admin } = useAuth();
+  const badges = { messages: useUnreadMessages(canMessage(admin)) };
 
   const isAgency = Boolean(admin?.roleSlug) && !isGlobalRole(admin.roleSlug);
   const nav = !isAgency
@@ -188,6 +219,7 @@ export default function Sidebar({ open, onClose }) {
             ? AGENCY_OWNER_NAV
             : AGENCY_NAV),
         ...(admin.agency ? AGREEMENTS_NAV : []),
+        ...(admin.agency ? MESSAGES_NAV : []),
         ...SETTINGS_NAV,
       ];
 
@@ -250,7 +282,7 @@ export default function Sidebar({ open, onClose }) {
               </p>
               <div className="space-y-1">
                 {group.items.map((item) => (
-                  <NavItem key={item.to} item={item} onNavigate={onClose} />
+                  <NavItem key={item.to} item={item} onNavigate={onClose} badges={badges} />
                 ))}
               </div>
             </div>

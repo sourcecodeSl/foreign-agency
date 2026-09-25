@@ -7,7 +7,7 @@ import { useToast } from '../../components/ui/Toast';
 import { IconPlus } from '../../components/ui/Icons';
 import { agencyApi, candidateApi, jobRoleApi } from '../../lib/api';
 import { alertError, confirmAction, escapeHtml } from '../../lib/alert';
-import { formatDate } from './shared';
+import { formatDate, roleWithIndex } from './shared';
 
 /** The result recorded for one job category, or none yet. */
 export function CategoryBadge({ result }) {
@@ -30,6 +30,21 @@ export function CategoryBadge({ result }) {
 
 /** Where one company's registration stands. */
 function StateBadge({ registration }) {
+  // Before anything else: has a coordinator or the Main Admin let it through?
+  if (registration.approval === 'pending') {
+    return (
+      <Badge tone="amber" dot>
+        Waiting for approval
+      </Badge>
+    );
+  }
+  if (registration.approval === 'rejected') {
+    return (
+      <Badge tone="red" dot>
+        Sent back
+      </Badge>
+    );
+  }
   if (registration.state === 'passed') {
     return (
       <Badge tone="green" dot>
@@ -75,7 +90,6 @@ export function ResultModal({ candidate, registration, initialRoleId, onClose, o
     initialRoleId ? String(initialRoleId) : roles.length === 1 ? String(roles[0].id) : '',
   );
   const [result, setResult] = useState(results[initialRoleId]?.result || '');
-  const [testResults, setTestResults] = useState(candidate.testResults || '');
   const [note, setNote] = useState(results[initialRoleId]?.note || '');
   const [busy, setBusy] = useState(false);
 
@@ -95,7 +109,6 @@ export function ResultModal({ candidate, registration, initialRoleId, onClose, o
         result,
         jobRoleId: Number(jobRoleId),
         note: note.trim() || undefined,
-        testResults: testResults.trim() || undefined,
         companyAgencyId: registration.company.id,
       });
       toast(message || 'Result recorded.');
@@ -142,7 +155,7 @@ export function ResultModal({ candidate, registration, initialRoleId, onClose, o
             <option value="">Select...</option>
             {roles.map((role) => (
               <option key={role.id} value={role.id}>
-                {role.name}
+                {roleWithIndex(role)}
                 {results[role.id] ? (results[role.id].result === 'pass' ? ' (passed)' : ' (did not pass)') : ''}
               </option>
             ))}
@@ -190,21 +203,6 @@ export function ResultModal({ candidate, registration, initialRoleId, onClose, o
         </fieldset>
 
         <div>
-          <label htmlFor="testResults" className="field-label">
-            Test results
-          </label>
-          <input
-            id="testResults"
-            value={testResults}
-            maxLength={255}
-            placeholder="NVQ Level 3 - Pass"
-            onChange={(e) => setTestResults(e.target.value)}
-            className="field-input"
-          />
-          <p className="mt-1.5 text-xs text-gray-500">What the test sheet says. It shows on the candidate's file.</p>
-        </div>
-
-        <div>
           <label htmlFor="resultNote" className="field-label">
             Note for the local agency
           </label>
@@ -222,19 +220,38 @@ export function ResultModal({ candidate, registration, initialRoleId, onClose, o
   );
 }
 
+/** What each way into the assignment window says and does. */
+const ASSIGN_MODES = {
+  assign: { title: 'Assign a company', button: 'Assign', withCompany: true },
+  moved: { title: 'Change company', button: 'Move to this company', withCompany: true },
+  new_test: { title: 'Assign for a new test', button: 'Assign new test', withCompany: true },
+  edit: { title: 'Job categories', button: 'Save categories', withCompany: false },
+};
+
 /**
- * Registers the candidate with another foreign company, or changes the job
- * categories of a registration already made. A category that company has
- * already given a result for stays ticked.
+ * The admin side's window for where a candidate is tested, and in what.
+ *
+ *   assign    a company for a candidate who has none yet
+ *   moved     another company in place of the current one
+ *   new_test  after a fail: the same company or another, new test numbers
+ *   edit      the categories of the current assignment
+ *
+ * Every mode but edit issues new test index numbers; moved and new_test keep
+ * the assignment they replace in the history. The categories the agency said
+ * the candidate can do are marked.
  */
-function RegistrationModal({ candidate, registration, onClose, onSaved }) {
+export function AssignModal({ candidate, mode = 'assign', registration, initialCompanyId = '', initialRoleIds, onClose, onSaved }) {
   const { toast } = useToast();
-  const editing = Boolean(registration);
-  const results = resultsByRole(registration);
+  const setup = ASSIGN_MODES[mode];
+  const results = resultsByRole(mode === 'edit' ? registration : null);
+  const canDo = new Set((candidate.jobRoles || []).map((role) => role.id));
+
   const [companies, setCompanies] = useState([]);
   const [roles, setRoles] = useState([]);
-  const [companyId, setCompanyId] = useState('');
-  const [chosen, setChosen] = useState((registration?.jobRoles || []).map((role) => role.id));
+  const [companyId, setCompanyId] = useState(initialCompanyId);
+  const [chosen, setChosen] = useState(
+    initialRoleIds || (registration?.jobRoles || []).map((role) => role.id) || []
+  );
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -243,20 +260,23 @@ function RegistrationModal({ candidate, registration, onClose, onSaved }) {
       .then(({ data }) => setRoles((Array.isArray(data) ? data : []).filter((role) => role.active !== false)))
       .catch((err) => toast(err.message || 'Could not load the job categories.', 'error'));
 
-    if (editing) return;
-    // Companies the candidate is not registered with yet.
-    const taken = new Set((candidate.registrations || []).map((r) => r.company.id));
+    if (!setup.withCompany) return;
     agencyApi
       .foreignOptions()
-      .then(({ data }) => setCompanies((Array.isArray(data) ? data : []).filter((c) => !taken.has(c.id))))
+      // Moving means somewhere else; a new test may be with the same company.
+      .then(({ data }) =>
+        setCompanies(
+          (Array.isArray(data) ? data : []).filter((c) => mode !== 'moved' || c.id !== registration?.company.id)
+        )
+      )
       .catch((err) => toast(err.message || 'Could not load the foreign companies.', 'error'));
-  }, [editing, candidate.registrations, toast]);
+  }, [mode, registration, setup.withCompany, toast]);
 
   const toggle = (id) =>
     setChosen((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const save = async () => {
-    if (!editing && !companyId) {
+    if (setup.withCompany && !companyId) {
       alertError('Choose the foreign company.', 'Not saved');
       return;
     }
@@ -266,28 +286,39 @@ function RegistrationModal({ candidate, registration, onClose, onSaved }) {
     }
     setBusy(true);
     try {
-      const { message } = editing
-        ? await candidateApi.updateRegistration(candidate.id, registration.id, { jobRoleIds: chosen })
-        : await candidateApi.addRegistration(candidate.id, { companyAgencyId: companyId, jobRoleIds: chosen });
+      const { message } =
+        mode === 'edit'
+          ? await candidateApi.updateRegistration(candidate.id, registration.id, { jobRoleIds: chosen })
+          : await candidateApi.addRegistration(candidate.id, {
+              companyAgencyId: companyId,
+              jobRoleIds: chosen,
+              ...(registration && mode !== 'assign' ? { replacesRegistrationId: registration.id, reason: mode } : {}),
+            });
       toast(message || 'Saved.');
       onSaved();
       onClose();
     } catch (err) {
-      alertError(err.message || 'Could not save the registration.', 'Not saved');
+      alertError(err.message || 'Could not save.', 'Not saved');
     } finally {
       setBusy(false);
     }
   };
 
+  const subtitle = {
+    assign: 'The test index numbers are issued for each category chosen, and the company has ' + candidate.name + ' on its list.',
+    moved:
+      candidate.name + ' leaves ' + (registration?.company.name || 'the current company') +
+      ' - kept in the history - and gets new test numbers with the company chosen.',
+    new_test:
+      'A new test, with the same company or another, under new test numbers. The test before stays in the history.',
+    edit: 'The categories ' + (registration?.company.name || 'the company') + ' tests ' + candidate.name + ' in. A category added gets its test number.',
+  }[mode];
+
   return (
     <Modal
       open
-      title={editing ? 'Job categories - ' + registration.company.name : 'Register with another company'}
-      subtitle={
-        editing
-          ? 'The categories ' + candidate.name + ' is tested in by this company.'
-          : 'Until ' + candidate.name + ' passes with one company, they can be registered with others too.'
-      }
+      title={setup.title + ' - ' + candidate.name}
+      subtitle={subtitle}
       onClose={onClose}
       footer={
         <>
@@ -295,19 +326,19 @@ function RegistrationModal({ candidate, registration, onClose, onSaved }) {
             Cancel
           </Button>
           <Button onClick={save} loading={busy}>
-            {editing ? 'Save categories' : 'Register'}
+            {setup.button}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        {!editing && (
+        {setup.withCompany && (
           <div>
-            <label htmlFor="registrationCompany" className="field-label">
+            <label htmlFor="assignCompany" className="field-label">
               Foreign company <span className="text-red-500">*</span>
             </label>
             <select
-              id="registrationCompany"
+              id="assignCompany"
               value={companyId}
               onChange={(e) => setCompanyId(e.target.value)}
               className="field-input"
@@ -345,11 +376,18 @@ function RegistrationModal({ candidate, registration, onClose, onSaved }) {
                     className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                   />
                   <span className="flex-1 text-gray-900">{role.name}</span>
-                  {locked && <span className="text-xs text-gray-500">has a result</span>}
+                  {locked ? (
+                    <span className="text-xs text-gray-500">has a result</span>
+                  ) : canDo.has(role.id) ? (
+                    <span className="text-xs text-emerald-700">from the agency</span>
+                  ) : null}
                 </label>
               );
             })}
           </div>
+          <p className="mt-1.5 text-xs text-gray-500">
+            Marked "from the agency": what the local agency registered the candidate for.
+          </p>
         </fieldset>
       </div>
     </Modal>
@@ -357,38 +395,122 @@ function RegistrationModal({ candidate, registration, onClose, onSaved }) {
 }
 
 /**
- * Every foreign company the candidate is registered with, the job categories
- * each tests them in, and how each went.
- *
- * The local agency registers them with more companies until they pass with
- * one; a pass leaves every other registration not valid. A company (or the
- * admin side) records results under its own registration.
+ * Sends an agency's registration back, with the reason it reads. Shared by
+ * the candidate file and the list of registrations waiting for approval.
  */
-export function RegistrationsCard({ candidate, admin, canManage, reviewer, onChanged }) {
+export function RejectRegistrationModal({ candidateName, companyName, onClose, onReject }) {
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const send = async () => {
+    if (!note.trim()) {
+      setError('Say why, so the local agency can correct it.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await onReject(note.trim());
+      onClose();
+    } catch (err) {
+      alertError(err.message || 'Could not send the registration back.', 'Not saved');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      title={'Send back - ' + candidateName}
+      subtitle={'The registration with ' + companyName + ' goes back to the local agency with this reason.'}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={send} loading={busy}>
+            Send back
+          </Button>
+        </>
+      }
+    >
+      <label htmlFor="rejectNote" className="field-label">
+        Reason <span className="text-red-500">*</span>
+      </label>
+      <textarea
+        id="rejectNote"
+        rows={3}
+        maxLength={255}
+        value={note}
+        placeholder="e.g. Mason is not tested this month"
+        onChange={(e) => {
+          setNote(e.target.value);
+          setError('');
+        }}
+        className={'field-input resize-none ' + (error ? 'field-input-error' : '')}
+      />
+      {error && <p className="field-error">{error}</p>}
+    </Modal>
+  );
+}
+
+/** Why an assignment in the history ended. */
+function EndedBadge({ registration }) {
+  return (
+    <Badge tone="gray" dot>
+      {registration.ended?.reason === 'new_test' ? 'Earlier test' : 'Moved on'}
+    </Badge>
+  );
+}
+
+/**
+ * The foreign company the candidate is assigned to, the job categories it
+ * tests them in under their test index numbers, how each went - and every
+ * assignment before it, kept as history.
+ *
+ * A coordinator or the Main Admin assigns the company and its categories,
+ * edits them, moves the candidate to another company, and after a fail
+ * sends them for a new test. The company (or the admin side) records the
+ * results; the local agency reads them.
+ */
+export function RegistrationsCard({ candidate, admin, reviewer, onChanged }) {
   const { toast } = useToast();
   const [recording, setRecording] = useState(null);
-  const [editing, setEditing] = useState(null);
-  const [adding, setAdding] = useState(false);
+  // { mode, registration?, initialCompanyId?, initialRoleIds? } while the window is open.
+  const [assigning, setAssigning] = useState(null);
+  const [rejecting, setRejecting] = useState(null);
+  const [deciding, setDeciding] = useState(null);
 
-  const registrations = candidate.registrations || [];
+  const all = candidate.registrations || [];
+  const current = all.filter((r) => r.current !== false);
+  // Newest first: what came just before the current one on top.
+  const history = all.filter((r) => r.current === false).reverse();
   const passed = candidate.poolStatus === 'passed';
   const shut = candidate.blocked;
-  const holder = registrations.find((r) => r.state === 'passed');
+  const holder = current.find((r) => r.state === 'passed');
+  // The admin side places the candidate; nobody once they have passed.
+  const places = reviewer && !shut && !passed;
+  const hasCompany = current.some((r) => (r.approval || 'approved') === 'approved');
 
-  // The company itself, for its own registration, or the admin side.
+  // The company itself, for its own assignment, or the admin side - and
+  // only once the assignment has been approved.
   const canRecordFor = (registration) =>
     !shut &&
+    registration.current !== false &&
+    (registration.approval || 'approved') === 'approved' &&
     registration.state !== 'void' &&
     (reviewer || (admin?.agency?.type === 'foreign' && admin?.agency?.id === registration.company.id));
 
   const remove = async (registration) => {
     const sure = await confirmAction({
-      title: 'Remove this registration?',
+      title: 'Remove this company?',
       html:
         escapeHtml(candidate.name) +
         ' is taken off <b>' +
         escapeHtml(registration.company.name) +
-        "</b>'s list. They stay registered with the other companies.",
+        "</b>'s list. Nothing was recorded, so nothing is kept.",
       confirmText: 'Remove',
       danger: true,
     });
@@ -396,112 +518,223 @@ export function RegistrationsCard({ candidate, admin, canManage, reviewer, onCha
 
     try {
       const { message } = await candidateApi.removeRegistration(candidate.id, registration.id);
-      toast(message || 'Registration removed.');
+      toast(message || 'Removed.');
       onChanged();
     } catch (err) {
-      toast(err.message || 'Could not remove the registration.', 'error');
+      toast(err.message || 'Could not remove it.', 'error');
+    }
+  };
+
+  // An agency's request from before companies were the admin side's to set.
+  const approve = async (registration) => {
+    setDeciding(registration.id);
+    try {
+      const { message } = await candidateApi.decideRegistration(candidate.id, registration.id, { decision: 'approve' });
+      toast(message || 'Approved.');
+      onChanged();
+    } catch (err) {
+      alertError(err.message || 'Could not approve it.', 'Not approved');
+    } finally {
+      setDeciding(null);
     }
   };
 
   let subtitle;
-  if (passed && holder) {
-    subtitle =
-      'Passed with ' + holder.company.name + '. Registrations with other companies are no longer valid.';
-  } else if (passed) {
-    subtitle = 'Passed, so no other company can be added.';
-  } else {
-    subtitle = 'Each company records a result for its own job categories. More companies can be added until one passes them.';
-  }
+  if (passed && holder) subtitle = 'Passed with ' + holder.company.name + '.';
+  else if (passed) subtitle = 'Passed, so the company cannot change.';
+  else if (!hasCompany)
+    subtitle = reviewer
+      ? 'No company yet. Assign one, with the job categories it tests - the test index numbers are issued then.'
+      : 'A coordinator or the Main Admin assigns the foreign company and issues the test index numbers.';
+  else subtitle = 'The company records a result for each job category. Earlier companies and tests stay below.';
+
+  const section = (registration, old = false) => {
+    const results = resultsByRole(registration);
+    const passedRole = registration.results.find((r) => r.result === 'pass')?.jobRoleId;
+    const recordable = !old && canRecordFor(registration);
+    const live = !old && places && registration.state === 'open' && (registration.approval || 'approved') === 'approved';
+    const removable = live && registration.results.length === 0;
+
+    return (
+      <section
+        key={registration.id}
+        aria-label={registration.company.name + (old ? ' (earlier)' : '')}
+        className={'border-t border-gray-100 ' + (old || registration.state === 'void' ? 'bg-gray-50/70' : '')}
+      >
+        <div className="flex flex-wrap items-center gap-3 px-5 pt-4 pb-2">
+          <div className="min-w-0 flex-1">
+            <p className={'text-sm font-semibold ' + (old ? 'text-gray-600' : 'text-gray-900')}>
+              {registration.company.name}
+            </p>
+            <p className="mt-0.5 text-xs text-gray-500">
+              Assigned {formatDate(registration.decision?.at || registration.createdAt)}
+              {registration.decision?.by ? ' by ' + registration.decision.by : ''}
+              {old && registration.ended
+                ? ' · ' + registration.ended.label + ' on ' + formatDate(registration.ended.at)
+                : ''}
+            </p>
+            {registration.state === 'void' && (
+              <p className="mt-0.5 text-xs text-red-700">
+                Passed with {holder?.company.name || 'another company'}, so this one is no longer valid.
+              </p>
+            )}
+            {!old && registration.approval === 'pending' && (
+              <p className="mt-0.5 text-xs text-amber-700">
+                Asked for by the local agency, not approved yet. No test index numbers until it is.
+              </p>
+            )}
+            {!old && registration.approval === 'rejected' && (
+              <p className="mt-0.5 text-xs text-red-700">
+                Sent back{registration.decision?.by ? ' by ' + registration.decision.by : ''}:{' '}
+                {registration.decision?.note || 'no reason given'}.
+              </p>
+            )}
+          </div>
+          {old ? <EndedBadge registration={registration} /> : <StateBadge registration={registration} />}
+          {!old && reviewer && !shut && registration.approval === 'pending' && (
+            <>
+              <Button size="sm" onClick={() => approve(registration)} loading={deciding === registration.id}>
+                Approve
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setRejecting(registration)} disabled={deciding === registration.id}>
+                Send back
+              </Button>
+            </>
+          )}
+          {live && (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => setAssigning({ mode: 'edit', registration })}>
+                Edit categories
+              </Button>
+              {!passedRole && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    setAssigning({
+                      mode: 'moved',
+                      registration,
+                      initialRoleIds: registration.jobRoles.map((role) => role.id),
+                    })
+                  }
+                >
+                  Change company
+                </Button>
+              )}
+            </>
+          )}
+          {removable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={() => remove(registration)}
+            >
+              Remove
+            </Button>
+          )}
+        </div>
+
+        <div className="divide-y divide-gray-100 pb-2">
+          {registration.jobRoles.map((role) => {
+            const row = results[role.id];
+            const canRecord = recordable && (!passedRole || passedRole === role.id);
+            // After a fail, the admin side sends the candidate for another test.
+            const retest = live && row?.result === 'fail';
+            return (
+              <div key={role.id} className="flex flex-wrap items-center gap-3 py-2.5 pl-8 pr-5">
+                <div className="min-w-0 flex-1">
+                  <p className={'text-sm ' + (old ? 'text-gray-600' : 'text-gray-900')}>
+                    {role.name}
+                    {role.testIndexNo && (
+                      <span className="ml-2 font-mono text-xs text-gray-500">{role.testIndexNo}</span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {row
+                      ? formatDate(row.recordedAt) + (row.note ? ' · ' + row.note : '')
+                      : old
+                        ? 'No result was recorded.'
+                        : (registration.approval || 'approved') === 'approved'
+                          ? 'No result recorded yet.'
+                          : 'Test index number given on approval.'}
+                  </p>
+                </div>
+                <CategoryBadge result={row} />
+                {retest && (
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      setAssigning({
+                        mode: 'new_test',
+                        registration,
+                        initialCompanyId: registration.company.id,
+                        // The failed category, and any not tested yet.
+                        initialRoleIds: registration.jobRoles
+                          .filter((r) => r.id === role.id || !results[r.id])
+                          .map((r) => r.id),
+                      })
+                    }
+                  >
+                    Assign for new test
+                  </Button>
+                )}
+                {canRecord && (
+                  <Button
+                    size="sm"
+                    variant={row ? 'secondary' : 'primary'}
+                    onClick={() => setRecording({ registration, roleId: role.id })}
+                  >
+                    {row ? 'Change' : 'Record result'}
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+  };
 
   return (
     <Card>
       <CardHeader
-        title="Foreign companies and test results"
+        title="Foreign company and test results"
         subtitle={subtitle}
         action={
-          canManage && !shut && !passed ? (
-            <Button variant="secondary" size="sm" icon={IconPlus} onClick={() => setAdding(true)}>
-              Register with another company
+          places && !hasCompany ? (
+            <Button
+              size="sm"
+              icon={IconPlus}
+              onClick={() =>
+                setAssigning({
+                  mode: 'assign',
+                  // What the agency asked for, if it did, to start from.
+                  initialCompanyId: current[0]?.company.id || '',
+                  initialRoleIds: (candidate.jobRoles || []).map((role) => role.id),
+                })
+              }
+            >
+              Assign a company
             </Button>
           ) : null
         }
       />
 
-      {registrations.length === 0 && (
-        <p className="px-5 py-4 text-sm text-gray-500">Not registered with any foreign company yet.</p>
+      {all.length === 0 && (
+        <p className="px-5 py-4 text-sm text-gray-500">Not assigned to any foreign company yet.</p>
       )}
 
-      {registrations.map((registration) => {
-        const results = resultsByRole(registration);
-        const passedRole = registration.results.find((r) => r.result === 'pass')?.jobRoleId;
-        const recordable = canRecordFor(registration);
-        const editable = canManage && !shut && registration.state !== 'void';
-        const removable = editable && registration.results.length === 0 && registration.state === 'open';
+      {current.map((registration) => section(registration))}
 
-        return (
-          <section
-            key={registration.id}
-            aria-label={registration.company.name}
-            className={'border-t border-gray-100 ' + (registration.state === 'void' ? 'bg-gray-50/70' : '')}
-          >
-            <div className="flex flex-wrap items-center gap-3 px-5 pt-4 pb-2">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-gray-900">{registration.company.name}</p>
-                {registration.state === 'void' && (
-                  <p className="mt-0.5 text-xs text-red-700">
-                    Passed with {holder?.company.name || 'another company'}, so this registration is no longer valid.
-                  </p>
-                )}
-              </div>
-              <StateBadge registration={registration} />
-              {editable && (
-                <Button variant="ghost" size="sm" onClick={() => setEditing(registration)}>
-                  Edit categories
-                </Button>
-              )}
-              {removable && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                  onClick={() => remove(registration)}
-                >
-                  Remove
-                </Button>
-              )}
-            </div>
-
-            <div className="divide-y divide-gray-100 pb-2">
-              {registration.jobRoles.map((role) => {
-                const row = results[role.id];
-                const canRecord = recordable && (!passedRole || passedRole === role.id);
-                return (
-                  <div key={role.id} className="flex flex-wrap items-center gap-3 py-2.5 pl-8 pr-5">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-gray-900">{role.name}</p>
-                      <p className="mt-0.5 text-xs text-gray-500">
-                        {row
-                          ? formatDate(row.recordedAt) + (row.note ? ' · ' + row.note : '')
-                          : 'No result recorded yet.'}
-                      </p>
-                    </div>
-                    <CategoryBadge result={row} />
-                    {canRecord && (
-                      <Button
-                        size="sm"
-                        variant={row ? 'secondary' : 'primary'}
-                        onClick={() => setRecording({ registration, roleId: role.id })}
-                      >
-                        {row ? 'Change' : 'Record result'}
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        );
-      })}
+      {history.length > 0 && (
+        <>
+          <p className="border-t border-gray-100 bg-gray-50 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Earlier companies and tests
+          </p>
+          {history.map((registration) => section(registration, true))}
+        </>
+      )}
 
       {recording && (
         <ResultModal
@@ -512,14 +745,29 @@ export function RegistrationsCard({ candidate, admin, canManage, reviewer, onCha
           onRecorded={onChanged}
         />
       )}
-      {(adding || editing) && (
-        <RegistrationModal
-          candidate={candidate}
-          registration={editing}
-          onClose={() => {
-            setAdding(false);
-            setEditing(null);
+      {rejecting && (
+        <RejectRegistrationModal
+          candidateName={candidate.name}
+          companyName={rejecting.company.name}
+          onClose={() => setRejecting(null)}
+          onReject={async (note) => {
+            const { message } = await candidateApi.decideRegistration(candidate.id, rejecting.id, {
+              decision: 'reject',
+              note,
+            });
+            toast(message || 'Sent back to the local agency.');
+            onChanged();
           }}
+        />
+      )}
+      {assigning && (
+        <AssignModal
+          candidate={candidate}
+          mode={assigning.mode}
+          registration={assigning.registration}
+          initialCompanyId={assigning.initialCompanyId}
+          initialRoleIds={assigning.initialRoleIds}
+          onClose={() => setAssigning(null)}
           onSaved={onChanged}
         />
       )}

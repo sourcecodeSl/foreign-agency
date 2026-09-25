@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -55,26 +56,41 @@ class SystemUpdateTest extends TestCase
             ->assertSee('The database is up to date.');
 
         // The last update undone, as on a server that has not had it yet.
+        $latest = $this->latestMigration();
         Artisan::call('migrate:rollback', ['--step' => 1, '--force' => true]);
-        $this->assertFalse(Schema::hasColumn('users', 'appearance'));
+        $this->assertFalse($this->ran($latest));
 
         // Checking lists it and changes nothing.
         $this->post(self::URL, ['key' => self::KEY, 'action' => 'check'])
             ->assertOk()
             ->assertSee('1 update is waiting to run:')
-            ->assertSee('0001_01_01_004200_add_appearance_to_users_table')
+            ->assertSee($latest)
             ->assertSee('Run update');
-        $this->assertFalse(Schema::hasColumn('users', 'appearance'));
+        $this->assertFalse($this->ran($latest));
 
         // Running it brings the database up to date.
         $this->post(self::URL, ['key' => self::KEY, 'action' => 'run'])
             ->assertOk()
             ->assertSee('Done. 1 update ran, and the database is up to date.');
-        $this->assertTrue(Schema::hasColumn('users', 'appearance'));
+        $this->assertTrue($this->ran($latest));
 
         // Running again is harmless.
         $this->post(self::URL, ['key' => self::KEY, 'action' => 'run'])
             ->assertOk()
             ->assertSee('Done. 0 updates ran');
+    }
+
+    /** The newest migration file, the one a rollback of one step undoes. */
+    private function latestMigration(): string
+    {
+        $files = glob(database_path('migrations/*.php'));
+        sort($files);
+
+        return basename(end($files), '.php');
+    }
+
+    private function ran(string $migration): bool
+    {
+        return DB::table('migrations')->where('migration', $migration)->exists();
     }
 }

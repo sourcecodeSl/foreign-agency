@@ -32,6 +32,24 @@ describe('a date typed the way it is read here', () => {
     });
   });
 
+  it('picks a day on the calendar, written dd/mm/yyyy', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<DateInput label="Passport validity" name="passportExpiry" value="2031-05-01" onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /pick from the calendar/i }));
+    // The calendar opens on the month of the date already there.
+    const day = [...document.querySelectorAll('.flatpickr-calendar.open .flatpickr-day')].find(
+      (cell) => cell.textContent === '15' && !cell.classList.contains('prevMonthDay') && !cell.classList.contains('nextMonthDay')
+    );
+    await user.click(day);
+
+    expect(screen.getByLabelText(/passport validity/i).value).toBe('15/05/2031');
+    expect(onChange).toHaveBeenLastCalledWith({
+      target: { name: 'passportExpiry', value: '2031-05-15' },
+    });
+  });
+
   it('shows a date it was given, and keeps nothing while one is half typed', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();

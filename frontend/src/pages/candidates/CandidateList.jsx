@@ -8,7 +8,7 @@ import { useToast } from '../../components/ui/Toast';
 import { IconSearch } from '../../components/ui/Icons';
 import { candidateApi } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
-import { SourceTag, SubmitSwitch, isReviewer } from './shared';
+import { SourceTag, SubmitSwitch, indexNumbers, isReviewer } from './shared';
 
 // Where a candidate stands in the testing pool.
 const POOL = {
@@ -87,6 +87,9 @@ export default function CandidateList() {
               {row.testIndexNo ? ' · Test index ' + row.testIndexNo : ''}
             </p>
           )}
+          {indexNumbers(row).length > 0 && (
+            <p className="text-xs text-gray-500">Index {indexNumbers(row).join(', ')}</p>
+          )}
         </div>
       ),
     },
@@ -102,7 +105,6 @@ export default function CandidateList() {
         </div>
       ),
     },
-    { key: 'mobile', header: 'Mobile' },
     {
       key: 'documents',
       header: 'Documents',
@@ -186,52 +188,54 @@ export default function CandidateList() {
   ];
 
   return (
-    <Card>
-      <CardHeader
-        title="Candidate List"
-        subtitle="Every candidate registered across all agencies, and where each one stands."
-        action={
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              id="pool-filter"
-              value={pool}
-              onChange={(e) => setPool(e.target.value)}
-              aria-label="Pool status"
-              className="rounded-lg border border-gray-300 bg-surface px-3 py-2 text-sm text-gray-700
-                         focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
-            >
-              {POOL_FILTERS.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader
+          title="Candidate List"
+          subtitle="Every candidate registered across all agencies, and where each one stands."
+          action={
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                id="pool-filter"
+                value={pool}
+                onChange={(e) => setPool(e.target.value)}
+                aria-label="Pool status"
+                className="rounded-lg border border-gray-300 bg-surface px-3 py-2 text-sm text-gray-700
+                           focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+              >
+                {POOL_FILTERS.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
 
-            <div className="relative">
-              <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                id="candidate-search"
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Name, passport, NIC or mobile"
-                aria-label="Search candidates"
-                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm
-                           placeholder:text-gray-400 focus:border-primary-500 focus:outline-none
-                           focus:ring-4 focus:ring-primary-100 sm:w-64"
-              />
+              <div className="relative">
+                <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  id="candidate-search"
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Name, passport, NIC or test index"
+                  aria-label="Search candidates"
+                  className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm
+                             placeholder:text-gray-400 focus:border-primary-500 focus:outline-none
+                             focus:ring-4 focus:ring-primary-100 sm:w-64"
+                />
+              </div>
             </div>
-          </div>
-        }
-      />
+          }
+        />
 
-      <Table columns={columns} rows={rows} loading={loading} empty="No candidates match this view." />
+        <Table columns={columns} rows={rows} loading={loading} empty="No candidates match this view." />
 
-      <div className="border-t border-gray-200 px-5 py-3 text-sm text-gray-500">
-        Showing <span className="font-medium text-gray-900">{rows.length}</span> candidate
-        {rows.length === 1 ? '' : 's'} · <span className="font-medium text-gray-900">{counts.passed}</span>{' '}
-        passed · <span className="font-medium text-gray-900">{counts.testing}</span> testing
-      </div>
-    </Card>
+        <div className="border-t border-gray-200 px-5 py-3 text-sm text-gray-500">
+          Showing <span className="font-medium text-gray-900">{rows.length}</span> candidate
+          {rows.length === 1 ? '' : 's'} · <span className="font-medium text-gray-900">{counts.passed}</span>{' '}
+          passed · <span className="font-medium text-gray-900">{counts.testing}</span> testing
+        </div>
+      </Card>
+    </div>
   );
 }

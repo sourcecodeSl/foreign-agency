@@ -5,7 +5,10 @@ namespace App\Http\Controllers;
 use App\Exceptions\ApiException;
 use App\Models\Agency;
 use App\Models\Candidate;
+use App\Models\CandidateRegistration;
+use App\Models\CandidateTestLine;
 use App\Models\CandidateTestResult;
+use App\Models\Message;
 use App\Models\User;
 use App\Support\ApiResponse;
 use App\Support\PageAccess;
@@ -32,9 +35,13 @@ class NotificationController extends Controller
     {
         $auth = $request->attributes->get('auth_user');
 
+        $account = $request->attributes->get('auth_account');
+
         $items = in_array($auth['roleSlug'] ?? null, self::GLOBAL_ROLES, true)
-            ? $this->forAdministrator($request->attributes->get('auth_account'))
+            ? $this->forAdministrator($account)
             : $this->forAgency((string) ($auth['agencyId'] ?? ''));
+
+        $items = array_merge($items, $this->messages($account));
 
         // Whatever this login has already opened stays off the bell.
         $dismissed = DB::table('notification_dismissals')
@@ -66,6 +73,53 @@ class NotificationController extends Controller
         ]);
 
         return ApiResponse::ok(['id' => $id]);
+    }
+
+    /**
+     * Unread messages, one item per conversation. The newest unread message
+     * is in the id, so a later one shows again after this was opened.
+     * The auditor has no conversations; a coordinator only with the page.
+     */
+    private function messages(?User $account): array
+    {
+        if (! $account) {
+            return [];
+        }
+
+        $role = $account->role_slug;
+        $admin = $role === 'main_admin'
+            || ($role === PageAccess::ROLE && in_array('messages', $account->pageAccess(), true));
+
+        if (! $admin && ! $account->agency_id) {
+            return [];
+        }
+
+        $unread = Message::query()
+            ->where('sender_side', $admin ? Message::AGENCY : Message::ADMIN)
+            ->when(! $admin, fn ($q) => $q->where('agency_id', $account->agency_id))
+            ->whereNull('read_at')
+            ->whereNull('deleted_at')
+            ->selectRaw('agency_id, COUNT(*) as total, MAX(id) as latest')
+            ->groupBy('agency_id')
+            ->get();
+
+        $latest = Message::whereIn('id', $unread->pluck('latest'))->get()->keyBy('id');
+        $names = Agency::whereIn('id', $unread->pluck('agency_id'))->pluck('name', 'id');
+
+        return $unread->map(function ($row) use ($admin, $latest, $names) {
+            $message = $latest[$row->latest] ?? null;
+            $from = $admin ? ($names[$row->agency_id] ?? 'an agency') : 'Admin';
+            $count = (int) $row->total;
+
+            return [
+                'id' => 'message-'.$row->agency_id.'-'.$row->latest,
+                'tone' => 'info',
+                'title' => ($count === 1 ? 'New message' : $count.' new messages').' from '.$from,
+                'body' => $message?->preview(),
+                'at' => $this->iso($message?->created_at),
+                'link' => $admin ? '/messages?c='.urlencode($row->agency_id) : '/messages',
+            ];
+        })->all();
     }
 
     private function iso($value): ?string
@@ -106,6 +160,29 @@ class NotificationController extends Controller
                 ->limit(self::LIMIT)
                 ->get()
             : collect();
+
+        // Registered by an agency and not with any company yet: the admin
+        // side assigns one. The auditor only reads, so is not asked.
+        $waiting = $account?->role_slug !== 'auditor' && (! $limited || in_array('candidates', $pages, true))
+            ? Candidate::query()
+                ->where('pool_status', '!=', 'passed')
+                ->whereNull('registration_blocked_at')
+                ->whereDoesntHave('registrations', fn ($q) => $q->current()->approved())
+                ->orderByDesc('id')
+                ->limit(self::LIMIT)
+                ->get()
+            : collect();
+
+        foreach ($waiting as $candidate) {
+            $items[] = [
+                'id' => 'candidate-waiting-company-'.$candidate->id,
+                'tone' => 'warning',
+                'title' => $candidate->name.' is waiting for a company',
+                'body' => 'Registered by a local agency. Assign the foreign company and its job categories.',
+                'at' => $this->iso($candidate->created_at),
+                'link' => '/candidates/pending',
+            ];
+        }
 
         $agencies = Agency::whereIn('id', $candidates->pluck('agency_id')->unique())->pluck('name', 'id');
 
@@ -172,6 +249,37 @@ class NotificationController extends Controller
             ];
         }
 
+        // Which company the admin side sent its candidates to.
+        $decisions = CandidateRegistration::query()
+            ->whereIn('candidate_id', Candidate::where('agency_id', $agencyId)->select('id'))
+            ->whereIn('approval', [CandidateRegistration::APPROVED, CandidateRegistration::REJECTED])
+            ->whereNotNull('decided_by')
+            ->where('decided_at', '>=', now()->subDays(14))
+            ->with(['candidate', 'company'])
+            ->orderByDesc('decided_at')
+            ->limit(self::LIMIT)
+            ->get();
+
+        foreach ($decisions as $registration) {
+            if (! $registration->candidate) {
+                continue;
+            }
+
+            $approved = $registration->approval === CandidateRegistration::APPROVED;
+            $company = $registration->company?->name ?? 'the foreign company';
+
+            $items[] = [
+                'id' => 'registration-'.$registration->approval.'-'.$registration->id.'-'.$registration->decided_at?->timestamp,
+                'tone' => $approved ? 'success' : 'danger',
+                'title' => $registration->candidate->name.($approved ? ' is assigned to ' : ' was sent back for ').$company,
+                'body' => $approved
+                    ? 'The test index numbers are ready on the file.'
+                    : 'Reason: '.($registration->decision_note ?: 'none given').'.',
+                'at' => $this->iso($registration->decided_at),
+                'link' => '/candidates/'.$registration->candidate_id,
+            ];
+        }
+
         // Results the foreign company recorded, one per job category - a fail
         // as much as a pass, so the agency knows where each candidate stands.
         $results = CandidateTestResult::query()
@@ -198,6 +306,31 @@ class NotificationController extends Controller
                 'body' => $company.' recorded the result'.($result->note ? ': '.$result->note : '.'),
                 'at' => $this->iso($result->updated_at),
                 'link' => '/candidates/'.$result->candidate_id,
+            ];
+        }
+
+        // Each line a foreign company added to one of its candidates' test
+        // documents. The link opens the document on the candidate's file.
+        $lines = CandidateTestLine::query()
+            ->whereIn('candidate_id', Candidate::where('agency_id', $agencyId)->select('id'))
+            ->where('created_at', '>=', now()->subDays(30))
+            ->with(['candidate', 'company'])
+            ->orderByDesc('id')
+            ->limit(self::LIMIT)
+            ->get();
+
+        foreach ($lines as $line) {
+            if (! $line->candidate) {
+                continue;
+            }
+
+            $items[] = [
+                'id' => 'test-line-'.$line->id,
+                'tone' => 'info',
+                'title' => ($line->company?->name ?? 'The foreign company').' added a test line for '.$line->candidate->name,
+                'body' => mb_strimwidth($line->body, 0, 140, '…'),
+                'at' => $this->iso($line->created_at),
+                'link' => '/candidates/'.$line->candidate_id.'?test=1',
             ];
         }
 

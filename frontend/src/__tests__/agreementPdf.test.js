@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { placeValue, flowValue, fitBox, FONT_PT } from '../lib/agreementPdf';
+import { placeValue, flowValue, fitBox, FONT_PT, headingSize } from '../lib/agreementPdf';
 
 // Every character is 5pt wide at the normal size, and scales with it.
 const measure = (text, pt) => text.length * 5 * (pt / FONT_PT);
@@ -80,5 +80,21 @@ describe('fitting the seal and the signature in their boxes', () => {
     expect(place.width).toBe(90);
     expect(place.height).toBe(18);
     expect(place.y).toBe(24);
+  });
+});
+
+describe('the agreement name written as the heading', () => {
+  const heading = { cover: [150, 786, 460, 810], baseline: 793.4, centre: 303.5, size: 14, maxWidth: 480 };
+  // Every character 7 points wide at 14pt, scaling with the size.
+  const measure = (text, pt) => text.length * 7 * (pt / 14);
+
+  it('keeps the size the paper prints its heading at', () => {
+    expect(headingSize('SEC CONSTRUCTION - SRI LANKA - 2026', heading, measure)).toBe(14);
+  });
+
+  it('sets a name too wide for the page smaller, never below 8pt', () => {
+    const long = 'X'.repeat(120); // 840pt at 14pt
+    expect(headingSize(long, heading, measure)).toBeCloseTo(8, 5);
+    expect(headingSize('X'.repeat(80), heading, measure)).toBeCloseTo(12, 5); // 560pt -> 480pt
   });
 });

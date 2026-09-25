@@ -33,8 +33,8 @@ const FONT_FAMILY = "Arial, 'Nirmala UI', 'Iskoola Pota', 'Noto Sans Sinhala', '
 const SINHALA = /[඀-෿]/;
 const SINHALA_SIZE = 0.86;
 
-const fontAt = (pt, text) =>
-  '600 ' + pt * (SINHALA.test(text) ? SINHALA_SIZE : 1) * SCALE + 'px ' + FONT_FAMILY;
+const fontAt = (pt, text, weight = '600') =>
+  weight + ' ' + pt * (SINHALA.test(text) ? SINHALA_SIZE : 1) * SCALE + 'px ' + FONT_FAMILY;
 
 /**
  * Where a value goes on its blank: one line, or - when it does not fit and
@@ -105,6 +105,20 @@ export function flowValue(text, segments, measure) {
   }
 }
 
+/** The smallest a long heading is set at. */
+const MIN_HEADING_PT = 8;
+
+/**
+ * The size a name is set at in the heading: the size the paper prints its
+ * heading at, smaller only when the name would run wider than the page
+ * allows.
+ */
+export function headingSize(text, heading, measure) {
+  const width = measure(text, heading.size);
+  if (width <= heading.maxWidth) return heading.size;
+  return Math.max(MIN_HEADING_PT, (heading.size * heading.maxWidth) / width);
+}
+
 /** How far below and above a printed line's baseline its text reaches, to white it out. */
 const COVER_BELOW = 4;
 const COVER_ABOVE = 10;
@@ -116,17 +130,21 @@ function context() {
 }
 
 /** A text's width in points, as the browser will draw it. */
-function measure(text, pt) {
+function measure(text, pt, weight) {
   const ctx = context();
-  ctx.font = fontAt(pt, text);
+  ctx.font = fontAt(pt, text, weight);
   return ctx.measureText(text).width / SCALE;
 }
 
-/** One line of text as a PNG, with its size in points and where its baseline sits. */
-function picture(text, pt, lang) {
+/**
+ * One line of text as a PNG, with its size in points and where its baseline
+ * sits. Values are written in the form's navy; the heading in the paper's
+ * own black and bold.
+ */
+function picture(text, pt, lang, { weight = '600', color = '#0b1f4d' } = {}) {
   const dir = lang === 'he' ? 'rtl' : 'ltr';
   const ctx = context();
-  ctx.font = fontAt(pt, text);
+  ctx.font = fontAt(pt, text, weight);
   const width = Math.ceil(ctx.measureText(text).width) + 4;
   const height = Math.ceil(pt * SCALE * 1.6);
   const baseline = Math.round(pt * SCALE * 1.2);
@@ -134,11 +152,11 @@ function picture(text, pt, lang) {
   canvas.width = width;
   canvas.height = height;
   // Resizing a canvas resets its state.
-  ctx.font = fontAt(pt, text);
+  ctx.font = fontAt(pt, text, weight);
   ctx.direction = dir;
   ctx.textAlign = dir === 'rtl' ? 'right' : 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#0b1f4d';
+  ctx.fillStyle = color;
   ctx.clearRect(0, 0, width, height);
   ctx.fillText(text, dir === 'rtl' ? width - 2 : 2, baseline);
 
@@ -180,10 +198,14 @@ async function asPng(blob) {
  * @param {object} values field => { en, he, si }
  * @param {object} [marks] { boxes: { seal, signature }, pictures: { seal?: Blob, signature?: Blob } }:
  *   the company seal and the signature, put at the foot of every page
+ * @param {object} [heading] where the paper prints its heading (AgreementLayout::heading),
+ *   with `text`: the agreement's name, written there instead on every page
  */
-export async function fillAgreementPdf(original, blanks, values, marks) {
+export async function fillAgreementPdf(original, blanks, values, marks, heading) {
   const pdf = await PDFDocument.load(original);
   const pages = pdf.getPages();
+
+  await writeHeading(pdf, pages, heading);
 
   for (const [key, byLang] of Object.entries(blanks || {})) {
     const value = values?.[key];
@@ -224,6 +246,40 @@ export async function fillAgreementPdf(original, blanks, values, marks) {
   }
 
   return pdf.save();
+}
+
+/**
+ * The original PDF with only its heading changed to a name - what a saved
+ * PDF looks like before anything is filled in.
+ */
+export async function headedPdf(original, heading) {
+  const pdf = await PDFDocument.load(original);
+  await writeHeading(pdf, pdf.getPages(), heading);
+  return pdf.save();
+}
+
+/**
+ * Whites out the heading the paper prints at the top of every page and sets
+ * the name there instead, centred, bold, at the heading's own size.
+ */
+async function writeHeading(pdf, pages, heading) {
+  const text = String(heading?.text || '').trim();
+  if (!heading?.cover || !text) return;
+
+  const pt = headingSize(text, heading, (t, size) => measure(t, size, '700'));
+  const img = picture(text, pt, 'en', { weight: '700', color: '#000000' });
+  const png = await pdf.embedPng(img.dataUrl);
+  const [left, bottom, right, top] = heading.cover;
+
+  for (const page of pages) {
+    page.drawRectangle({ x: left, y: bottom, width: right - left, height: top - bottom, color: rgb(1, 1, 1) });
+    page.drawImage(png, {
+      x: heading.centre - img.width / 2,
+      y: heading.baseline - img.below,
+      width: img.width,
+      height: img.height,
+    });
+  }
 }
 
 /** Whites out what the paper prints on these lines and writes the text there instead. */

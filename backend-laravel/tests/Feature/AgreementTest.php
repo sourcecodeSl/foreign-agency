@@ -505,6 +505,45 @@ class AgreementTest extends TestCase
         $this->asAdmin()->getJson('/api/v1/agreement-templates')->assertOk()->assertJsonCount(1, 'data.templates');
     }
 
+    public function test_the_admin_saves_a_pdf_every_foreign_company_starts_from_under_its_heading(): void
+    {
+        $saved = $this->asAdmin()->postJson('/api/v1/agreement-templates', [
+            'name' => 'SEC Construction 2025',
+            'layout' => AgreementLayout::SEC_CONSTRUCTION_2025,
+            'file' => UploadedFile::fake()->create('employment_agreement.pdf', 200, 'application/pdf'),
+            'saved' => true,
+        ])->assertCreated()
+            ->assertJsonPath('data.fromAdmin', true)
+            // Where the name is written over the heading the paper prints.
+            ->assertJsonPath('data.heading.size', 14)
+            ->json('data');
+
+        // The admin changes the heading; companies get the new one by default.
+        $this->patchJson('/api/v1/agreement-templates/'.$saved['id'], ['name' => 'SEC Construction - Sri Lanka 2026'])
+            ->assertOk()->assertJsonPath('data.name', 'SEC Construction - Sri Lanka 2026');
+
+        // A company registered afterwards sees it, with that heading.
+        $this->agencyLogin('AG-9301', 'foreign')
+            ->getJson('/api/v1/agreement-templates')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.templates')
+            ->assertJsonPath('data.templates.0.name', 'SEC Construction - Sri Lanka 2026')
+            ->assertJsonPath('data.templates.0.fromAdmin', true);
+        $this->get('/api/v1/agreement-templates/'.$saved['id'].'/file')->assertOk();
+
+        // Started from it, the agreement is the company's own, filled with its details.
+        $agreement = $this->postJson('/api/v1/agreements', ['templateId' => $saved['id'], 'title' => 'SEC Construction - Kamal'])
+            ->assertCreated()
+            ->assertJsonPath('data.title', 'SEC Construction - Kamal')
+            ->assertJsonPath('data.agencyId', 'AG-9301')
+            ->json('data');
+        $this->getJson('/api/v1/agreements')->assertOk()->assertJsonPath('data.0.id', $agreement['id']);
+
+        // The admin's PDF is not the company's to rename or remove.
+        $this->patchJson('/api/v1/agreement-templates/'.$saved['id'], ['name' => 'Mine now'])->assertNotFound();
+        $this->deleteJson('/api/v1/agreement-templates/'.$saved['id'])->assertNotFound();
+    }
+
     public function test_a_local_agency_does_not_upload_or_fill(): void
     {
         $this->agencyLogin('AG-9204', 'local')

@@ -185,24 +185,23 @@ class SkillTestFlowTest extends TestCase
         ]);
         $companyToken = Jwt::sign($companyOwner->toPublic());
 
-        // The local agency picks the company it is registering the candidate for.
-        $this->as($this->agencyToken)
-            ->getJson('/api/v1/agencies/foreign-options')
-            ->assertOk()
-            ->assertJsonFragment(['id' => 'AG-9100', 'name' => 'Herzl Construction']);
-
-        $registered = $this->postJson('/api/v1/candidates', [
+        // The local agency registers the candidate with what they can do.
+        $registered = $this->as($this->agencyToken)->postJson('/api/v1/candidates', [
             'firstName' => 'Nimal',
             'lastName' => 'Silva',
             'passportNo' => 'N1122334',
             'nicNo' => '901234567V',
             'address' => '9 Lake Road, Kandy',
             'mobile' => '0779998887',
-            'companyAgencyId' => 'AG-9100',
             'jobRoleIds' => [$this->roleId('Tiler'), $this->roleId('Mason')],
         ])->assertCreated()->json('data.candidate');
 
-        $this->assertSame('AG-9100', $registered['company']['id']);
+        // Nobody reaches the company until a coordinator or the Main Admin assigns it.
+        $this->as($companyToken)->getJson('/api/v1/candidates')->assertOk()->assertJsonCount(0, 'data');
+        $this->as($this->coordinator)->postJson('/api/v1/candidates/'.$registered['id'].'/registrations', [
+            'companyAgencyId' => 'AG-9100',
+            'jobRoleIds' => [$this->roleId('Tiler'), $this->roleId('Mason')],
+        ])->assertCreated()->assertJsonPath('data.company.id', 'AG-9100');
 
         // The company reads whoever was registered for it, and which agency sent them.
         $listed = $this->as($companyToken)->getJson('/api/v1/candidates')->assertOk()->json('data');

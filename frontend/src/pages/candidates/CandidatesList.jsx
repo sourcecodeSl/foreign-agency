@@ -9,7 +9,45 @@ import { IconPlus, IconSearch, IconUsers, IconTrash, IconBuilding } from '../../
 import { candidateApi, agencyApi } from '../../lib/api';
 import { confirmAction, escapeHtml } from '../../lib/alert';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
-import { SourceTag, SubmitSwitch, canRegister, isReviewer } from './shared';
+import { SourceTag, SubmitSwitch, canRegister, formatDate, isReviewer, roleWithIndex } from './shared';
+
+/** Where a registration with the chosen foreign company stands. */
+function RegistrationBadge({ registration }) {
+  if (!registration) return <span className="text-gray-400">—</span>;
+  if (registration.approval === 'pending') {
+    return (
+      <Badge tone="amber" dot>
+        Waiting for approval
+      </Badge>
+    );
+  }
+  if (registration.approval === 'rejected') {
+    return (
+      <Badge tone="red" dot>
+        Sent back
+      </Badge>
+    );
+  }
+  if (registration.state === 'void') {
+    return (
+      <Badge tone="red" dot>
+        Passed elsewhere
+      </Badge>
+    );
+  }
+  const results = registration.results || [];
+  if (results.length === 0) return <Badge tone="blue" dot>Approved · no result yet</Badge>;
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {results.map((row) => (
+        <Badge key={row.id} tone={row.result === 'pass' ? 'green' : 'red'} dot>
+          {(row.result === 'pass' ? 'Passed - ' : 'Did not pass - ') + row.jobRole}
+        </Badge>
+      ))}
+    </div>
+  );
+}
 
 const STATUS_TONE = {
   draft: 'gray',
@@ -53,6 +91,11 @@ export default function CandidatesList() {
     })();
   }, [isAdmin, agencyType, toast]);
 
+  const chosenAgency = agencies.find((a) => a.id === agencyId);
+  // A foreign company registers nobody: picking one shows the candidates
+  // local agencies have registered for its test.
+  const companyMode = isAdmin && chosenAgency?.type === 'foreign';
+
   const load = useCallback(async () => {
     // Nothing to fetch until the admin has chosen whose files to look at.
     if (isAdmin && !agencyId) {
@@ -63,14 +106,18 @@ export default function CandidatesList() {
 
     setLoading(true);
     try {
-      const { data } = await candidateApi.list({ search, status, agencyId });
+      const { data } = await candidateApi.list(
+        companyMode
+          ? { search, status, agencyId: 'all', companyAgencyId: agencyId }
+          : { search, status, agencyId }
+      );
       setRows(data);
     } catch (err) {
       toast(err.message || 'Could not load candidates.', 'error');
     } finally {
       setLoading(false);
     }
-  }, [search, status, agencyId, isAdmin, toast]);
+  }, [search, status, agencyId, isAdmin, companyMode, toast]);
 
   // Debounced so typing does not fire a request per keystroke.
   useEffect(() => {
@@ -98,6 +145,86 @@ export default function CandidatesList() {
     }
   };
 
+  // The chosen foreign company's list: who sent each candidate, for which
+  // categories and under which test index numbers, and how it stands.
+  const companyColumns = [
+    {
+      key: 'name',
+      header: 'Candidate',
+      render: (row) => (
+        <div className="space-y-1">
+          <p className="font-medium text-gray-900">{row.name}</p>
+          <p className="text-xs text-gray-500">
+            Passport {row.passportNo}
+            {row.nicNo ? ' · NIC ' + row.nicNo : ''}
+          </p>
+          {row.passportExpiry && (
+            <p className={'text-xs ' + (row.passportWarning ? 'text-amber-700' : 'text-gray-500')}>
+              Passport valid until {formatDate(row.passportExpiry)}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'agencyName',
+      header: 'Local agency',
+      render: (row) => (
+        <div className="space-y-1">
+          <p className="text-gray-900">{row.agencyName || row.agencyId}</p>
+          <SourceTag registeredBy={row.registeredBy} />
+        </div>
+      ),
+    },
+    {
+      key: 'jobRoles',
+      header: 'Job categories',
+      render: (row) =>
+        (row.registration?.jobRoles || []).length ? (
+          <ul className="space-y-0.5 whitespace-nowrap text-sm">
+            {row.registration.jobRoles.map((role) => (
+              <li key={role.id}>{roleWithIndex(role)}</li>
+            ))}
+          </ul>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      key: 'police',
+      header: 'Police report',
+      render: (row) => {
+        const police = row.policeReport?.status || 'not_applied';
+        const label = { not_applied: 'Not applied', applied: 'Applied', received: 'Received' }[police];
+        return (
+          <Badge tone={police === 'received' ? 'green' : police === 'applied' ? 'amber' : 'gray'} dot>
+            {label}
+          </Badge>
+        );
+      },
+    },
+    {
+      key: 'registration',
+      header: 'Registration / result',
+      render: (row) => <RegistrationBadge registration={row.registration} />,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (row) => <Badge tone={STATUS_TONE[row.status] || 'gray'} dot>{row.status}</Badge>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'text-right',
+      render: (row) => (
+        <Button size="sm" variant="secondary" onClick={() => navigate('/candidates/' + row.id)}>
+          View
+        </Button>
+      ),
+    },
+  ];
+
   const columns = [
     {
       key: 'name',
@@ -113,12 +240,17 @@ export default function CandidatesList() {
         </div>
       ),
     },
-    { key: 'mobile', header: 'Mobile' },
-    {
-      key: 'email',
-      header: 'Email',
-      render: (row) => row.email || <span className="text-gray-400">—</span>,
-    },
+    // How to reach the candidate is the registering agency's alone.
+    ...(isAdmin
+      ? []
+      : [
+          { key: 'mobile', header: 'Mobile', render: (row) => row.mobile || <span className="text-gray-400">—</span> },
+          {
+            key: 'email',
+            header: 'Email',
+            render: (row) => row.email || <span className="text-gray-400">—</span>,
+          },
+        ]),
     {
       key: 'documents',
       header: 'Documents',
@@ -210,8 +342,6 @@ export default function CandidatesList() {
     'rounded-lg border border-gray-300 bg-surface px-3 py-2 text-sm text-gray-700 ' +
     'focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100';
 
-  const chosenAgency = agencies.find((a) => a.id === agencyId);
-
   return (
     <>
       <Card>
@@ -279,7 +409,7 @@ export default function CandidatesList() {
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Name, passport, NIC, mobile"
+                  placeholder={isAdmin ? 'Name, passport, NIC' : 'Name, passport, NIC, mobile'}
                   className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm
                              placeholder:text-gray-400 focus:border-primary-500 focus:outline-none
                              focus:ring-4 focus:ring-primary-100 sm:w-64"
@@ -288,7 +418,8 @@ export default function CandidatesList() {
 
               {/* The agency registers for itself; a coordinator (or the Main Admin)
                   may register on an agency's behalf. The auditor only reads. */}
-              {canRegister(admin?.roleSlug) && (
+              {/* A candidate is registered under a local agency, never a company. */}
+              {canRegister(admin?.roleSlug) && !companyMode && (
                 <Link
                   to={
                     '/candidates/register' +
@@ -312,10 +443,14 @@ export default function CandidatesList() {
           </div>
         ) : (
           <Table
-            columns={columns}
+            columns={companyMode ? companyColumns : columns}
             rows={rows}
             loading={loading}
-            empty="No candidates registered yet."
+            empty={
+              companyMode
+                ? 'No local agency has registered anybody for ' + chosenAgency.name + ' yet.'
+                : 'No candidates registered yet.'
+            }
           />
         )}
 
@@ -324,7 +459,7 @@ export default function CandidatesList() {
             <IconUsers className="h-4 w-4 text-gray-400" />
             <span className="font-medium text-gray-900">{rows.length}</span> candidate
             {rows.length === 1 ? '' : 's'}
-            {chosenAgency ? ' at ' + chosenAgency.name : ''}
+            {chosenAgency ? (companyMode ? ' registered for ' : ' at ') + chosenAgency.name : ''}
           </span>
         </div>
       </Card>

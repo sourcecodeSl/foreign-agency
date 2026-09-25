@@ -152,6 +152,13 @@ export function passportWarning(expiry) {
   return null;
 }
 
+/** "Tiler · TL00001": a job category with the test index number it was given. */
+export const roleWithIndex = (role) => (role.testIndexNo ? role.name + ' · ' + role.testIndexNo : role.name);
+
+/** Every test index number the candidate holds, across the companies they are registered with. */
+export const indexNumbers = (candidate) =>
+  (candidate.registrations || []).flatMap((r) => r.jobRoles.map((role) => role.testIndexNo)).filter(Boolean);
+
 export function formatDate(iso) {
   if (!iso) return '';
   const date = new Date(iso);

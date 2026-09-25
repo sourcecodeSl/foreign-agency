@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Button from '../../components/ui/Button';
 import { PageLoader } from '../../components/ui/Spinner';
 import { IconX } from '../../components/ui/Icons';
@@ -21,6 +21,7 @@ export default function PdfViewerHost() {
   const [request, setRequest] = useState(null);
   const [file, setFile] = useState(null);
   const [error, setError] = useState(null);
+  const frame = useRef(null);
 
   useEffect(() => {
     listeners.add(setRequest);
@@ -69,6 +70,15 @@ export default function PdfViewerHost() {
     link.remove();
   };
 
+  const print = () => {
+    try {
+      frame.current.contentWindow.focus();
+      frame.current.contentWindow.print();
+    } catch {
+      window.open(file.url, '_blank');
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-2 sm:p-6" onClick={close}>
       <div
@@ -82,6 +92,9 @@ export default function PdfViewerHost() {
           <p className="min-w-0 flex-1 truncate text-base font-semibold text-gray-900">{title}</p>
           <Button size="sm" variant="secondary" onClick={download} disabled={!file}>
             Download PDF
+          </Button>
+          <Button size="sm" variant="secondary" onClick={print} disabled={!file}>
+            Print
           </Button>
           <button
             type="button"
@@ -98,9 +111,9 @@ export default function PdfViewerHost() {
               {error}
             </p>
           ) : file ? (
-            <iframe title={title} src={file.url} className="h-full w-full border-0" />
+            <iframe ref={frame} title={title} src={file.url} className="h-full w-full border-0" />
           ) : (
-            <PageLoader label="Filling in the agreement..." />
+            <PageLoader label={request.loadingLabel || 'Filling in the agreement...'} />
           )}
         </div>
       </div>

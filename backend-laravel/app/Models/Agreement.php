@@ -105,6 +105,8 @@ class Agreement extends Model
             // Where the values go on the original PDF, for the filled copy.
             $payload['blanks'] = (object) AgreementLayout::blanks($this->template->layout);
             $payload['markBoxes'] = (object) AgreementLayout::marks($this->template->layout);
+            // The agreement's name takes the place of the printed heading.
+            $payload['heading'] = AgreementLayout::heading($this->template->layout);
         }
 
         // A company's agreement is shown as the employer part alone.

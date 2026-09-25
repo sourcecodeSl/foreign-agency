@@ -11,9 +11,13 @@ const listAgencies = vi.hoisted(() => vi.fn());
 const createRole = vi.hoisted(() => vi.fn());
 const removeRole = vi.hoisted(() => vi.fn());
 const listCompanies = vi.hoisted(() => vi.fn());
+const uploadDocument = vi.hoisted(() => vi.fn());
 
 vi.mock('../lib/api', () => ({
-  candidateApi: { create: (...args) => createCandidate(...args) },
+  candidateApi: {
+    create: (...args) => createCandidate(...args),
+    upload: (...args) => uploadDocument(...args),
+  },
   jobRoleApi: {
     list: (...args) => listRoles(...args),
     create: (...args) => createRole(...args),
@@ -50,8 +54,10 @@ async function fillBasics(user, { nic = '901234567V' } = {}) {
   await user.type(screen.getByLabelText(/passport validity/i), '01/05/2031');
   if (nic) await user.type(screen.getByLabelText(/nic number/i), nic);
   await user.type(screen.getByLabelText(/address/i), '12 Temple Road, Negombo');
-  await user.type(screen.getByLabelText(/mobile number/i), '0771234567');
-  await user.selectOptions(await screen.findByLabelText(/foreign company/i), 'AG-9100');
+  // Only an agency registering for itself is asked for the mobile number.
+  if (roleSlug === 'agency_owner') await user.type(screen.getByLabelText(/mobile number/i), '0771234567');
+  // The company is the admin side's to name; an agency is never asked.
+  if (roleSlug !== 'agency_owner') await user.selectOptions(await screen.findByLabelText(/foreign company/i), 'AG-9100');
 }
 
 describe('registering a candidate', () => {
@@ -64,6 +70,7 @@ describe('registering a candidate', () => {
       ],
     });
     createCandidate.mockReset().mockResolvedValue({ data: { candidate: { id: 7 } } });
+    uploadDocument.mockReset().mockResolvedValue({ message: 'Uploaded.' });
     listCompanies.mockReset().mockResolvedValue({
       data: [
         { id: 'AG-9100', name: 'Herzl Construction', country: 'Israel' },
@@ -78,7 +85,7 @@ describe('registering a candidate', () => {
     });
   });
 
-  it('sends every ticked job category and the test index number', async () => {
+  it('sends every ticked job category', async () => {
     const user = userEvent.setup();
     renderForm();
 
@@ -87,7 +94,6 @@ describe('registering a candidate', () => {
     await fillBasics(user);
     await user.click(screen.getByRole('checkbox', { name: 'Tiler' }));
     await user.click(screen.getByRole('checkbox', { name: 'Shuttering Carpenter' }));
-    await user.type(screen.getByLabelText(/test index no/i), 'TI-2026-0148');
 
     await user.click(screen.getByRole('button', { name: /^register candidate$/i }));
 
@@ -100,10 +106,11 @@ describe('registering a candidate', () => {
       passportNo: 'N7788990',
       nicNo: '901234567V',
       jobRoleIds: [1, 2],
-      testIndexNo: 'TI-2026-0148',
-      // Whose test they sit; the company records the result on its own list.
-      companyAgencyId: 'AG-9100',
     });
+    // The agency names no company: a coordinator or the Main Admin assigns it.
+    expect(createCandidate.mock.calls[0][0]).not.toHaveProperty('companyAgencyId');
+    expect(screen.queryByLabelText(/foreign company/i)).toBeNull();
+    expect(listCompanies).not.toHaveBeenCalled();
     // The profession is not typed in: passing a test sets it.
     expect(screen.queryByLabelText(/profession/i)).toBeNull();
     expect(createCandidate.mock.calls[0][0].profession).toBeUndefined();
@@ -111,6 +118,59 @@ describe('registering a candidate', () => {
     expect(createCandidate.mock.calls[0][0]).not.toHaveProperty('agencyId');
     expect(screen.queryByLabelText(/^agency/i)).toBeNull();
     expect(listAgencies).not.toHaveBeenCalled();
+  });
+
+  it('sends the police report when it has been applied for', async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    await screen.findByRole('checkbox', { name: 'Tiler' });
+    await fillBasics(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Tiler' }));
+
+    // Not applied asks for nothing more; applied needs the reference number.
+    expect(screen.queryByLabelText(/reference no/i)).toBeNull();
+    await user.selectOptions(screen.getByLabelText(/^status/i), 'applied');
+    await user.click(screen.getByRole('button', { name: /^register candidate$/i }));
+    expect(createCandidate).not.toHaveBeenCalled();
+    expect(screen.getByText('Enter the police report reference number.')).toBeTruthy();
+
+    await user.type(screen.getByLabelText(/reference no/i), 'PR/2026/8891');
+    await user.click(screen.getByRole('button', { name: /^register candidate$/i }));
+
+    await waitFor(() => expect(createCandidate).toHaveBeenCalledTimes(1));
+    expect(createCandidate.mock.calls[0][0]).toMatchObject({
+      policeStatus: 'applied',
+      policeReferenceNo: 'PR/2026/8891',
+    });
+    expect(createCandidate.mock.calls[0][0]).not.toHaveProperty('policeIssuedDate');
+  });
+
+  it('attaches the police report file once it is applied for', async () => {
+    // Let a file the picker would hide through, to see the form's own check.
+    const user = userEvent.setup({ applyAccept: false });
+    renderForm();
+
+    await screen.findByRole('checkbox', { name: 'Tiler' });
+    await fillBasics(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Tiler' }));
+
+    // Nothing to attach while it is not applied for.
+    expect(screen.queryByLabelText(/police report file/i)).toBeNull();
+    await user.selectOptions(screen.getByLabelText(/^status/i), 'applied');
+    await user.type(screen.getByLabelText(/reference no/i), 'PR/2026/8891');
+
+    // A file the server would refuse is caught here first.
+    await user.upload(screen.getByLabelText(/police report file/i), new File(['x'], 'report.docx'));
+    expect(screen.getByText('Choose a PDF, JPG, PNG or WEBP file.')).toBeTruthy();
+
+    const pdf = new File(['%PDF'], 'police.pdf', { type: 'application/pdf' });
+    await user.upload(screen.getByLabelText(/police report file/i), pdf);
+    await user.click(screen.getByRole('button', { name: /^register candidate$/i }));
+
+    // Saved first, then the file goes on the new candidate as the Online Police Report.
+    await waitFor(() => expect(uploadDocument).toHaveBeenCalledWith(7, 'online_police_report', pdf));
+    expect(createCandidate).toHaveBeenCalledTimes(1);
   });
 
   it("lets a coordinator register on an agency's behalf", async () => {
@@ -129,7 +189,19 @@ describe('registering a candidate', () => {
     await user.click(screen.getByRole('button', { name: /^register candidate$/i }));
 
     await waitFor(() => expect(createCandidate).toHaveBeenCalledTimes(1));
-    expect(createCandidate.mock.calls[0][0]).toMatchObject({ agencyId: 'AG-1042', firstName: 'Kamal' });
+    expect(createCandidate.mock.calls[0][0]).toMatchObject({
+      agencyId: 'AG-1042',
+      firstName: 'Kamal',
+      // The admin side may name the company there and then.
+      companyAgencyId: 'AG-9100',
+    });
+    // The mobile and email are the agency's alone: not asked for, not sent.
+    expect(screen.queryByLabelText(/mobile number/i)).toBeNull();
+    expect(screen.queryByLabelText(/^email/i)).toBeNull();
+    expect(createCandidate.mock.calls[0][0]).not.toHaveProperty('mobile');
+    expect(createCandidate.mock.calls[0][0]).not.toHaveProperty('email');
+    // Documents are the agency's to attach, the police report too.
+    expect(uploadDocument).not.toHaveBeenCalled();
   });
 
   it('asks a coordinator which agency the candidate belongs to', async () => {

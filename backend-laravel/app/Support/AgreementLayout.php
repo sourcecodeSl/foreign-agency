@@ -139,6 +139,31 @@ final class AgreementLayout
         ];
     }
 
+    /**
+     * The heading the paper prints at the top of every page - "SEC
+     * CONSTRUCTION- SRI LANKA -2025" - which the agreement's name takes the
+     * place of. In PDF points from the bottom left: the stretch to white out
+     * as [left, bottom, right, top], the baseline the name sits on, the
+     * centre it is set around, its size in points, and the widest it may run
+     * before it is set smaller. Measured from the document itself.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function heading(string $key): ?array
+    {
+        if ($key !== self::SEC_CONSTRUCTION_2025) {
+            return null;
+        }
+
+        return [
+            'cover' => [150, 786, 460, 810],
+            'baseline' => 793.4,
+            'centre' => 303.5,
+            'size' => 14,
+            'maxWidth' => 480,
+        ];
+    }
+
     /** The layout the screens render: sections, then fields with three labels. */
     public static function sections(string $key): array
     {

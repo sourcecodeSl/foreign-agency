@@ -72,7 +72,14 @@ class CandidateDocumentController extends Controller
         $this->requireOwningAgency($request);
         $candidate = $this->find($request, $candidateId);
         $this->requireOwnedBy($request, $candidate);
-        $this->requireOpenForDocuments($candidate);
+
+        // The police report file goes on once the report is applied for,
+        // pass or not; everything else waits for the pass.
+        if ($request->input('type') === DocumentType::OnlinePoliceReport->value) {
+            $this->requirePoliceDocumentOpen($candidate);
+        } else {
+            $this->requireOpenForDocuments($candidate);
+        }
 
         $request->validate([
             'type' => ['required', Rule::in(DocumentType::values())],
@@ -298,6 +305,25 @@ class CandidateDocumentController extends Controller
         }
     }
 
+    /** The police report file: applied for or received, and the file still open. */
+    private function requirePoliceDocumentOpen(Candidate $candidate): void
+    {
+        if ($candidate->isBlocked()) {
+            throw new ApiException(409, $candidate->name.' has already passed with another agency, '
+                .'so this file is blocked.');
+        }
+
+        if (! $candidate->policeApplied()) {
+            throw new ApiException(409, 'Set the police report to applied or received, with its reference number, '
+                .'before attaching it.');
+        }
+
+        if (in_array($candidate->status, Candidate::LOCKED_STATUSES, true)) {
+            throw new ApiException(409, 'The coordinator has submitted '.$candidate->name
+                ."'s profile, so its documents can no longer change.");
+        }
+    }
+
     /**
      * Documents are collected only for a candidate who has passed, and stop
      * once the coordinator has checked them and submitted the profile.
@@ -347,7 +373,7 @@ class CandidateDocumentController extends Controller
         // The foreign company the candidate is registered for reads the file
         // it is testing, documents and all. Attaching them stays the owning
         // agency's job, which requireOwningAgency() holds it to.
-        if ($candidate->isRegisteredWith($agencyId)
+        if ($candidate->isVisibleToCompany($agencyId)
             && $agencyId
             && (Agency::find($agencyId)?->type ?? 'local') === 'foreign') {
             return $candidate;

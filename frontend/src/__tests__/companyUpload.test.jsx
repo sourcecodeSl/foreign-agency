@@ -153,42 +153,42 @@ describe("a foreign company's upload, then its salary", () => {
     expect(setSalary).not.toHaveBeenCalled();
   });
 
-  it('starts from a saved PDF instead of a new upload, never both', async () => {
+  it("starts from the admin's saved PDF under its heading, changed only if need be", async () => {
+    templates.mockResolvedValue({
+      data: {
+        templates: [
+          { id: 5, name: 'SEC Construction - Sri Lanka 2026', layout: 'sec', saved: true, fromAdmin: true },
+        ],
+        layouts: [{ key: 'sec', name: 'SEC Construction 2025' }],
+      },
+    });
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(await screen.findByLabelText(/^name/i), 'Kamal 2026');
-    await user.click(screen.getByLabelText('Use a saved PDF'));
+    await user.click(await screen.findByLabelText('Use a saved PDF'));
     // Only one of the two is picked at a time, and the new upload is gone.
     expect(screen.getByLabelText('Upload a new PDF').checked).toBe(false);
     expect(screen.queryByLabelText(/^pdf$/i)).toBeNull();
 
-    // Save the PDF used every time; it stays for later agreements.
-    uploadTemplate.mockResolvedValue({ data: { id: 5, name: 'standard', saved: true }, message: 'standard saved.' });
-    templates.mockResolvedValue({
-      data: {
-        templates: [{ id: 5, name: 'standard', layout: 'sec', saved: true }],
-        layouts: [{ key: 'sec', name: 'SEC Construction 2025' }],
-      },
-    });
-    const pdf = new File(['%PDF'], 'standard.pdf', { type: 'application/pdf' });
-    await user.upload(screen.getByLabelText('PDF to save'), pdf);
-    await user.click(screen.getByRole('button', { name: /save pdf/i }));
-    await waitFor(() =>
-      expect(uploadTemplate).toHaveBeenCalledWith({ name: 'standard', layout: 'sec', file: pdf, saved: true })
-    );
-    expect((await screen.findByLabelText('Saved PDF')).value).toBe('5');
+    // The admin's PDF is picked, its name is the heading, and it is not the company's to remove.
+    expect(screen.getByLabelText('Saved PDF').value).toBe('5');
+    expect(screen.getByLabelText(/^name/i).value).toBe('SEC Construction - Sri Lanka 2026');
+    expect(screen.queryByRole('button', { name: /^remove$/i })).toBeNull();
+    expect(screen.queryByLabelText('PDF to save')).toBeNull();
 
-    // Once started, the server lists it among the company's agreements.
+    // Changed here, only this agreement gets the new heading.
+    await user.clear(screen.getByLabelText(/^name/i));
+    await user.type(screen.getByLabelText(/^name/i), 'Kamal 2026');
     list.mockResolvedValue({
       data: [{ id: 12, title: 'Kamal 2026', status: 'draft', updatedAt: '2026-09-24T10:00:00Z' }],
     });
     await user.click(screen.getByRole('button', { name: /use saved pdf/i }));
     await waitFor(() => expect(create).toHaveBeenCalledWith(5, 'Kamal 2026'));
     expect(await screen.findByText(/Kamal 2026 started/)).toBeTruthy();
-    // It shows in Your agreements straight away, without a reload.
+    // It shows in Your agreements straight away, and the next one starts from the default again.
     expect(await screen.findByText('Kamal 2026')).toBeTruthy();
-    expect(uploadTemplate).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText(/^name/i).value).toBe('SEC Construction - Sri Lanka 2026');
+    expect(uploadTemplate).not.toHaveBeenCalled();
   });
 
   it('sends a draft to the admin straight from its card', async () => {

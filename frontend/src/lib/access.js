@@ -15,6 +15,7 @@ export const PAGE_PATHS = {
   companies: '/companies/candidates',
   agreements: '/agreements',
   verification: '/verification/emails',
+  messages: '/messages',
 };
 
 /**
@@ -24,6 +25,17 @@ export const PAGE_PATHS = {
 export function canOpen(account, page) {
   if (account?.roleSlug !== COORDINATOR) return true;
   return Boolean(page) && (account.pages || []).includes(page);
+}
+
+/**
+ * Who has a messages screen: the Main Admin, a coordinator the page is
+ * opened to, and anyone signed in under an agency or company. The auditor
+ * has no conversations.
+ */
+export function canMessage(account) {
+  if (account?.roleSlug === 'main_admin') return true;
+  if (account?.roleSlug === COORDINATOR) return canOpen(account, 'messages');
+  return Boolean(account?.agency);
 }
 
 /**

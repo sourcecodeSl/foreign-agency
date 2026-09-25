@@ -31,10 +31,22 @@ class CandidateTestResult extends Model
         return $this->belongsTo(Agency::class, 'company_agency_id');
     }
 
+    /** The assignment - and so the test numbers - it was recorded against. */
+    public function registration(): BelongsTo
+    {
+        return $this->belongsTo(CandidateRegistration::class, 'registration_id');
+    }
+
+    public function recorder(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recorded_by');
+    }
+
     public function toPublic(): array
     {
         return [
             'id' => $this->id,
+            'registrationId' => $this->registration_id ? (int) $this->registration_id : null,
             'jobRoleId' => (int) $this->job_role_id,
             'jobRole' => $this->role?->name,
             'result' => $this->result,

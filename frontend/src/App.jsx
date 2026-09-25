@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, RequireAuth, useAuth } from './context/AuthContext';
-import { canOpen } from './lib/access';
+import { AuthProvider, RequireAuth, useAuth, isGlobalRole } from './context/AuthContext';
+import { canOpen, canMessage } from './lib/access';
 import { ToastProvider } from './components/ui/Toast';
 import TopLoader from './components/ui/TopLoader';
 import DashboardLayout from './components/layout/DashboardLayout';
@@ -25,11 +25,14 @@ import CandidateList from './pages/candidates/CandidateList';
 import CompanyCandidates from './pages/candidates/CompanyCandidates';
 import RegisterCandidate from './pages/candidates/RegisterCandidate';
 import CandidateDetail from './pages/candidates/CandidateDetail';
+import PendingRegistrations from './pages/candidates/PendingRegistrations';
+import CandidateHistory from './pages/candidates/CandidateHistory';
 import Appearance from './pages/settings/Appearance';
 import { AppearanceProvider } from './context/AppearanceContext';
 import Agreements from './pages/agreements/Agreements';
 import AgreementEditor from './pages/agreements/AgreementEditor';
 import EmployerAgreement from './pages/agreements/EmployerAgreement';
+import Messages from './pages/messages/Messages';
 
 /**
  * A foreign company reads the candidates local agencies registered for its
@@ -59,6 +62,27 @@ function PageGate({ page, children }) {
 }
 
 /**
+ * Candidates waiting for a company: the Main Admin, and a coordinator the
+ * candidates page is opened to - the ones who assign it. The API holds them
+ * to it too.
+ */
+function ApprovalGate({ children }) {
+  const { admin, homePath } = useAuth();
+  const allowed =
+    admin?.roleSlug === 'main_admin' || (admin?.roleSlug === 'coordinator' && canOpen(admin, 'candidates'));
+
+  return allowed ? children : <Navigate to={homePath} replace />;
+}
+
+/** The candidate history report: the admin side (the auditor reads it too). */
+function HistoryGate({ children }) {
+  const { admin, homePath } = useAuth();
+  const allowed = isGlobalRole(admin?.roleSlug) && canOpen(admin, 'candidates');
+
+  return allowed ? children : <Navigate to={homePath} replace />;
+}
+
+/**
  * The agreements: the Main Admin, a coordinator the page is opened to, a
  * foreign company (its own), and a local agency (those sent to it). The API
  * holds each to its own too.
@@ -71,6 +95,16 @@ function AgreementsGate({ children }) {
     Boolean(admin?.agency);
 
   return allowed ? children : <Navigate to={homePath} replace />;
+}
+
+/**
+ * Messages: the Main Admin, a coordinator the page is opened to, and every
+ * agency and company login (its own conversation). The API holds each to it.
+ */
+function MessagesGate({ children }) {
+  const { admin, homePath } = useAuth();
+
+  return canMessage(admin) ? children : <Navigate to={homePath} replace />;
 }
 
 /** A foreign company's own login: the employer part of the agreement is theirs to submit. */
@@ -115,6 +149,8 @@ export default function App() {
                 {/* One company's own candidates, where its results are recorded. */}
                 <Route path="/companies/candidates" element={<PageGate page="companies"><CompanyCandidates /></PageGate>} />
                 <Route path="/candidates/register" element={<PageGate page="candidates"><RegisterCandidate /></PageGate>} />
+                <Route path="/candidates/pending" element={<ApprovalGate><PendingRegistrations /></ApprovalGate>} />
+                <Route path="/candidates/history" element={<HistoryGate><CandidateHistory /></HistoryGate>} />
                 <Route path="/candidates/:id" element={<PageGate page="candidates"><CandidateDetail /></PageGate>} />
                 <Route path="/users" element={<PageGate page={null}><UsersList /></PageGate>} />
                 <Route path="/users/types" element={<PageGate page={null}><UserTypes /></PageGate>} />
@@ -124,6 +160,7 @@ export default function App() {
                 <Route path="/agreements" element={<AgreementsGate><Agreements /></AgreementsGate>} />
                 <Route path="/agreements/:id" element={<AgreementsGate><AgreementEditor /></AgreementsGate>} />
                 <Route path="/employer-agreement" element={<ForeignCompanyGate><EmployerAgreement /></ForeignCompanyGate>} />
+                <Route path="/messages" element={<MessagesGate><Messages /></MessagesGate>} />
                 <Route path="/no-access" element={<NoAccess />} />
                 {/* Every login sets its own look, whatever pages it is given. */}
                 <Route path="/settings/appearance" element={<Appearance />} />

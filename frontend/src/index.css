@@ -69,3 +69,58 @@
 [data-theme='dark'] .swal2-title {
   color: rgb(var(--c-gray-900));
 }
+
+/* The date picker (flatpickr) in the app's own typeface and accent, light or dark. */
+.flatpickr-calendar {
+  font-family: Inter, ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  background: rgb(var(--c-surface));
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.25), 0 0 0 1px rgb(var(--c-gray-200));
+}
+.flatpickr-calendar.arrowTop::before,
+.flatpickr-calendar.arrowTop::after {
+  border-bottom-color: rgb(var(--c-surface));
+}
+.flatpickr-calendar.arrowBottom::before,
+.flatpickr-calendar.arrowBottom::after {
+  border-top-color: rgb(var(--c-surface));
+}
+.flatpickr-months .flatpickr-month,
+.flatpickr-current-month .flatpickr-monthDropdown-months,
+.flatpickr-current-month input.cur-year,
+.flatpickr-months .flatpickr-prev-month,
+.flatpickr-months .flatpickr-next-month {
+  color: rgb(var(--c-gray-900));
+  fill: rgb(var(--c-gray-900));
+  background: transparent;
+}
+.flatpickr-current-month .flatpickr-monthDropdown-months .flatpickr-monthDropdown-month {
+  background: rgb(var(--c-surface));
+}
+span.flatpickr-weekday {
+  color: rgb(var(--c-gray-500));
+}
+.flatpickr-day {
+  color: rgb(var(--c-gray-900));
+}
+.flatpickr-day.prevMonthDay,
+.flatpickr-day.nextMonthDay,
+.flatpickr-day.flatpickr-disabled,
+.flatpickr-day.flatpickr-disabled:hover {
+  color: rgb(var(--c-gray-400));
+}
+.flatpickr-day:hover,
+.flatpickr-day:focus {
+  background: rgb(var(--c-gray-100));
+  border-color: rgb(var(--c-gray-100));
+}
+.flatpickr-day.today {
+  border-color: rgb(var(--c-primary-500));
+}
+.flatpickr-day.selected,
+.flatpickr-day.selected:hover,
+.flatpickr-day.selected:focus {
+  background: rgb(var(--c-primary-600));
+  border-color: rgb(var(--c-primary-600));
+  color: #fff;
+}

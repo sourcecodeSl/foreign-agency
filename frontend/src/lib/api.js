@@ -925,12 +925,24 @@ export const candidateApi = {
    * Registers the candidate with another foreign company, for the job
    * categories that company tests them in. Only until they pass with one.
    */
-  async addRegistration(id, { companyAgencyId, jobRoleIds }) {
+  /**
+   * The admin side sends the candidate to a company's test. With the
+   * assignment it replaces and why ('moved' | 'new_test'), that one is ended
+   * and kept in the history.
+   */
+  async addRegistration(id, { companyAgencyId, jobRoleIds, replacesRegistrationId, reason }) {
     requireLiveApi();
     return request('/candidates/' + id + '/registrations', {
       method: 'POST',
-      body: { companyAgencyId, jobRoleIds },
+      body: { companyAgencyId, jobRoleIds, replacesRegistrationId, reason },
     });
+  },
+
+  /** The candidate's whole story, company by company, for the admin side's report. */
+  // Not "history": that name is the document history's, further down this object.
+  async candidateHistory(id) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/history');
   },
 
   /** The job categories of one company's registration. */
@@ -946,6 +958,21 @@ export const candidateApi = {
   async removeRegistration(id, registrationId) {
     requireLiveApi();
     return request('/candidates/' + id + '/registrations/' + registrationId, { method: 'DELETE' });
+  },
+
+  /** Main Admin and coordinators: an agency's registration let through, or sent back with a note. */
+  async decideRegistration(id, registrationId, { decision, note } = {}) {
+    requireLiveApi();
+    return request('/candidates/' + id + '/registrations/' + registrationId + '/approval', {
+      method: 'PATCH',
+      body: { decision, note },
+    });
+  },
+
+  /** Candidates the agencies registered that wait for the admin side to assign a company. */
+  async waitingForCompany() {
+    requireLiveApi();
+    return request('/candidate-assignments/waiting');
   },
 
   /**
@@ -1273,6 +1300,12 @@ export const agreementApi = {
     return request('/agreement-templates/' + id, { method: 'DELETE' });
   },
 
+  /** The heading agreements started from this PDF get by default. */
+  async renameTemplate(id, name) {
+    requireLiveApi();
+    return request('/agreement-templates/' + id, { method: 'PATCH', body: { name } });
+  },
+
   /**
    * A company's own, or those passed to a local agency. On the admin side:
    * its own, or - given `company` ("all" or an id), `status` or
@@ -1398,5 +1431,141 @@ export const employerAgreementApi = {
   async list() {
     requireLiveApi();
     return request('/employer-agreements');
+  },
+};
+
+// --- Messages ---------------------------------------------------------------
+/**
+ * The chat between the admin side and each agency or foreign company. A
+ * conversation is named by the agency's id; an agency login has only its own.
+ *
+ * Everything here runs in the background - no loading bar, no dialog - the
+ * way a chat should: the screen shows a clock on a message until it is sent.
+ * Live API only.
+ */
+export const messagesApi = {
+  /** Admin side: every company and agency, with the latest message and unread count. */
+  async conversations() {
+    requireLiveApi();
+    return request('/messages/conversations', { background: true });
+  },
+
+  /** { total, conversations } waiting for whoever is signed in, for the menu badge. */
+  async unread() {
+    requireLiveApi();
+    return request('/messages/unread', { background: true });
+  },
+
+  /** One conversation: the latest page, an older page ({ before }), or what changed ({ cursor }). */
+  async thread(conversationId, { before, cursor } = {}) {
+    requireLiveApi();
+    const query = new URLSearchParams();
+    if (before) query.set('before', before);
+    if (cursor) query.set('cursor', cursor);
+    const suffix = query.toString() ? '?' + query : '';
+    return request('/messages/' + encodeURIComponent(conversationId) + suffix, { background: true });
+  },
+
+  /** Text, a file, or both; replyToId quotes an earlier message. */
+  async send(conversationId, { body = '', file = null, replyToId = null } = {}) {
+    requireLiveApi();
+    const path = '/messages/' + encodeURIComponent(conversationId);
+
+    if (!file) {
+      return request(path, { method: 'POST', body: { body, replyToId }, background: true });
+    }
+
+    const form = new FormData();
+    form.append('body', body);
+    form.append('file', file);
+    if (replyToId) form.append('replyToId', replyToId);
+
+    let res;
+    try {
+      res = await fetch(BASE_URL + path, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + tokenStore.get(), Accept: 'application/json' },
+        body: form,
+      });
+    } catch {
+      const error = new Error(OFFLINE_MESSAGE);
+      error.status = 0;
+      throw error;
+    }
+    const payload = await res.json().catch(() => null);
+    if (!res.ok || payload?.success === false) {
+      const firstFieldError = payload?.errors && Object.values(payload.errors)[0]?.[0];
+      const error = new Error(firstFieldError || payload?.message || 'Could not send (' + res.status + ')');
+      error.status = res.status;
+      throw error;
+    }
+    return payload;
+  },
+
+  async edit(conversationId, messageId, body) {
+    requireLiveApi();
+    return request('/messages/' + encodeURIComponent(conversationId) + '/' + messageId, {
+      method: 'PATCH',
+      body: { body },
+      background: true,
+    });
+  },
+
+  /** Deleted for everyone. */
+  async remove(conversationId, messageId) {
+    requireLiveApi();
+    return request('/messages/' + encodeURIComponent(conversationId) + '/' + messageId, {
+      method: 'DELETE',
+      background: true,
+    });
+  },
+
+  /** Admin side: a copy to each of `to` (conversation ids), marked forwarded. */
+  async forward(conversationId, messageId, to) {
+    requireLiveApi();
+    return request('/messages/' + encodeURIComponent(conversationId) + '/' + messageId + '/forward', {
+      method: 'POST',
+      body: { to },
+    });
+  },
+
+  /** Keeps "typing..." showing at the other end for a few seconds. */
+  async typing(conversationId) {
+    requireLiveApi();
+    return request('/messages/' + encodeURIComponent(conversationId) + '/typing', {
+      method: 'POST',
+      background: true,
+    });
+  },
+
+  /** The attached file as a blob URL, fetched with the token (it sits on a private disk). */
+  async fileUrl(conversationId, messageId) {
+    requireLiveApi();
+    const res = await fetch(BASE_URL + '/messages/' + encodeURIComponent(conversationId) + '/' + messageId + '/file', {
+      headers: { Authorization: 'Bearer ' + tokenStore.get() },
+    });
+    if (!res.ok) throw new Error('Could not open the file.');
+    return URL.createObjectURL(await res.blob());
+  },
+
+  download: (conversationId, messageId, name) =>
+    downloadFile('/messages/' + encodeURIComponent(conversationId) + '/' + messageId + '/file', name),
+};
+
+// --- Candidate test document --------------------------------------------------
+/**
+ * A candidate's test document, line by line. The foreign company testing
+ * them adds lines; the owning agency and the admin side read them. The
+ * answer says whether this login may add (`canAdd`). Live API only.
+ */
+export const testLineApi = {
+  async list(candidateId) {
+    requireLiveApi();
+    return request('/candidates/' + candidateId + '/test-lines');
+  },
+
+  async add(candidateId, body) {
+    requireLiveApi();
+    return request('/candidates/' + candidateId + '/test-lines', { method: 'POST', body: { body } });
   },
 };

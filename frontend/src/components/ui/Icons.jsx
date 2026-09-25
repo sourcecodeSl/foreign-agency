@@ -166,6 +166,13 @@ export const IconDocument = (p) => (
   </Svg>
 );
 
+export const IconCalendar = (p) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="18" height="16" rx="2" />
+    <path d="M16 3v4M8 3v4M3 10h18" />
+  </Svg>
+);
+
 export const IconPalette = (p) => (
   <Svg {...p}>
     <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.8-1.9 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8Z" />
@@ -193,4 +200,68 @@ export const IconMonitor = (p) => (
     <rect x="3" y="4" width="18" height="12" rx="2" />
     <path d="M8 20h8M12 16v4" />
   </Svg>
+);
+
+export const IconChat = (p) => (
+  <Svg {...p}>
+    <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 20l1.1-4.3A8.3 8.3 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5z" />
+  </Svg>
+);
+
+export const IconSend = (p) => (
+  <Svg {...p}>
+    <path d="M22 2 11 13" />
+    <path d="M22 2 15 22l-4-9-9-4 20-7z" />
+  </Svg>
+);
+
+export const IconPaperclip = (p) => (
+  <Svg {...p}>
+    <path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" />
+  </Svg>
+);
+
+export const IconReply = (p) => (
+  <Svg {...p}>
+    <path d="M9 17 4 12l5-5" />
+    <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+  </Svg>
+);
+
+export const IconForward = (p) => (
+  <Svg {...p}>
+    <path d="m15 17 5-5-5-5" />
+    <path d="M4 18v-2a4 4 0 0 1 4-4h12" />
+  </Svg>
+);
+
+export const IconArrowLeft = (p) => (
+  <Svg {...p}>
+    <path d="M19 12H5" />
+    <path d="m12 19-7-7 7-7" />
+  </Svg>
+);
+
+export const IconClock = (p) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </Svg>
+);
+
+export const IconDownload = (p) => (
+  <Svg {...p}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <path d="m7 10 5 5 5-5" />
+    <path d="M12 15V3" />
+  </Svg>
+);
+
+/** One tick: sent. Two: delivered - blue once read (the colour is the caller's). */
+export const IconTicks = ({ double = false, className = 'h-4 w-4', ...rest }) => (
+  <svg viewBox="0 0 18 12" fill="none" stroke="currentColor" strokeWidth={1.6}
+    strokeLinecap="round" strokeLinejoin="round" className={className} {...rest}>
+    <path d={double ? 'M1 6.5 4.5 10 11 2' : 'M4 6.5 7.5 10 14 2'} />
+    {double && <path d="M8 9.2 8.8 10 15.3 2" />}
+  </svg>
 );

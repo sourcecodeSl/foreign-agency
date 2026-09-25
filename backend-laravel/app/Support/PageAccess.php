@@ -71,6 +71,13 @@ final class PageAccess
             'description' => 'Which agencies have confirmed their phone and email, and confirmation links.',
             'grants' => [],
         ],
+        'messages' => [
+            'label' => 'Messages',
+            'section' => 'Communication',
+            'description' => 'Chat with every foreign company and local agency, and forward what one sent to others.',
+            // Guarded by can.page; the conversations sit outside the matrix.
+            'grants' => [],
+        ],
     ];
 
     public static function keys(): array

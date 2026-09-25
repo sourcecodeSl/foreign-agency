@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -11,15 +11,17 @@ import {
   IconRefresh,
   IconChevronDown,
   IconTrash,
+  IconDocument,
 } from '../../components/ui/Icons';
 import Switch from '../../components/ui/Switch';
 import { PageLoader } from '../../components/ui/Spinner';
 import { candidateApi } from '../../lib/api';
 import { confirmAction, escapeHtml } from '../../lib/alert';
 import { useAuth, isGlobalRole } from '../../context/AuthContext';
-import { SourceTag, formatDate, isReviewer, isSettled, submitState } from './shared';
+import { SourceTag, formatDate, isReviewer, isSettled, roleWithIndex, submitState } from './shared';
 import PoliceReport from './PoliceReport';
 import { RegistrationsCard, OtherRegistrations } from './CategoryResults';
+import TestDocument from './TestDocument';
 
 const STATUS_TONE = { draft: 'gray', submitted: 'blue', approved: 'green', rejected: 'red' };
 
@@ -179,6 +181,15 @@ export default function CandidateDetail() {
   const [passing, setPassing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [zipping, setZipping] = useState(false);
+  // The test document; ?test=1 (the agency's notification) opens it at once.
+  const [params, setParams] = useSearchParams();
+  const showTest = params.get('test') === '1';
+  const setShowTest = (open) => {
+    const next = Object.fromEntries(params.entries());
+    if (open) next.test = '1';
+    else delete next.test;
+    setParams(next, { replace: true });
+  };
 
   // A foreign company the candidate is registered with - one that tests them.
   const isTestingCompany =
@@ -328,10 +339,12 @@ export default function CandidateDetail() {
   const settled = isSettled(candidate);
   // Only the agency attaches, and only while the file is open: passed, and
   // not yet submitted by the coordinator.
-  const canAttach = isAgency && Boolean(candidate.documentsOpen);
+  // A foreign company testing the candidate only views and downloads.
+  const canAttach = ownsFile && Boolean(candidate.documentsOpen);
   // Whoever works the file keeps the police report up to date; a blocked file
-  // is shut to everybody, and the read-only auditor only reads.
-  const canEditPolice = !candidate.blocked && admin?.roleSlug !== 'auditor';
+  // is shut to everybody, and the read-only auditor and the foreign company only read.
+  const canEditPolice =
+    !candidate.blocked && admin?.roleSlug !== 'auditor' && admin?.agency?.type !== 'foreign';
 
   // The submit switch opens only once a passed candidate's documents are all in.
   const submit = submitState(candidate, missing.length);
@@ -389,7 +402,7 @@ export default function CandidateDetail() {
   let documentsNote;
   if (candidate.blocked) {
     documentsNote = 'This file is blocked, so no documents can be attached.';
-  } else if (!isAgency) {
+  } else if (!ownsFile) {
     documentsNote =
       'Attached by the agency. Every version is kept, so nothing here was ever replaced.';
   } else if (!passed) {
@@ -469,6 +482,10 @@ export default function CandidateDetail() {
                   {candidate.status}
                 </Badge>
               )}
+              {/* Everyone with the file reads it; only the testing company adds lines. */}
+              <Button variant="secondary" icon={IconDocument} onClick={() => setShowTest(true)}>
+                View test
+              </Button>
               <Button
                 variant="ghost"
                 icon={IconTrash}
@@ -516,9 +533,13 @@ export default function CandidateDetail() {
                   : candidate.company?.name || '—',
               ],
               ['Profession', candidate.profession || '—'],
-              ['Test results', candidate.testResults || '—'],
-              ['Mobile', candidate.mobile],
-              ['Email', candidate.email || '—'],
+              // Only the registering agency is shown how to reach the candidate.
+              ...(candidate.contactHidden
+                ? []
+                : [
+                    ['Mobile', candidate.mobile || '—'],
+                    ['Email', candidate.email || '—'],
+                  ]),
               ['Registered', formatDate(candidate.createdAt)],
               ['Added by', <SourceTag registeredBy={candidate.registeredBy} />],
               [
@@ -527,13 +548,13 @@ export default function CandidateDetail() {
                 // company's categories never get lost among the first's.
                 localViewer && candidate.registrations?.length ? (
                   <ul className="space-y-1">
-                    {candidate.registrations.map((registration) => (
+                    {candidate.registrations.filter((r) => r.current !== false).map((registration) => (
                       <li
                         key={registration.id}
                         className={registration.state === 'void' ? 'text-gray-400' : undefined}
                       >
                         <span className="font-medium">{registration.company.name}:</span>{' '}
-                        {registration.jobRoles.map((role) => role.name).join(', ') || '—'}
+                        {registration.jobRoles.map(roleWithIndex).join(', ') || '—'}
                         {registration.state === 'void' ? ' (not valid)' : ''}
                       </li>
                     ))}
@@ -544,7 +565,8 @@ export default function CandidateDetail() {
                   candidate.jobRole || '—'
                 ),
               ],
-              ['Test index No', candidate.testIndexNo || '—'],
+              // A number typed in by hand before they were given out per category.
+              ...(candidate.testIndexNo ? [['Test index No', candidate.testIndexNo]] : []),
               ...(candidate.submittedAt
                 ? [
                     [
@@ -575,7 +597,6 @@ export default function CandidateDetail() {
         candidate={candidate}
         admin={admin}
         reviewer={reviewer}
-        canManage={ownsFile || reviewer}
         onChanged={load}
       />
 
@@ -660,7 +681,13 @@ export default function CandidateDetail() {
               uploading={uploading}
               onUpload={handleUpload}
               onDownload={handleDownloadOne}
-              readOnly={!canAttach}
+              // The police report file may go on before the pass, once applied for.
+              readOnly={
+                !(
+                  canAttach ||
+                  (type.value === 'online_police_report' && ownsFile && candidate.policeDocumentOpen)
+                )
+              }
             />
           ))}
         </div>
@@ -670,6 +697,8 @@ export default function CandidateDetail() {
           The ZIP contains one folder per document type, holding the latest file of each.
         </div>
       </Card>
+
+      {showTest && <TestDocument candidate={candidate} onClose={() => setShowTest(false)} />}
     </div>
   );
 }

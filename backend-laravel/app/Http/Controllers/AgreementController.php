@@ -103,12 +103,17 @@ class AgreementController extends Controller
         return $request->attributes->get('auth_user')['sub'] ?? null;
     }
 
-    /** Another company's PDF is answered as not found, the same as one that does not exist. */
-    private function findTemplate(string $id, ?Agency $company): AgreementTemplate
+    /**
+     * Another company's PDF is answered as not found, the same as one that
+     * does not exist. A company also reads and starts from the PDFs the admin
+     * side saved for every company, unless it is about to change one.
+     */
+    private function findTemplate(string $id, ?Agency $company, bool $ownOnly = false): AgreementTemplate
     {
         $query = AgreementTemplate::query();
         if ($company) {
-            $query->where('agency_id', $company->id);
+            $query->where(fn ($q) => $q->where('agency_id', $company->id)
+                ->when(! $ownOnly, fn ($q) => $q->orWhere(fn ($q) => $q->whereNull('agency_id')->where('saved', true))));
         }
 
         return $query->find($id) ?? throw new ApiException(404, 'Agreement template not found.');
@@ -148,9 +153,10 @@ class AgreementController extends Controller
     }
 
     /** A new agreement, the employer part filled from the company record when it is a company's. */
-    private function createAgreement(AgreementTemplate $template, string $title, ?int $actor): Agreement
+    private function createAgreement(AgreementTemplate $template, string $title, ?int $actor, ?Agency $owner = null): Agreement
     {
-        $owner = $template->agency_id ? Agency::find($template->agency_id) : null;
+        // Started from the admin's PDF, the agreement is the company's own.
+        $owner ??= $template->agency_id ? Agency::find($template->agency_id) : null;
 
         $values = [];
         if ($owner) {
@@ -174,7 +180,8 @@ class AgreementController extends Controller
 
     /**
      * GET /agreement-templates - the uploaded papers, and the layouts on
-     * offer. The admin side lists its own; a company lists its own.
+     * offer. The admin side lists its own; a company lists its own, and the
+     * PDFs the admin side saved for every company to start from.
      */
     public function templates(Request $request)
     {
@@ -182,7 +189,9 @@ class AgreementController extends Controller
 
         return ApiResponse::ok([
             'templates' => AgreementTemplate::with('agency')->withCount('agreements')
-                ->where(fn ($q) => $company ? $q->where('agency_id', $company->id) : $q->whereNull('agency_id'))
+                ->where(fn ($q) => $company
+                    ? $q->where('agency_id', $company->id)->orWhere(fn ($q) => $q->whereNull('agency_id')->where('saved', true))
+                    : $q->whereNull('agency_id'))
                 ->orderByDesc('id')->get()
                 ->map->toPublic()->values(),
             'layouts' => collect(AgreementLayout::names())
@@ -260,10 +269,31 @@ class AgreementController extends Controller
         ]);
     }
 
+    /**
+     * PATCH /agreement-templates/{id}  { name }
+     *
+     * The name is the heading an agreement started from the PDF gets by
+     * default. Changed here, every company starting one afterwards sees the
+     * new heading; agreements already started keep theirs.
+     */
+    public function renameTemplate(Request $request, string $id)
+    {
+        $template = $this->findTemplate($id, $this->writer($request), ownOnly: true);
+
+        $request->validate([
+            'name' => ['required', 'string', 'min:3', 'max:150'],
+        ], ['name.required' => 'Name the agreement.', 'name.min' => 'Name the agreement with at least 3 characters.']);
+
+        $template->update(['name' => trim($request->input('name'))]);
+
+        return ApiResponse::ok($template->load('agency')->loadCount('agreements')->toPublic(), 'Heading changed to '.$template->name.'.');
+    }
+
     /** DELETE /agreement-templates/{id} - only while nothing has been filled from it. */
     public function deleteTemplate(Request $request, string $id)
     {
-        $template = $this->findTemplate($id, $this->writer($request));
+        // A company never removes the admin's PDF from under the others.
+        $template = $this->findTemplate($id, $this->writer($request), ownOnly: true);
 
         $filled = $template->agreements()->count();
 
@@ -371,7 +401,7 @@ class AgreementController extends Controller
         ], ['title.required' => 'Give the agreement a title, such as the employee\'s name.']);
 
         $template = $this->findTemplate((string) $request->input('templateId'), $company);
-        $agreement = $this->createAgreement($template, trim($request->input('title')), $this->actor($request));
+        $agreement = $this->createAgreement($template, trim($request->input('title')), $this->actor($request), $company);
 
         return ApiResponse::created($agreement->load('template', 'agency')->toPublic(true), 'Agreement created.');
     }

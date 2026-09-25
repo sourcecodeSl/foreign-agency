@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Exceptions\ApiException;
 use App\Models\User;
 use App\Support\Jwt;
+use App\Support\Presence;
 use Closure;
 use Illuminate\Http\Request;
 
@@ -42,6 +43,9 @@ class RequireAuth
         if ($refusal) {
             throw new ApiException(403, $refusal);
         }
+
+        // Online and "last seen" in the messages.
+        Presence::touch($user);
 
         $request->attributes->set('auth_user', $payload);
         // The account itself, for guards that need more than the token

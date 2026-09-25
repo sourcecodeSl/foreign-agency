@@ -12,6 +12,7 @@ import { agreementApi } from '../../lib/api';
 import { StatusBadge } from './CompanyAgreement';
 import ForeignCompanyInbox from './ForeignCompanyInbox';
 import LocalAgencyAgreements from './LocalAgencyAgreements';
+import AdminAgreementPdfs from './AdminAgreementPdfs';
 import { showPdf } from './PdfViewer';
 import { alertError, confirmAction } from '../../lib/alert';
 import { formatDate } from '../candidates/shared';
@@ -19,14 +20,30 @@ import { formatDate } from '../candidates/shared';
 /** A file name from an agreement's title. */
 const fileNameFor = (title, suffix) => (title || 'agreement').replace(/[\\/:*?"<>|]+/g, '-') + suffix + '.pdf';
 
-/** An uploaded PDF, from the uploader's own list, in the viewer. */
-export const openTemplatePdf = (templateId) =>
+/**
+ * An uploaded PDF in the viewer. Given its `name` and `heading` (a saved
+ * PDF's), the name is written over the printed heading on every page, as the
+ * agreements started from it will show; without them, the paper as uploaded.
+ */
+export const openTemplatePdf = (templateId, { name, heading } = {}) =>
   showPdf({
-    title: 'Original agreement',
-    load: async () => ({
-      url: await agreementApi.templateFileUrl(templateId),
-      fileName: 'agreement.pdf',
-    }),
+    title: name || 'Original agreement',
+    load: async () => {
+      const url = await agreementApi.templateFileUrl(templateId);
+      if (!name || !heading) return { url, fileName: 'agreement.pdf' };
+
+      const [original, { headedPdf }] = await Promise.all([
+        fetch(url).then((res) => res.arrayBuffer()),
+        import('../../lib/agreementPdf'),
+      ]);
+      URL.revokeObjectURL(url);
+      const bytes = await headedPdf(original, { ...heading, text: name });
+      return {
+        url: URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })),
+        fileName: fileNameFor(name, ''),
+        title: name,
+      };
+    },
   });
 
 /**
@@ -46,10 +63,14 @@ async function filledPdf(agreementId) {
   const blobs = await Promise.all(types.map((type) => agreementApi.markBlob(agreementId, type)));
   const pictures = Object.fromEntries(types.map((type, i) => [type, blobs[i]]));
 
-  const bytes = await fillAgreementPdf(original, data.blanks, data.values, {
-    boxes: data.markBoxes,
-    pictures,
-  });
+  const bytes = await fillAgreementPdf(
+    original,
+    data.blanks,
+    data.values,
+    { boxes: data.markBoxes, pictures },
+    // The agreement's name is its heading, on every page.
+    data.heading ? { ...data.heading, text: data.title } : null
+  );
 
   return {
     blob: new Blob([bytes], { type: 'application/pdf' }),
@@ -163,19 +184,18 @@ export const markError = (file) =>
  * the amount clause 3a prints, in all three languages - and the seal and
  * signature, printed on every page; then it opens the agreement.
  *
- * The PDF is either a new upload or one of the company's saved PDFs - the
- * agreement it uses every time, kept uploaded. One or the other, never both.
+ * The PDF is either a new upload or a saved PDF - one the admin side uploaded
+ * for every company, whose name comes in as the heading, changed here only
+ * when needed. One or the other, never both.
  */
 function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onCreated, onSaved, subtitle }) {
   const { toast } = useToast();
   const inputRef = useRef(null);
-  const keepRef = useRef(null);
   const [name, setName] = useState('');
   const [layout, setLayout] = useState('');
   const [source, setSource] = useState('new'); // 'new' | 'saved'
   const [file, setFile] = useState(null);
   const [savedId, setSavedId] = useState('');
-  const [keepFile, setKeepFile] = useState(null);
   const [salary, setSalary] = useState('');
   const [pictures, setPictures] = useState({ seal: null, signature: null });
   const [uploaded, setUploaded] = useState(null); // { agreementId, name } once the PDF is in
@@ -198,9 +218,15 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onCreated, on
 
   const picked = source === 'saved' ? savedPdfs.find((t) => String(t.id) === savedId) : null;
 
+  // The saved PDF's name is the heading by default; it is changed only if need be.
+  useEffect(() => {
+    if (picked) setName(picked.name);
+  }, [picked?.id, picked?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const chooseSource = (next) => {
     setSource(next);
-    setErrors((prev) => ({ ...prev, file: undefined, layout: undefined }));
+    if (next === 'new') setName('');
+    setErrors((prev) => ({ ...prev, file: undefined, layout: undefined, name: undefined }));
   };
 
   const upload = async (e) => {
@@ -208,7 +234,7 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onCreated, on
     const found = {};
     if (name.trim().length < 3) found.name = 'Name the agreement.';
     if (source === 'saved') {
-      if (!picked) found.file = 'Save a PDF here first, or upload a new one.';
+      if (!picked) found.file = 'No saved PDF yet. Upload a new one, or ask the admin to add one.';
     } else {
       if (!layout) found.layout = 'Choose which agreement this is.';
       if (!file) found.file = 'Choose the PDF.';
@@ -223,7 +249,8 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onCreated, on
         const { data, message } = await agreementApi.create(picked.id, name.trim());
         toast(message || 'Agreement created.');
         setUploaded({ agreementId: data.id, name: data.title });
-        setName('');
+        // Back to the default heading for the next one.
+        setName(picked.name);
         // It is an agreement already, so it shows in the list straight away.
         onCreated?.(data.id);
       } catch (err) {
@@ -251,42 +278,6 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onCreated, on
     } catch (err) {
       if (err.errors) setErrors(err.errors);
       alertError(err.message || 'Could not upload the agreement.', 'Upload failed');
-    } finally {
-      setBusy('');
-    }
-  };
-
-  /** Keeps a PDF uploaded, to start agreements from without uploading it again. */
-  const keep = async () => {
-    const found = {};
-    if (!layout) found.layout = 'Choose which agreement this is.';
-    if (!keepFile) found.file = 'Choose the PDF to save.';
-    else if (!/\.pdf$/i.test(keepFile.name)) found.file = 'Save the agreement as a PDF.';
-    setErrors((prev) => ({
-      ...prev,
-      file: undefined,
-      layout: undefined,
-      ...found,
-    }));
-    if (Object.keys(found).length) return;
-
-    const base = keepFile.name.replace(/\.pdf$/i, '').trim();
-    setBusy('keep');
-    try {
-      const { data, message } = await agreementApi.uploadTemplate({
-        name: base.length >= 3 ? base.slice(0, 150) : 'Saved agreement',
-        layout,
-        file: keepFile,
-        saved: true,
-      });
-      toast(message || 'PDF saved.');
-      setKeepFile(null);
-      if (keepRef.current) keepRef.current.value = '';
-      setSavedId(String(data.id));
-      onSavedPdfsChanged?.();
-    } catch (err) {
-      if (err.errors) setErrors((prev) => ({ ...prev, ...err.errors }));
-      alertError(err.message || 'Could not save the PDF.', 'Not saved');
     } finally {
       setBusy('');
     }
@@ -359,6 +350,11 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onCreated, on
             value={name}
             onChange={(e) => setName(e.target.value)}
             error={errors.name}
+            hint={
+              !errors.name && picked
+                ? "The agreement's heading, from the admin's PDF. Change it only if you need to."
+                : undefined
+            }
           />
 
           {/* With one agreement on offer it is picked already; nothing to show. */}
@@ -424,51 +420,32 @@ function UploadCard({ layouts, savedPdfs = [], onSavedPdfsChanged, onCreated, on
             </div>
 
             {source === 'saved' ? (
-              <div className="space-y-3">
-                {savedPdfs.length > 0 ? (
-                  <div className="flex gap-2">
-                    <select
-                      id="savedPdf"
-                      aria-label="Saved PDF"
-                      value={savedId}
-                      onChange={(e) => setSavedId(e.target.value)}
-                      className="field-input"
-                    >
-                      {savedPdfs.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
+              savedPdfs.length > 0 ? (
+                <div className="flex gap-2">
+                  <select
+                    id="savedPdf"
+                    aria-label="Saved PDF"
+                    value={savedId}
+                    onChange={(e) => setSavedId(e.target.value)}
+                    className="field-input"
+                  >
+                    {savedPdfs.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                        {t.fromAdmin ? '' : ' (yours)'}
+                      </option>
+                    ))}
+                  </select>
+                  {/* The admin's PDFs are shared by every company; only its own can go. */}
+                  {picked && !picked.fromAdmin && (
                     <Button type="button" variant="secondary" icon={IconTrash} onClick={forget} disabled={!!busy}>
                       Remove
                     </Button>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">No saved PDF yet. Save the agreement you use every time here.</p>
-                )}
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    ref={keepRef}
-                    id="keepFile"
-                    type="file"
-                    aria-label="PDF to save"
-                    accept=".pdf,application/pdf"
-                    onChange={(e) => setKeepFile(e.target.files?.[0] || null)}
-                    className="block min-w-0 flex-1 text-sm text-gray-700 file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-700 hover:file:bg-primary-100"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={keep}
-                    loading={busy === 'keep'}
-                    disabled={!!busy || !keepFile}
-                  >
-                    Save PDF
-                  </Button>
+                  )}
                 </div>
-              </div>
+              ) : (
+                <p className="text-sm text-gray-500">No saved PDF yet. The admin adds the agreement PDFs here.</p>
+              )
             ) : (
               <input
                 ref={inputRef}
@@ -714,7 +691,15 @@ function CompanyAgreementList({ agreements, empty, onRemove, onEdit, onSend }) {
 export default function Agreements() {
   const { admin } = useAuth();
 
-  if (isGlobalRole(admin?.roleSlug)) return <ForeignCompanyInbox />;
+  if (isGlobalRole(admin?.roleSlug)) {
+    return (
+      <div className="space-y-6">
+        {/* The PDFs every foreign company starts its agreement from. */}
+        {['main_admin', 'coordinator'].includes(admin?.roleSlug) && <AdminAgreementPdfs />}
+        <ForeignCompanyInbox />
+      </div>
+    );
+  }
   return admin?.agency?.type === 'foreign' ? <CompanyAgreements /> : <LocalAgencyAgreements />;
 }
 

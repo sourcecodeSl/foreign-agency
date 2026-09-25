@@ -37,6 +37,10 @@ class AgreementTemplate extends Model
             'originalName' => $this->original_name,
             'sizeBytes' => (int) $this->size_bytes,
             'saved' => (bool) $this->saved,
+            // Uploaded by the admin side for every foreign company to use.
+            'fromAdmin' => $this->agency_id === null,
+            // Where the name is written over the printed heading on every page.
+            'heading' => AgreementLayout::heading((string) $this->layout),
             'agreements' => $this->agreements_count ?? null,
             'uploadedAt' => $this->created_at,
         ];

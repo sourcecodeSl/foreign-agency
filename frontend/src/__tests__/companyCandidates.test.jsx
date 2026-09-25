@@ -47,8 +47,8 @@ const CANDIDATE = {
     company: { id: 'AG-9100', name: 'Herzl' },
     state: 'open',
     jobRoles: [
-      { id: 1, name: 'Tiler' },
-      { id: 2, name: 'Mason' },
+      { id: 1, name: 'Tiler', testIndexNo: 'TL00001' },
+      { id: 2, name: 'Mason', testIndexNo: 'MS00004' },
     ],
     results: [],
   },
@@ -76,12 +76,14 @@ describe("a foreign company's own candidates", () => {
     renderPage();
 
     // Its own list: the company is not asked which company to read.
-    await waitFor(() => expect(list).toHaveBeenCalledWith({ companyAgencyId: undefined, agencyId: 'all' }));
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ companyAgencyId: undefined, agencyId: 'all', search: '' }));
     expect(screen.queryByLabelText('Foreign company')).toBeNull();
 
     const row = (await screen.findByText('Kamal Perera')).closest('tr');
     expect(within(row).getByText('Solidrow')).toBeTruthy();
-    expect(within(row).getByText('Tiler, Mason')).toBeTruthy();
+    // Each category with the test index number the result is recorded against.
+    expect(within(row).getByText('TL00001').closest('li').textContent).toBe('TL00001Tiler');
+    expect(within(row).getByText('MS00004').closest('li').textContent).toBe('MS00004Mason');
     expect(within(row).getByText('No result yet')).toBeTruthy();
   });
 
@@ -94,8 +96,6 @@ describe("a foreign company's own candidates", () => {
     const dialog = screen.getByRole('dialog');
     await user.click(within(dialog).getByLabelText(/^passed/i));
     await user.selectOptions(within(dialog).getByLabelText(/^job category/i), '2');
-    // The test sheet's own wording is the company's to write, not the agency's.
-    await user.type(within(dialog).getByLabelText(/test results/i), 'NVQ Level 3 - Pass');
     await user.click(within(dialog).getByRole('button', { name: /save result/i }));
 
     await waitFor(() =>
@@ -103,7 +103,6 @@ describe("a foreign company's own candidates", () => {
         result: 'pass',
         jobRoleId: 2,
         note: undefined,
-        testResults: 'NVQ Level 3 - Pass',
         companyAgencyId: 'AG-9100',
       })
     );
@@ -128,7 +127,6 @@ describe("a foreign company's own candidates", () => {
         result: 'fail',
         jobRoleId: 1,
         note: 'Cutting not accurate',
-        testResults: undefined,
         companyAgencyId: 'AG-9100',
       })
     );
@@ -175,7 +173,7 @@ describe("a foreign company's own candidates", () => {
     await user.selectOptions(screen.getByLabelText('Agency'), 'AG-9001');
 
     await waitFor(() =>
-      expect(list).toHaveBeenLastCalledWith({ companyAgencyId: undefined, agencyId: 'AG-9001' })
+      expect(list).toHaveBeenLastCalledWith({ companyAgencyId: undefined, agencyId: 'AG-9001', search: '' })
     );
   });
 
@@ -189,6 +187,17 @@ describe("a foreign company's own candidates", () => {
     expect(list).not.toHaveBeenCalled();
 
     await user.selectOptions(screen.getByLabelText('Foreign company'), 'AG-9100');
-    await waitFor(() => expect(list).toHaveBeenCalledWith({ companyAgencyId: 'AG-9100', agencyId: 'all' }));
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ companyAgencyId: 'AG-9100', agencyId: 'all', search: '' }));
+  });
+
+  it('searches by test index number or NIC', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Kamal Perera');
+    await user.type(screen.getByLabelText(/search by test index number/i), 'TL00001');
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith({ companyAgencyId: undefined, agencyId: 'all', search: 'TL00001' })
+    );
   });
 });

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { notificationsApi } from '../../lib/api';
+import { alertNewTestLines } from '../../lib/testLineAlert';
 import { IconBell, IconCheck } from '../ui/Icons';
 import { PageLoader } from '../ui/Spinner';
 
@@ -63,6 +64,9 @@ const timeOf = (item) => (item.at ? new Date(item.at).getTime() : 0);
 export default function NotificationBell() {
   const { admin } = useAuth();
   const accountId = admin?.id ?? 'anonymous';
+  // Held in a ref: navigate changes with the page, the polling should not.
+  const navigateRef = useRef(null);
+  navigateRef.current = useNavigate();
 
   const [items, setItems] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -83,14 +87,24 @@ export default function NotificationBell() {
   const load = useCallback(async () => {
     try {
       const { data } = await notificationsApi.list();
-      setItems((Array.isArray(data) ? data : []).filter((item) => !openedRef.current.has(item.id)));
+      const list = (Array.isArray(data) ? data : []).filter((item) => !openedRef.current.has(item.id));
+      setItems(list);
+
+      // A company's new test line also pops up for the agency.
+      alertNewTestLines(list, accountId).then((chosen) => {
+        if (!chosen) return;
+        openedRef.current.add(chosen.id);
+        setItems((prev) => prev.filter((other) => other.id !== chosen.id));
+        notificationsApi.dismiss(chosen.id).catch(() => {});
+        navigateRef.current(chosen.link);
+      });
     } catch {
       // A failed refresh leaves the last list in place rather than putting
       // an error in the top bar.
     } finally {
       setLoaded(true);
     }
-  }, []);
+  }, [accountId]);
 
   useEffect(() => {
     setSeen(readSeen(accountId));

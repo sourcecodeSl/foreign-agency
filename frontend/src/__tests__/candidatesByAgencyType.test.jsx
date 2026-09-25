@@ -78,4 +78,64 @@ describe('candidates by agency', () => {
     await waitFor(() => expect(picker.value).toBe(''));
     expect(await screen.findByText(/no agency selected/i)).toBeTruthy();
   });
+
+  it("lists who local agencies registered for a foreign company, with their numbers", async () => {
+    listCandidates.mockImplementation(async ({ companyAgencyId } = {}) => ({
+      data: companyAgencyId
+        ? [
+            {
+              id: 7,
+              name: 'Nimal Silva',
+              passportNo: 'N1122334',
+              nicNo: '901234567V',
+              agencyId: 'AG-1041',
+              agencyName: 'Skyline Marketing',
+              status: 'draft',
+              policeReport: { status: 'applied' },
+              registration: {
+                id: 3,
+                approval: 'approved',
+                state: 'open',
+                jobRoles: [{ id: 1, name: 'Tiler', testIndexNo: 'TL00001' }],
+                results: [],
+              },
+            },
+            {
+              id: 8,
+              name: 'Sunil Perera',
+              passportNo: 'N5566778',
+              agencyId: 'AG-1041',
+              agencyName: 'Skyline Marketing',
+              status: 'draft',
+              registration: { id: 4, approval: 'pending', state: 'open', jobRoles: [{ id: 2, name: 'Mason' }], results: [] },
+            },
+          ]
+        : [],
+    }));
+    const user = userEvent.setup();
+    renderList();
+
+    await user.selectOptions(screen.getByLabelText(/agency type/i), 'foreign');
+    const picker = screen.getByLabelText('Agency');
+    await waitFor(() => expect(within(picker).getByText(/horizon manpower/i)).toBeTruthy());
+    await user.selectOptions(picker, 'AG-1050');
+
+    // Read as the company's list, not as candidates the company itself registered.
+    await waitFor(() =>
+      expect(listCandidates).toHaveBeenLastCalledWith(
+        expect.objectContaining({ agencyId: 'all', companyAgencyId: 'AG-1050' })
+      )
+    );
+
+    const row = (await screen.findByText('Nimal Silva')).closest('tr');
+    expect(within(row).getByText('Skyline Marketing')).toBeTruthy();
+    expect(within(row).getByText('Tiler · TL00001')).toBeTruthy();
+    expect(within(row).getByText('Applied')).toBeTruthy();
+    // Still waiting for a coordinator, and said so.
+    const waiting = screen.getByText('Sunil Perera').closest('tr');
+    expect(within(waiting).getByText('Waiting for approval')).toBeTruthy();
+    expect(screen.getByText(/registered for Horizon Manpower/)).toBeTruthy();
+    // Nobody is registered under a company.
+    expect(screen.queryByRole('button', { name: /register candidate/i })).toBeNull();
+  });
 });

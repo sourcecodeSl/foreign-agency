@@ -30,11 +30,22 @@ const EMPTY = {
   nicNo: '',
   companyAgencyId: '',
   jobRoleIds: [],
-  testIndexNo: '',
+  // Started here or later on the file; both are the same record.
+  policeStatus: 'not_applied',
+  policeReferenceNo: '',
+  policeIssuedDate: '',
   address: '',
   mobile: '',
   email: '',
 };
+
+/** The police report file, checked the way the server checks documents. */
+function policeFileProblem(file) {
+  if (!file) return '';
+  if (!/\.(pdf|jpe?g|png|webp)$/i.test(file.name)) return 'Choose a PDF, JPG, PNG or WEBP file.';
+  if (file.size > 10 * 1024 * 1024) return 'The file may not be larger than 10 MB.';
+  return '';
+}
 
 /**
  * Field rules, mirroring the server so the same wording appears either way.
@@ -69,15 +80,19 @@ function validate(values, forAgency) {
 
   if (values.jobRoleIds.length === 0) errors.jobRoleIds = 'Choose at least one job category.';
 
-  // Whose test the candidate is registered for; the result is recorded there.
-  if (!values.companyAgencyId) errors.companyAgencyId = 'Choose the foreign company they are tested for.';
-
-  // Optional, but kept to what a test sheet number looks like.
-  if (values.testIndexNo.trim() && !/^[A-Za-z0-9/-]+$/.test(values.testIndexNo.trim()))
-    errors.testIndexNo = 'Letters, numbers, / and - only.';
+  if (values.policeStatus !== 'not_applied' && !values.policeReferenceNo.trim())
+    errors.policeReferenceNo = 'Enter the police report reference number.';
+  if (values.policeStatus === 'received') {
+    if (!values.policeIssuedDate) errors.policeIssuedDate = 'Enter the date the police report was issued.';
+    else if (values.policeIssuedDate > new Date().toISOString().slice(0, 10))
+      errors.policeIssuedDate = 'The police report cannot have been issued in the future.';
+  }
 
   if (!values.address.trim()) errors.address = 'Address is required.';
   else if (values.address.trim().length < 5) errors.address = 'Please enter the full address.';
+
+  // Only the local agency itself gives, and ever sees, how to reach the candidate.
+  if (forAgency) return errors;
 
   if (!values.mobile.trim()) errors.mobile = 'Mobile number is required.';
   else if (!/^[0-9+\s-]{9,20}$/.test(values.mobile.trim()))
@@ -109,18 +124,23 @@ export default function RegisterCandidate() {
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [saving, setSaving] = useState(false);
+  // The police report itself, attached once it is applied for or received.
+  // Kept apart from the details: it is uploaded after the file is made.
+  const [policeFile, setPoliceFile] = useState(null);
+  const [policeFileError, setPoliceFileError] = useState('');
   const [roles, setRoles] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [newRole, setNewRole] = useState(null); // null: the add field is closed
   const [roleBusy, setRoleBusy] = useState(false);
 
-  // The companies whose tests candidates are registered for.
+  // The companies a coordinator or the Main Admin may name; an agency names none.
   useEffect(() => {
+    if (!forAgency) return;
     agencyApi
       .foreignOptions()
       .then(({ data }) => setCompanies(Array.isArray(data) ? data : []))
       .catch((err) => toast(err.message || 'Could not load the foreign companies.', 'error'));
-  }, [toast]);
+  }, [forAgency, toast]);
 
   // The same trades the skill tests are booked against.
   useEffect(() => {
@@ -256,22 +276,58 @@ export default function RegisterCandidate() {
     }));
   };
 
+  // Only the agency attaches documents, so only it is offered the file here.
+  const attachesPolice = !forAgency && values.policeStatus !== 'not_applied';
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const found = validate(values, forAgency);
     setErrors(found);
     setTouched(Object.fromEntries(Object.keys(EMPTY).map((k) => [k, true])));
-    if (Object.keys(found).length > 0) return;
+    const fileProblem = attachesPolice ? policeFileProblem(policeFile) : '';
+    setPoliceFileError(fileProblem);
+    if (Object.keys(found).length > 0 || fileProblem) return;
 
     setSaving(true);
     try {
       // An agency login is filed under its own agency whatever is sent.
       // The type only narrows the agency list; the agency is what is sent.
-      const { agencyId, agencyType: _type, ...details } = values;
+      const {
+        agencyId,
+        agencyType: _type,
+        mobile,
+        email,
+        policeStatus,
+        policeReferenceNo,
+        policeIssuedDate,
+        ...rest
+      } = values;
+      // Only what the chosen police report status needs is sent.
+      const details = {
+        ...rest,
+        policeStatus,
+        ...(policeStatus !== 'not_applied' ? { policeReferenceNo: policeReferenceNo.trim() } : {}),
+        ...(policeStatus === 'received' ? { policeIssuedDate } : {}),
+      };
+      const { companyAgencyId, ...own } = details;
       const { data, message } = await candidateApi.create(
-        forAgency ? { agencyId, ...details } : details,
+        forAgency
+          ? { agencyId, ...details, companyAgencyId: companyAgencyId || undefined }
+          : { ...own, mobile, email },
       );
       toast(message || 'Candidate registered.');
+      if (attachesPolice && policeFile) {
+        try {
+          await candidateApi.upload(data.candidate.id, 'online_police_report', policeFile);
+        } catch (err) {
+          // The candidate is saved either way; the file can be attached on it.
+          alertError(
+            (err.errors?.file || err.message || 'The police report could not be uploaded.') +
+              ' Attach it again from the candidate\'s file.',
+            'Police report not attached',
+          );
+        }
+      }
       // Straight to the file, where the pass is switched and documents follow.
       navigate('/candidates/' + data.candidate.id);
     } catch (err) {
@@ -473,9 +529,13 @@ export default function RegisterCandidate() {
               </p>
             </div>
 
+            {/* The company, and so the test numbers, are the admin side's to
+                give: a coordinator or the Main Admin may name it here, or
+                assign it later. A local agency never chooses one. */}
+            {forAgency && (
             <div className="sm:col-span-2">
               <label htmlFor="companyAgencyId" className="field-label">
-                Foreign company <span className="text-red-500">*</span>
+                Foreign company
               </label>
               <select
                 id="companyAgencyId"
@@ -500,10 +560,12 @@ export default function RegisterCandidate() {
                 <p className="field-error">{errors.companyAgencyId}</p>
               ) : (
                 <p className="mt-1.5 text-xs text-gray-500">
-                  Whose test this candidate sits. The company records the result later, from its own list.
+                  Optional. Chosen here, the test index numbers are issued at once; otherwise assign it
+                  later from Waiting for a Company.
                 </p>
               )}
             </div>
+            )}
 
             <fieldset
               className="sm:col-span-2"
@@ -605,22 +667,90 @@ export default function RegisterCandidate() {
                 </p>
               ) : (
                 <p id="jobRoleIds-note" className="mt-1.5 text-xs text-gray-500">
-                  Tick every trade the candidate can do. Failing a test in one leaves the others
-                  open, on the same file.
+                  Tick every trade the candidate can do. A coordinator or the Main Admin assigns the
+                  foreign company for them, and each gets its own test index number, such as TL00001.
                 </p>
               )}
             </fieldset>
 
-            <Input
-              label="Test index No"
-              name="testIndexNo"
-              placeholder="TI-2026-0148"
-              value={values.testIndexNo}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              error={errors.testIndexNo}
-              hint={!errors.testIndexNo ? 'Optional. The number on the test sheet.' : undefined}
-            />
+            <fieldset className="sm:col-span-2">
+              <legend className="field-label">Police report</legend>
+              <div className="mt-1 grid items-start gap-4 sm:grid-cols-3">
+                <div>
+                  <label htmlFor="policeStatus" className="field-label">
+                    Status
+                  </label>
+                  <select
+                    id="policeStatus"
+                    name="policeStatus"
+                    value={values.policeStatus}
+                    onChange={handleChange}
+                    className="field-input"
+                  >
+                    <option value="not_applied">Not applied</option>
+                    <option value="applied">Applied</option>
+                    <option value="received">Police report received</option>
+                  </select>
+                </div>
+
+                {values.policeStatus !== 'not_applied' && (
+                  <Input
+                    label="Reference No"
+                    name="policeReferenceNo"
+                    required
+                    placeholder="PR/2026/8891"
+                    maxLength={60}
+                    value={values.policeReferenceNo}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    error={errors.policeReferenceNo}
+                  />
+                )}
+
+                {values.policeStatus === 'received' && (
+                  <DateInput
+                    label="Issued date"
+                    name="policeIssuedDate"
+                    required
+                    max={new Date().toISOString().slice(0, 10)}
+                    value={values.policeIssuedDate}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    error={errors.policeIssuedDate}
+                  />
+                )}
+              </div>
+              {attachesPolice && (
+                <div className="mt-4">
+                  <label htmlFor="policeFile" className="field-label">
+                    Police report file
+                  </label>
+                  <input
+                    id="policeFile"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setPoliceFile(file);
+                      setPoliceFileError(policeFileProblem(file));
+                    }}
+                    className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-700 hover:file:bg-primary-100"
+                  />
+                  {policeFileError ? (
+                    <p className="field-error">{policeFileError}</p>
+                  ) : (
+                    <p className="mt-1.5 text-xs text-gray-500">
+                      Optional. PDF, JPG, PNG or WEBP, up to 10 MB. It goes on the file as the Online
+                      Police Report.
+                    </p>
+                  )}
+                </div>
+              )}
+              <p className="mt-1.5 text-xs text-gray-500">
+                Optional here. It shows on the candidate's file, where it can be updated later. A
+                police report is valid for six months from the day it is issued.
+              </p>
+            </fieldset>
 
             <div className="sm:col-span-2">
               <label htmlFor="address" className="field-label">
@@ -640,39 +770,51 @@ export default function RegisterCandidate() {
               {errors.address && <p className="field-error">{errors.address}</p>}
             </div>
 
-            <Input
-              label="Mobile number"
-              name="mobile"
-              type="tel"
-              required
-              placeholder="0771234567"
-              value={values.mobile}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              error={errors.mobile}
-              icon={IconPhone}
-            />
+            {forAgency ? (
+              <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-600 sm:col-span-2">
+                <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                <p>
+                  The mobile number and email are not asked for here. The local agency adds them, and
+                  only that agency sees them.
+                </p>
+              </div>
+            ) : (
+              <>
+                <Input
+                  label="Mobile number"
+                  name="mobile"
+                  type="tel"
+                  required
+                  placeholder="0771234567"
+                  value={values.mobile}
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  error={errors.mobile}
+                  icon={IconPhone}
+                />
 
-            <Input
-              label="Email"
-              name="email"
-              type="email"
-              placeholder="kamal@example.com"
-              value={values.email}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              error={errors.email}
-              icon={IconMail}
-              hint={!errors.email ? 'Optional.' : undefined}
-            />
+                <Input
+                  label="Email"
+                  name="email"
+                  type="email"
+                  placeholder="kamal@example.com"
+                  value={values.email}
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  error={errors.email}
+                  icon={IconMail}
+                  hint={!errors.email ? 'Optional.' : undefined}
+                />
 
-            <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-600 sm:col-span-2">
-              <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
-              <p>
-                None of these details need verifying — a candidate never signs in, so no code is
-                sent to the mobile or the email.
-              </p>
-            </div>
+                <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-600 sm:col-span-2">
+                  <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                  <p>
+                    None of these details need verifying — a candidate never signs in, so no code is
+                    sent to the mobile or the email.
+                  </p>
+                </div>
+              </>
+            )}
           </CardBody>
 
           <CardFooter className="flex items-center justify-end gap-3 px-6 sm:px-8">

@@ -159,7 +159,32 @@ class CoordinatorAccessTest extends TestCase
         ])->assertStatus(403);
         $this->patchJson('/api/v1/candidates/'.$id.'/pass', ['passed' => true])->assertStatus(403);
 
+        // The police report, though, a coordinator keeps as well.
+        $this->patchJson('/api/v1/candidates/'.$id.'/police-report', [
+            'status' => 'applied',
+            'referenceNo' => 'PR/2026/0042',
+        ])->assertOk()->assertJsonPath('data.policeReport.status', 'applied');
+
         $this->patchJson('/api/v1/agencies/AG-9001/status', ['status' => 'active'])->assertStatus(403);
+    }
+
+    public function test_a_coordinator_without_the_candidates_page_cannot_touch_the_police_report(): void
+    {
+        $candidate = Candidate::create([
+            'agency_id' => 'AG-9001',
+            'name' => 'Kamal Perera',
+            'passport_no' => 'N7788990',
+            'address' => '12 Temple Road, Negombo',
+            'mobile' => '0771234567',
+            'status' => 'draft',
+        ]);
+
+        $this->as($this->tokenFor($this->addCoordinator(['dashboard'])['id']));
+
+        $this->patchJson('/api/v1/candidates/'.$candidate->id.'/police-report', [
+            'status' => 'applied',
+            'referenceNo' => 'PR/2026/0042',
+        ])->assertStatus(403);
     }
 
     public function test_a_page_taken_away_closes_on_the_session_already_held(): void

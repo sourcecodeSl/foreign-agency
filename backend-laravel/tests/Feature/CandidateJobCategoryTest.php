@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Support\Jwt;
 use App\Support\Nic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -289,5 +291,58 @@ class CandidateJobCategoryTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.candidate.jobRole', null)
             ->assertJsonPath('data.candidate.testIndexNo', null);
+    }
+
+    public function test_the_police_report_can_be_given_when_registering(): void
+    {
+        $id = $this->register([
+            'policeStatus' => 'received',
+            'policeReferenceNo' => 'PR/2026/8891',
+            'policeIssuedDate' => now()->subMonth()->toDateString(),
+        ])->assertCreated()
+            ->assertJsonPath('data.candidate.policeReport.status', 'received')
+            ->assertJsonPath('data.candidate.policeReport.referenceNo', 'PR/2026/8891')
+            ->json('data.candidate.id');
+
+        // The same details the file shows and keeps up to date.
+        $this->getJson('/api/v1/candidates/'.$id)
+            ->assertJsonPath('data.policeReport.status', 'received')
+            ->assertJsonPath('data.policeReport.issuedDate', now()->subMonth()->toDateString());
+
+        // Applied needs its reference number, as on the file.
+        $this->register(['policeStatus' => 'applied'], 'N1122334')
+            ->assertStatus(422)
+            ->assertJsonPath('errors.policeReferenceNo', 'Enter the police report reference number.');
+
+        // Left out, the file starts as not applied.
+        $this->register([], 'N5566778')->assertCreated()
+            ->assertJsonPath('data.candidate.policeReport.status', 'not_applied');
+    }
+
+    public function test_the_police_report_file_goes_on_before_the_pass(): void
+    {
+        Storage::fake('local');
+        $pdf = fn () => UploadedFile::fake()->create('police.pdf', 40, 'application/pdf');
+
+        // Not applied for: nothing to attach yet.
+        $plain = $this->register([], 'N1122334')->assertCreated()->json('data.candidate');
+        $this->assertFalse($plain['policeDocumentOpen']);
+        $this->postJson('/api/v1/candidates/'.$plain['id'].'/documents', ['type' => 'online_police_report', 'file' => $pdf()])
+            ->assertStatus(409);
+
+        // Applied for on the registration form: the police report file goes on straight away.
+        $id = $this->register(['policeStatus' => 'applied', 'policeReferenceNo' => 'PR/2026/8891'])
+            ->assertCreated()
+            ->assertJsonPath('data.candidate.policeDocumentOpen', true)
+            ->assertJsonPath('data.candidate.documentsOpen', false)
+            ->json('data.candidate.id');
+
+        $this->postJson('/api/v1/candidates/'.$id.'/documents', ['type' => 'online_police_report', 'file' => $pdf()])
+            ->assertCreated()
+            ->assertJsonPath('data.document.type', 'online_police_report');
+
+        // Every other document still waits for the pass.
+        $this->postJson('/api/v1/candidates/'.$id.'/documents', ['type' => 'medical', 'file' => $pdf()])
+            ->assertStatus(409);
     }
 }

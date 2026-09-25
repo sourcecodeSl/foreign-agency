@@ -15,6 +15,8 @@ const PAGE_META = [
   { match: /^\/agencies\/create/, title: 'Create Agency', subtitle: 'Register a local or foreign company and issue its login' },
   { match: /^\/agencies/, title: 'Agency Management', subtitle: 'Review pending, active and deactivated agencies' },
   { match: /^\/candidates\/all/, title: 'Candidate List', subtitle: 'Every candidate across all agencies, and where each one stands' },
+  { match: /^\/candidates\/pending/, title: 'Waiting for a Company', subtitle: 'Candidates from local agencies to assign to a foreign company' },
+  { match: /^\/candidates\/history/, title: 'Candidate History', subtitle: 'Every company, test and result for one candidate, as a report' },
   { match: /^\/candidates\/register/, title: 'Register Candidate', subtitle: 'Capture the candidate details; documents follow once they pass' },
   { match: /^\/candidates\/\d+/, title: 'Candidate File', subtitle: 'Details and attached documents' },
   // Wording that holds for both readers: an agency sees its own, the admin
@@ -26,6 +28,7 @@ const PAGE_META = [
   { match: /^\/users/, title: 'Users List', subtitle: 'Manage every user account in the system' },
   { match: /^\/verification\/emails/, title: 'Email Verification', subtitle: 'Track and manage email confirmations' },
   { match: /^\/settings\/appearance/, title: 'Appearance', subtitle: 'Theme, colours and text size for your own login' },
+  { match: /^\/messages/, title: 'Messages', subtitle: 'Chat with the admin, the companies and the agencies' },
   { match: /^\/no-access/, title: 'No Access Yet', subtitle: 'Waiting for the Main Admin to open pages to you' },
 ];
 
@@ -37,6 +40,10 @@ export default function DashboardLayout() {
   // A foreign company reads its own details as a company's.
   if (meta.match?.test('/agency/profile') && admin?.agency?.type === 'foreign') {
     meta = { title: 'Company Details', subtitle: 'Your company details and the phone and email used to sign in' };
+  }
+  // An agency or company talks to the admin alone.
+  if (meta.match?.test('/messages') && admin?.agency) {
+    meta = { title: 'Messages', subtitle: 'Your conversation with the admin' };
   }
 
   return (

@@ -7,12 +7,14 @@ use App\Http\Controllers\AgencyProfileController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CandidateController;
 use App\Http\Controllers\CandidateDocumentController;
+use App\Http\Controllers\CandidateTestLineController;
 use App\Http\Controllers\CoordinatorController;
 use App\Http\Controllers\CountryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployerAgreementController;
 use App\Http\Controllers\ForeignCompanyController;
 use App\Http\Controllers\JobRoleController;
+use App\Http\Controllers\MessageController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\RoleController;
@@ -109,6 +111,10 @@ Route::prefix('agency-profile')->middleware('auth.jwt')->group(function () {
     Route::post('/contact/verify', [AgencyProfileController::class, 'verifyContactChange'])->middleware('throttle:12,15,contact-verify');
 });
 
+// Candidates the agencies registered that wait for a company to be assigned.
+Route::get('/candidate-assignments/waiting', [CandidateController::class, 'waitingForCompany'])
+    ->middleware(['auth.jwt', 'can.page:candidates']);
+
 // --- Candidates (registered by an agency; no OTP anywhere in this flow) -----
 Route::prefix('candidates')->middleware('auth.jwt')->group(function () {
     // The eight required documents, so the UI never hard-codes the list.
@@ -128,11 +134,24 @@ Route::prefix('candidates')->middleware('auth.jwt')->group(function () {
     Route::patch('/{id}/other-registrations/{otherId}', [CandidateController::class, 'blockRegistration']);
     // The foreign companies one candidate is put up with, each for its own
     // job categories. Added by the owning agency until the candidate passes.
-    Route::post('/{id}/registrations', [CandidateController::class, 'addRegistration'])->middleware('can.perm:candidates,edit');
-    Route::put('/{id}/registrations/{registrationId}', [CandidateController::class, 'updateRegistration'])->middleware('can.perm:candidates,edit');
-    Route::delete('/{id}/registrations/{registrationId}', [CandidateController::class, 'removeRegistration'])->middleware('can.perm:candidates,edit');
+    // The company and its job categories are the admin side's to set: a
+    // coordinator the candidates page is opened to, or the Main Admin
+    // (checked in the controller).
+    Route::post('/{id}/registrations', [CandidateController::class, 'addRegistration'])->middleware('can.page:candidates');
+    Route::put('/{id}/registrations/{registrationId}', [CandidateController::class, 'updateRegistration'])->middleware('can.page:candidates');
+    Route::delete('/{id}/registrations/{registrationId}', [CandidateController::class, 'removeRegistration'])->middleware('can.page:candidates');
+    // Everything the candidate went through, company by company, for the report.
+    Route::get('/{id}/history', [CandidateController::class, 'history'])->middleware('can.perm:candidates,view');
+    // The test document: the testing company adds lines, everyone else with
+    // the file reads them. Who may do which is checked in the controller.
+    Route::get('/{id}/test-lines', [CandidateTestLineController::class, 'index'])->middleware('can.perm:candidates,view');
+    Route::post('/{id}/test-lines', [CandidateTestLineController::class, 'store'])->middleware('throttle:60,1,test-lines');
+    // A coordinator or the Main Admin lets an agency's registration through
+    // to the company's test, or sends it back.
+    Route::patch('/{id}/registrations/{registrationId}/approval', [CandidateController::class, 'decideRegistration'])->middleware('can.page:candidates');
     // Applied / received, with the reference number and the date issued.
-    Route::patch('/{id}/police-report', [CandidateController::class, 'policeReport'])->middleware('can.perm:candidates,edit');
+    // Kept by the agency, a coordinator or the Main Admin: checked in the controller.
+    Route::patch('/{id}/police-report', [CandidateController::class, 'policeReport'])->middleware('can.perm:candidates,view');
     // Submitting the profile is a coordinator's call (or the Main Admin's),
     // checked in the controller; an agency never submits.
     Route::patch('/{id}/status', [CandidateController::class, 'updateStatus'])->middleware('can.page:candidates');
@@ -231,6 +250,7 @@ Route::middleware(['auth.jwt', 'can.page:agreements'])->group(function () {
     Route::get('/agreement-templates', [AgreementController::class, 'templates']);
     Route::post('/agreement-templates', [AgreementController::class, 'uploadTemplate']);
     Route::get('/agreement-templates/{id}/file', [AgreementController::class, 'templateFile']);
+    Route::patch('/agreement-templates/{id}', [AgreementController::class, 'renameTemplate']);
     Route::delete('/agreement-templates/{id}', [AgreementController::class, 'deleteTemplate']);
 
     // Before /agreements/{id}, so "translate" is never read as an id.
@@ -294,3 +314,21 @@ Route::prefix('dashboard')->middleware(['auth.jwt', 'can.page:dashboard'])->grou
 Route::get('/notifications', [NotificationController::class, 'index'])->middleware('auth.jwt');
 // Opening one takes it off the bell for this login, on every device.
 Route::post('/notifications/{id}/dismiss', [NotificationController::class, 'dismiss'])->middleware('auth.jwt');
+
+// --- Messages ---------------------------------------------------------------
+// A chat between the admin side and each agency or foreign company. The Main
+// Admin and coordinators the page is opened to talk to any of them; an agency
+// login reads and writes its own conversation only (checked in the controller).
+// The auditor has no conversations.
+Route::prefix('messages')->middleware(['auth.jwt', 'can.page:messages'])->group(function () {
+    // Before /{agencyId}, so neither is read as an agency id.
+    Route::get('/conversations', [MessageController::class, 'conversations']);
+    Route::get('/unread', [MessageController::class, 'unread']);
+    Route::get('/{agencyId}', [MessageController::class, 'show']);
+    Route::post('/{agencyId}', [MessageController::class, 'store'])->middleware('throttle:60,1,messages-send');
+    Route::post('/{agencyId}/typing', [MessageController::class, 'typing']);
+    Route::patch('/{agencyId}/{messageId}', [MessageController::class, 'update'])->whereNumber('messageId');
+    Route::delete('/{agencyId}/{messageId}', [MessageController::class, 'destroy'])->whereNumber('messageId');
+    Route::post('/{agencyId}/{messageId}/forward', [MessageController::class, 'forward'])->whereNumber('messageId');
+    Route::get('/{agencyId}/{messageId}/file', [MessageController::class, 'file'])->whereNumber('messageId');
+});
