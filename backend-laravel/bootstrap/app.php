@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
@@ -92,6 +93,26 @@ return Application::configure(basePath: dirname(__DIR__))
             $status = 500;
             if (method_exists($e, 'getStatusCode')) {
                 $status = $e->getStatusCode();
+            }
+
+            // New code on a database that has not had its update yet: say so,
+            // and which table or column is missing, instead of a bare 500.
+            // MySQL: "Table 'db.x' doesn't exist" (42S02), "Unknown column 'x'"
+            // (42S22); SQLite: "no such table: x", "no such column: x".
+            if ($e instanceof QueryException && preg_match(
+                "/Table '([^']+)' doesn't exist|Unknown column '([^']+)'|no such (table|column): (\S+)/",
+                $e->getMessage(),
+                $m
+            )) {
+                report($e);
+                $what = ! empty($m[1]) || ($m[3] ?? '') === 'table' ? 'table' : 'column';
+                $name = $m[1] ?: ($m[2] ?? '') ?: ($m[4] ?? '');
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The database is not up to date (missing '.$what.' '.$name.'). '
+                        .'Open /api/v1/system/update and run the waiting updates.',
+                ], 500);
             }
 
             if ($status >= 500) {
