@@ -286,8 +286,11 @@ class CandidateController extends Controller
         $candidate->addJobRoles($roleIds);
 
         // The company chosen on the form is the first one they are put up with.
+        // A new file has sat no pre-test yet, so the registration waits for
+        // the pre-test pass and the admin side's approval.
         if ($candidate->company_agency_id) {
-            $candidate->registerWith($candidate->company_agency_id, $roleIds, $auth['sub'] ?? null, $this->isReviewer($request));
+            $eligible = array_diff(array_map('intval', $roleIds), $candidate->preTestPassedRoleIds()) === [];
+            $candidate->registerWith($candidate->company_agency_id, $roleIds, $auth['sub'] ?? null, $this->isReviewer($request) && $eligible);
         }
 
         return ApiResponse::created([
@@ -804,6 +807,16 @@ class CandidateController extends Controller
         }
 
         $data = $this->registrationData($request, false);
+
+        // A category added to an approved assignment goes straight to the
+        // final test, so it needs its pre-test passed.
+        if ($registration->isApproved()) {
+            $candidate->requirePreTestPass(array_diff(
+                array_map('intval', $data['jobRoleIds']),
+                $registration->jobRoles()->pluck('job_roles.id')->map(fn ($id) => (int) $id)->all()
+            ));
+        }
+
         // Corrected after a rejection, it goes back for approval.
         $registration->resubmit();
         $this->replaceRegistrationRoles($candidate, $registration, $data['jobRoleIds']);
@@ -886,7 +899,7 @@ class CandidateController extends Controller
             ->where('pool_status', '!=', 'passed')
             ->whereNull('registration_blocked_at')
             ->whereDoesntHave('registrations', fn ($q) => $q->current()->approved())
-            ->with(['creator', 'jobRoles', 'registrations' => fn ($q) => $q->current()->with(['company', 'jobRoles'])])
+            ->with(['creator', 'jobRoles', 'preTests', 'registrations' => fn ($q) => $q->current()->with(['company', 'jobRoles'])])
             ->orderBy('id')
             ->get()
             ->reject(fn (Candidate $candidate) => $candidate->isBlocked())
@@ -920,6 +933,8 @@ class CandidateController extends Controller
                     ],
                     // What the agency said the candidate can do.
                     'jobRoles' => $candidate->jobRoles->map(fn (JobRole $role) => ['id' => $role->id, 'name' => $role->name])->values()->all(),
+                    // A company's final test needs the agency's pre-test passed.
+                    'preTests' => $candidate->preTestSummary(),
                 ],
                 'agencyId' => $candidate->agency_id,
                 'agencyName' => $agencies[$candidate->agency_id] ?? $candidate->agency_id,
@@ -970,6 +985,8 @@ class CandidateController extends Controller
         $company = $registration->company?->name ?? 'the company';
 
         if ($data['decision'] === 'approve') {
+            // Approving opens the final test: each category needs its pre-test passed.
+            $candidate->requirePreTestPass($registration->jobRoles()->pluck('job_roles.id')->all());
             $registration->approve($by);
             $message = 'The registration of '.$candidate->name.' with '.$company.' is approved. The test index numbers are ready.';
         } else {

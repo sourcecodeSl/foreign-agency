@@ -6,7 +6,7 @@ import Badge from '../../components/ui/Badge';
 import { useToast } from '../../components/ui/Toast';
 import { IconCheck } from '../../components/ui/Icons';
 import { candidateApi } from '../../lib/api';
-import { SourceTag, formatDate } from './shared';
+import { PRE_TEST_STATUS, SourceTag, formatDate } from './shared';
 import { AssignModal } from './CategoryResults';
 
 const POLICE = {
@@ -158,6 +158,20 @@ export default function PendingRegistrations() {
                     {c.dateOfBirth ? formatDate(c.dateOfBirth) + (c.age != null ? ' · ' + c.age + ' years' : '') : '—'}
                   </Detail>
                   <Detail label="Job categories">{(c.jobRoles || []).map((role) => role.name).join(', ') || '—'}</Detail>
+                  {/* Only a pre-test pass lets a category go to a company's final test. */}
+                  <Detail label="Pre-tests">
+                    {(c.preTests || []).length === 0 ? (
+                      '—'
+                    ) : (
+                      <span className="flex flex-wrap gap-1.5">
+                        {c.preTests.map((t) => (
+                          <Badge key={t.jobRoleId} tone={PRE_TEST_STATUS[t.status]?.tone || 'gray'} dot>
+                            {t.jobRole}: {t.status === 'pass' ? 'passed' : t.status === 'none' ? 'not tested' : t.status === 'pending' ? 'waiting' : 'failed'}
+                          </Badge>
+                        ))}
+                      </span>
+                    )}
+                  </Detail>
                   <Detail label="Police report">
                     <Badge tone={police.tone} dot>
                       {police.label}

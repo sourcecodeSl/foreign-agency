@@ -198,6 +198,8 @@ class SkillTestFlowTest extends TestCase
 
         // Nobody reaches the company until a coordinator or the Main Admin assigns it.
         $this->as($companyToken)->getJson('/api/v1/candidates')->assertOk()->assertJsonCount(0, 'data');
+        // The agency's own pre-test comes first.
+        $this->passPreTests($registered['id']);
         $this->as($this->coordinator)->postJson('/api/v1/candidates/'.$registered['id'].'/registrations', [
             'companyAgencyId' => 'AG-9100',
             'jobRoleIds' => [$this->roleId('Tiler'), $this->roleId('Mason')],

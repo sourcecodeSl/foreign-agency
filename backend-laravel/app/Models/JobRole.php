@@ -101,6 +101,19 @@ class JobRole extends Model
         return self::formatIndex($this->code, AppCounter::next(self::counterName($this->id)));
     }
 
+    /**
+     * The next unused pre-test index number in this trade: PRE-TL00001 ...
+     * Counted apart from the company's final test numbers.
+     */
+    public function nextPreTestIndex(): string
+    {
+        if (! $this->code) {
+            $this->update(['code' => self::makeCode($this->name)]);
+        }
+
+        return 'PRE-'.self::formatIndex($this->code, AppCounter::next('pre_test_'.$this->id));
+    }
+
     public function toPublic(): array
     {
         return [

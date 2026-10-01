@@ -51,6 +51,7 @@ class CandidateTestDocumentTest extends TestCase
             'jobRoleIds' => [$role],
         ])->assertCreated()->json('data.candidate.id');
 
+        $this->passPreTests($this->candidate, [$role]);
         $this->as($this->admin)->postJson('/api/v1/candidates/'.$this->candidate.'/registrations', [
             'companyAgencyId' => 'AG-9100',
             'jobRoleIds' => [$role],

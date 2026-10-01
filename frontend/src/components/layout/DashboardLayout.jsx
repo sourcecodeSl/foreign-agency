@@ -28,6 +28,7 @@ const PAGE_META = [
   { match: /^\/users/, title: 'Users List', subtitle: 'Manage every user account in the system' },
   { match: /^\/verification\/emails/, title: 'Email Verification', subtitle: 'Track and manage email confirmations' },
   { match: /^\/settings\/appearance/, title: 'Appearance', subtitle: 'Theme, colours and text size for your own login' },
+  { match: /^\/pre-tests/, title: 'Pre-tests', subtitle: "The agency's own test before a company's final test" },
   { match: /^\/messages/, title: 'Messages', subtitle: 'Chat with the admin, the companies and the agencies' },
   { match: /^\/no-access/, title: 'No Access Yet', subtitle: 'Waiting for the Main Admin to open pages to you' },
 ];

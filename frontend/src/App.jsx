@@ -27,6 +27,7 @@ import RegisterCandidate from './pages/candidates/RegisterCandidate';
 import CandidateDetail from './pages/candidates/CandidateDetail';
 import PendingRegistrations from './pages/candidates/PendingRegistrations';
 import CandidateHistory from './pages/candidates/CandidateHistory';
+import PreTests from './pages/candidates/PreTests';
 import Appearance from './pages/settings/Appearance';
 import { AppearanceProvider } from './context/AppearanceContext';
 import Agreements from './pages/agreements/Agreements';
@@ -107,6 +108,19 @@ function MessagesGate({ children }) {
   return canMessage(admin) ? children : <Navigate to={homePath} replace />;
 }
 
+/**
+ * Pre-tests: run by a local agency (its own candidates), read by the admin
+ * side with the candidates page. A foreign company has no part in them.
+ */
+function PreTestsGate({ children }) {
+  const { admin, homePath } = useAuth();
+  const allowed = isGlobalRole(admin?.roleSlug)
+    ? canOpen(admin, 'candidates')
+    : Boolean(admin?.agency) && admin.agency.type !== 'foreign';
+
+  return allowed ? children : <Navigate to={homePath} replace />;
+}
+
 /** A foreign company's own login: the employer part of the agreement is theirs to submit. */
 function ForeignCompanyGate({ children }) {
   const { admin, homePath } = useAuth();
@@ -151,6 +165,7 @@ export default function App() {
                 <Route path="/candidates/register" element={<PageGate page="candidates"><RegisterCandidate /></PageGate>} />
                 <Route path="/candidates/pending" element={<ApprovalGate><PendingRegistrations /></ApprovalGate>} />
                 <Route path="/candidates/history" element={<HistoryGate><CandidateHistory /></HistoryGate>} />
+                <Route path="/pre-tests" element={<PreTestsGate><PreTests /></PreTestsGate>} />
                 <Route path="/candidates/:id" element={<PageGate page="candidates"><CandidateDetail /></PageGate>} />
                 <Route path="/users" element={<PageGate page={null}><UsersList /></PageGate>} />
                 <Route path="/users/types" element={<PageGate page={null}><UserTypes /></PageGate>} />

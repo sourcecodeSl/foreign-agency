@@ -2,6 +2,8 @@
 
 namespace Tests;
 
+use App\Models\CandidatePreTest;
+use App\Models\JobRole;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Http;
 
@@ -22,5 +24,22 @@ abstract class TestCase extends BaseTestCase
         ]);
 
         Http::preventStrayRequests();
+    }
+
+    /**
+     * Records the local agency's pre-test as passed in these job categories
+     * (every category when none are named), so a test about the company's
+     * final test can send the candidate to one.
+     */
+    protected function passPreTests(int $candidateId, ?array $roleIds = null): void
+    {
+        foreach ($roleIds ?? JobRole::pluck('id')->all() as $roleId) {
+            CandidatePreTest::create([
+                'candidate_id' => $candidateId,
+                'job_role_id' => $roleId,
+                'result' => CandidatePreTest::PASS,
+                'recorded_at' => now(),
+            ]);
+        }
     }
 }

@@ -52,6 +52,10 @@ const ROW = {
     policeReport: { status: 'applied', referenceNo: 'PR/2026/8891' },
     registeredBy: { source: 'agency', label: 'Agency', name: 'Nadia Perera' },
     jobRoles: [{ id: 1, name: 'Tiler' }],
+    preTests: [
+      { jobRoleId: 1, jobRole: 'Tiler', status: 'pass' },
+      { jobRoleId: 3, jobRole: 'Mason', status: 'pass' },
+    ],
   },
   agencyId: 'AG-9001',
   agencyName: 'Solidrow',

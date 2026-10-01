@@ -1569,3 +1569,51 @@ export const testLineApi = {
     return request('/candidates/' + candidateId + '/test-lines', { method: 'POST', body: { body } });
   },
 };
+
+// --- Pre-tests (local agency) -------------------------------------------------
+/**
+ * The local agency's own pre-test before a company's final test, one job
+ * category at a time. Booking issues the pre-test index number (PRE-TL00001);
+ * only a pass lets the admin side send the candidate to a company in that
+ * category. Live API only.
+ */
+export const preTestApi = {
+  /** Every candidate and category with where its pre-test stands: { rows, counts }. */
+  async list({ status = '', jobRoleId = '', search = '', agencyId = '' } = {}) {
+    requireLiveApi();
+    const query = new URLSearchParams();
+    if (status && status !== 'all') query.set('status', status);
+    if (jobRoleId) query.set('jobRoleId', jobRoleId);
+    if (search) query.set('search', search);
+    if (agencyId) query.set('agencyId', agencyId);
+    const suffix = query.toString() ? '?' + query : '';
+    return request('/pre-tests' + suffix);
+  },
+
+  /** One candidate's attempts, oldest first, and where each category stands. */
+  async history(candidateId) {
+    requireLiveApi();
+    return request('/candidates/' + candidateId + '/pre-tests');
+  },
+
+  /** Books the pre-test (or a retake) in one category; issues its index number. */
+  async book(candidateId, jobRoleId) {
+    requireLiveApi();
+    return request('/candidates/' + candidateId + '/pre-tests', { method: 'POST', body: { jobRoleId } });
+  },
+
+  /** Takes back a pass or fail: the attempt waits for its result again, same number. */
+  async rewind(candidateId, testId) {
+    requireLiveApi();
+    return request('/candidates/' + candidateId + '/pre-tests/' + testId + '/rewind', { method: 'POST' });
+  },
+
+  /** { result: 'pass' | 'fail', note? } on the latest attempt. */
+  async record(candidateId, testId, { result, note = '' }) {
+    requireLiveApi();
+    return request('/candidates/' + candidateId + '/pre-tests/' + testId, {
+      method: 'PATCH',
+      body: { result, note },
+    });
+  },
+};

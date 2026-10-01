@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Agency;
 use App\Models\Candidate;
+use App\Models\CandidatePreTest;
 use App\Models\CandidateRegistration;
 use App\Models\JobRole;
 use App\Models\User;
@@ -98,6 +99,12 @@ class CategoryTestResultTest extends TestCase
     /** The admin side sends the candidate to a company's test. */
     private function assign(int $candidateId, string $company, array $roles, array $extra = [])
     {
+        // The company's final test, which these are about, follows the
+        // agency's pre-test (PreTestTest covers that part).
+        if (! CandidatePreTest::where('candidate_id', $candidateId)->exists()) {
+            $this->passPreTests($candidateId);
+        }
+
         return $this->as($this->admin)->postJson('/api/v1/candidates/'.$candidateId.'/registrations', $extra + [
             'companyAgencyId' => $company,
             'jobRoleIds' => $this->roleIds($roles),
@@ -527,7 +534,8 @@ class CategoryTestResultTest extends TestCase
         $this->assertSame('0779998887', Candidate::find($candidate['id'])->mobile);
 
         // Registering on the agency's behalf, no number is asked for or kept -
-        // and the admin side may name the company there and then.
+        // and the admin side may name the company there and then. A new file
+        // has sat no pre-test, so it waits there with no final test number.
         $this->postJson('/api/v1/candidates', [
             'agencyId' => 'AG-9001',
             'firstName' => 'Sunil',
@@ -539,8 +547,8 @@ class CategoryTestResultTest extends TestCase
             'companyAgencyId' => 'AG-9100',
             'jobRoleIds' => [$this->roleId('Plumber')],
         ])->assertCreated()
-            ->assertJsonPath('data.candidate.registrations.0.approval', 'approved')
-            ->assertJsonPath('data.candidate.registrations.0.jobRoles.0.testIndexNo', 'PL00001');
+            ->assertJsonPath('data.candidate.registrations.0.approval', 'pending')
+            ->assertJsonPath('data.candidate.registrations.0.jobRoles.0.testIndexNo', null);
         $this->assertNull(Candidate::where('passport_no', 'N5566778')->first()->mobile);
 
         // The agency itself still has to give one.

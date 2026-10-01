@@ -245,12 +245,17 @@ export function AssignModal({ candidate, mode = 'assign', registration, initialC
   const setup = ASSIGN_MODES[mode];
   const results = resultsByRole(mode === 'edit' ? registration : null);
   const canDo = new Set((candidate.jobRoles || []).map((role) => role.id));
+  // A company's final test needs the local agency's pre-test passed in that
+  // category. What this company already tests them in stays as it is.
+  const preTests = Object.fromEntries((candidate.preTests || []).map((t) => [t.jobRoleId, t]));
+  const alreadyOn = new Set(mode === 'edit' ? (registration?.jobRoles || []).map((role) => role.id) : []);
+  const eligible = (id) => alreadyOn.has(id) || preTests[id]?.status === 'pass';
 
   const [companies, setCompanies] = useState([]);
   const [roles, setRoles] = useState([]);
   const [companyId, setCompanyId] = useState(initialCompanyId);
-  const [chosen, setChosen] = useState(
-    initialRoleIds || (registration?.jobRoles || []).map((role) => role.id) || []
+  const [chosen, setChosen] = useState(() =>
+    (initialRoleIds || (registration?.jobRoles || []).map((role) => role.id) || []).filter(eligible)
   );
   const [busy, setBusy] = useState(false);
 
@@ -360,24 +365,35 @@ export function AssignModal({ candidate, mode = 'assign', registration, initialC
           <div className="mt-1 grid gap-2 sm:grid-cols-2">
             {roles.map((role) => {
               const locked = Boolean(results[role.id]);
+              const blocked = !locked && !eligible(role.id);
+              const preTest = preTests[role.id];
               return (
                 <label
                   key={role.id}
                   className={
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ' +
-                    (chosen.includes(role.id) ? 'border-primary-300 bg-primary-50/50' : 'border-gray-200')
+                    (chosen.includes(role.id) ? 'border-primary-300 bg-primary-50/50' : 'border-gray-200') +
+                    (blocked ? ' opacity-60' : '')
                   }
                 >
                   <input
                     type="checkbox"
                     checked={chosen.includes(role.id)}
-                    disabled={locked || busy}
+                    disabled={locked || blocked || busy}
                     onChange={() => toggle(role.id)}
                     className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                   />
                   <span className="flex-1 text-gray-900">{role.name}</span>
                   {locked ? (
                     <span className="text-xs text-gray-500">has a result</span>
+                  ) : blocked ? (
+                    <span className="text-xs text-amber-700">
+                      {preTest?.status === 'pending'
+                        ? 'pre-test waiting'
+                        : preTest?.status === 'fail'
+                          ? 'pre-test failed'
+                          : 'no pre-test pass'}
+                    </span>
                   ) : canDo.has(role.id) ? (
                     <span className="text-xs text-emerald-700">from the agency</span>
                   ) : null}
@@ -386,7 +402,8 @@ export function AssignModal({ candidate, mode = 'assign', registration, initialC
             })}
           </div>
           <p className="mt-1.5 text-xs text-gray-500">
-            Marked "from the agency": what the local agency registered the candidate for.
+            Marked "from the agency": what the local agency registered the candidate for. A category can be
+            chosen only once the candidate has passed the agency&apos;s pre-test in it.
           </p>
         </fieldset>
       </div>

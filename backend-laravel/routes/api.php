@@ -17,6 +17,7 @@ use App\Http\Controllers\JobRoleController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\PreTestController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SystemUpdateController;
 use App\Http\Controllers\SkillTestController;
@@ -111,6 +112,10 @@ Route::prefix('agency-profile')->middleware('auth.jwt')->group(function () {
     Route::post('/contact/verify', [AgencyProfileController::class, 'verifyContactChange'])->middleware('throttle:12,15,contact-verify');
 });
 
+// Every candidate and job category with where its pre-test stands; the
+// passed ones are eligible for a company's final test.
+Route::get('/pre-tests', [PreTestController::class, 'index'])->middleware(['auth.jwt', 'can.perm:candidates,view']);
+
 // Candidates the agencies registered that wait for a company to be assigned.
 Route::get('/candidate-assignments/waiting', [CandidateController::class, 'waitingForCompany'])
     ->middleware(['auth.jwt', 'can.page:candidates']);
@@ -145,6 +150,13 @@ Route::prefix('candidates')->middleware('auth.jwt')->group(function () {
     // The test document: the testing company adds lines, everyone else with
     // the file reads them. Who may do which is checked in the controller.
     Route::get('/{id}/test-lines', [CandidateTestLineController::class, 'index'])->middleware('can.perm:candidates,view');
+    // The local agency's pre-test, one job category at a time: booked (its
+    // index number issued), then pass or fail. A pass opens the company's
+    // final test in that category. Who may do which is checked in the controller.
+    Route::get('/{id}/pre-tests', [PreTestController::class, 'history'])->middleware('can.perm:candidates,view');
+    Route::post('/{id}/pre-tests', [PreTestController::class, 'store'])->middleware('can.perm:candidates,edit');
+    Route::patch('/{id}/pre-tests/{testId}', [PreTestController::class, 'record'])->middleware('can.perm:candidates,edit');
+    Route::post('/{id}/pre-tests/{testId}/rewind', [PreTestController::class, 'rewind'])->middleware('can.perm:candidates,edit');
     Route::post('/{id}/test-lines', [CandidateTestLineController::class, 'store'])->middleware('throttle:60,1,test-lines');
     // A coordinator or the Main Admin lets an agency's registration through
     // to the company's test, or sends it back.

@@ -37,6 +37,8 @@ const ADMIN_NAV = [
       { to: '/candidates', label: 'Candidates by Agency', icon: IconUsers, end: true, page: 'candidates' },
       // Registered by agencies, waiting for the company to be assigned.
       { to: '/candidates/pending', label: 'Waiting for a Company', icon: IconShield, page: 'candidates', adminSideOnly: true },
+      // Each local agency's own test before the final one.
+      { to: '/pre-tests', label: 'Pre-tests', icon: IconDocument, page: 'candidates' },
       // Everything one candidate went through, company by company.
       { to: '/candidates/history', label: 'Candidate History', icon: IconDocument, page: 'candidates' },
     ],
@@ -103,6 +105,8 @@ const AGENCY_NAV = [
     items: [
       { to: '/candidates', label: 'Candidates', icon: IconUsers, end: true },
       { to: '/candidates/register', label: 'Register Candidate', icon: IconUsers },
+      // The agency's own test; a pass opens a company's final test.
+      { to: '/pre-tests', label: 'Pre-tests', icon: IconDocument },
     ],
   },
 ];

@@ -621,6 +621,8 @@ describe('the passport warning and the police report', () => {
       agencyId: 'AG-9001',
       poolStatus: 'pool',
       jobRoles: [{ id: 3, name: 'Mason' }],
+      // Passed the agency's pre-test, so the company's final test is open.
+      preTests: [{ jobRoleId: 3, jobRole: 'Mason', status: 'pass' }],
       registrations: [],
     };
     renderDetail();
@@ -664,7 +666,16 @@ describe('the passport warning and the police report', () => {
       jobRoles: [{ id: 1, name: 'Tiler', testIndexNo: 'TL00000' }],
       results: [],
     };
-    candidate = { ...BASE, agencyId: 'AG-9001', poolStatus: 'pool', registrations: [earlier, herzl] };
+    candidate = {
+      ...BASE,
+      agencyId: 'AG-9001',
+      poolStatus: 'pool',
+      preTests: [
+        { jobRoleId: 1, jobRole: 'Tiler', status: 'pass' },
+        { jobRoleId: 3, jobRole: 'Mason', status: 'pass' },
+      ],
+      registrations: [earlier, herzl],
+    };
     renderDetail();
 
     // The company before stays below, as history, with nothing to act on.

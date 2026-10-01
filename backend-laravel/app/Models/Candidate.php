@@ -165,6 +165,74 @@ class Candidate extends Model
         return $this->hasMany(CandidateTestResult::class)->orderBy('id');
     }
 
+    /** Every attempt at the local agency's pre-test, oldest first. */
+    public function preTests(): HasMany
+    {
+        return $this->hasMany(CandidatePreTest::class)->orderBy('id');
+    }
+
+    /**
+     * Where the candidate stands in each trade's pre-test - none, pending,
+     * pass or fail - from the latest attempt, keyed by job role id.
+     *
+     * @return array<int, CandidatePreTest>
+     */
+    public function latestPreTests(): array
+    {
+        return $this->preTests->keyBy('job_role_id')->all();
+    }
+
+    /** The trades they may be sent to a company's final test in. */
+    public function preTestPassedRoleIds(): array
+    {
+        return array_keys(array_filter(
+            $this->latestPreTests(),
+            fn (CandidatePreTest $test) => $test->result === CandidatePreTest::PASS
+        ));
+    }
+
+    /**
+     * Refuses sending the candidate to a company's final test in any trade
+     * they have not passed the agency's pre-test in.
+     *
+     * @param  int[]  $roleIds
+     */
+    public function requirePreTestPass(array $roleIds): void
+    {
+        $this->unsetRelation('preTests');
+        $missing = array_diff(array_map('intval', $roleIds), $this->preTestPassedRoleIds());
+
+        if ($missing === []) {
+            return;
+        }
+
+        $names = JobRole::whereIn('id', $missing)->orderBy('name')->pluck('name')->implode(', ');
+        $message = $this->name.' has not passed the pre-test for '.$names
+            .'. The local agency records a pre-test pass before the final test.';
+
+        throw new \App\Exceptions\ApiException(422, $message, ['jobRoleIds' => $message]);
+    }
+
+    /** Each trade on the file with where its pre-test stands, for the screens. */
+    public function preTestSummary(): array
+    {
+        $latest = $this->latestPreTests();
+        $attempts = $this->preTests->countBy('job_role_id');
+
+        return $this->jobRoles->map(function (JobRole $role) use ($latest, $attempts) {
+            $test = $latest[$role->id] ?? null;
+
+            return [
+                'jobRoleId' => $role->id,
+                'jobRole' => $role->name,
+                'status' => $test?->result ?? 'none',
+                'indexNo' => $test?->index_no,
+                'attempts' => (int) ($attempts[$role->id] ?? 0),
+                'at' => ($test?->recorded_at ?? $test?->created_at)?->toIso8601String(),
+            ];
+        })->values()->all();
+    }
+
     /**
      * Every foreign company this candidate is registered with, each for its
      * own job categories, in the order they were added.
@@ -233,6 +301,11 @@ class Candidate extends Model
     {
         // By a coordinator or the Main Admin it is approved as it is made, and
         // the test numbers come out; anything else waits for their approval.
+        // Approved means the final test, which needs the pre-test passed.
+        if ($approved) {
+            $this->requirePreTestPass($roleIds);
+        }
+
         $registration = $this->registrations()->current()->where('company_agency_id', $companyAgencyId)->latest('id')->first()
             ?? $this->registrations()->create(['company_agency_id' => $companyAgencyId, 'created_by' => $by] + ($approved
                 ? ['approval' => CandidateRegistration::APPROVED, 'decided_at' => now(), 'decided_by' => $by]
@@ -616,6 +689,9 @@ class Candidate extends Model
                 'name' => $role->name,
             ])->values()->all(),
             'testIndexNo' => $this->test_index_no,
+            // The agency's own pre-test in each trade; a pass opens the
+            // company's final test in it.
+            'preTests' => $this->preTestSummary(),
             'status' => $this->status,
             // Where the file came from: the agency itself, or a coordinator
             // (or the Main Admin) filing on the agency's behalf.

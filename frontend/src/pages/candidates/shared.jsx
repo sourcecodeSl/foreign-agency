@@ -165,3 +165,11 @@ export function formatDate(iso) {
   if (Number.isNaN(date.getTime())) return String(iso);
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
+
+/** Where the latest pre-test in a job category stands, as the screens name it. */
+export const PRE_TEST_STATUS = {
+  pass: { label: 'Eligible for final test', tone: 'green' },
+  pending: { label: 'Waiting for result', tone: 'blue' },
+  fail: { label: 'Failed - retake', tone: 'red' },
+  none: { label: 'Not tested', tone: 'gray' },
+};

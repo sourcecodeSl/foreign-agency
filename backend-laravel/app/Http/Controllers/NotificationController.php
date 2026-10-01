@@ -6,6 +6,7 @@ use App\Exceptions\ApiException;
 use App\Models\Agency;
 use App\Models\Candidate;
 use App\Models\CandidateRegistration;
+use App\Models\CandidatePreTest;
 use App\Models\CandidateTestLine;
 use App\Models\CandidateTestResult;
 use App\Models\Message;
@@ -180,6 +181,31 @@ class NotificationController extends Controller
                 'title' => $candidate->name.' is waiting for a company',
                 'body' => 'Registered by a local agency. Assign the foreign company and its job categories.',
                 'at' => $this->iso($candidate->created_at),
+                'link' => '/candidates/pending',
+            ];
+        }
+
+        // Passed the agency's pre-test: ready to be sent to a company's final
+        // test in that category. The ones carried over have no number.
+        $passes = $account?->role_slug !== 'auditor' && (! $limited || in_array('candidates', $pages, true))
+            ? CandidatePreTest::query()
+                ->where('result', CandidatePreTest::PASS)
+                ->whereNotNull('index_no')
+                ->where('recorded_at', '>=', now()->subDays(14))
+                ->whereHas('candidate')
+                ->with(['candidate', 'role'])
+                ->orderByDesc('recorded_at')
+                ->limit(self::LIMIT)
+                ->get()
+            : collect();
+
+        foreach ($passes as $test) {
+            $items[] = [
+                'id' => 'pre-test-pass-'.$test->id,
+                'tone' => 'success',
+                'title' => $test->candidate->name.' passed the pre-test as '.($test->role?->name ?? 'a job category'),
+                'body' => 'Pre-test '.$test->index_no.'. Eligible to be sent to a company\'s final test.',
+                'at' => $this->iso($test->recorded_at),
                 'link' => '/candidates/pending',
             ];
         }
